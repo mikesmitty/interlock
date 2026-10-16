@@ -30,17 +30,33 @@ config directory.
 ## Layout
 
 - `cmd/interlock/` — main: flags, config, wiring, graceful shutdown.
+- `cmd/simnode/` — simulated node that joins the hub port; use it to
+  develop and test without hardware.
 - `openlcb/` — public OpenLCB protocol packages. **Must not import
   `internal/`**; other Go programs should be able to use them.
+  - `openlcb` core types (NodeID, EventID, MTI, Message, SNIP, PIP, errors)
+  - `openlcb/can` identifiers, GridConnect, alias generator and cache,
+    frame assembly; pure functions, no goroutines
+  - `openlcb/transport` Link interface, GridConnect over serial and TCP
+    with reconnection, the TCP listener
+  - `openlcb/hub` frame router between links and subscribers
+  - `openlcb/node` the local node: one goroutine owns all protocol state;
+    client operations are serialized onto it and observers run on it
 - `internal/config` — `interlock.yaml` loading and validation.
 - `internal/store` — sqlite (modernc, no cgo). Schema changes are new files
   in `internal/store/migrations/NNNN_name.sql`; never edit a released one.
 - `internal/identity` — resolves Interlock's own node ID (config, else the
   saved generated 0A-prefix ID).
-- `internal/api` — HTTP API under `/api/v1`; JSON errors for 404 and 405.
+- `internal/registry` — nodes seen on the bus, discovery rounds,
+  identification (PIP then SNIP), online tracking.
+- `internal/monitor` — rolling log of frames with decoding for display.
+- `internal/api` — HTTP API under `/api/v1`; JSON errors for 404 and 405;
+  server-sent events at `/api/v1/events`.
 - `internal/server` — HTTP server, SPA handler, request logging.
 - `web/` — React + TypeScript + Vite frontend; `web/embed.go` embeds
   `web/dist` (only `.gitkeep` is committed; an unbuilt UI serves a notice).
+  Visual language is in `docs/design-language.md`; follow it for new pages.
+  Fonts are bundled so the UI works offline.
 
 ## Conventions
 

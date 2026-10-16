@@ -1,64 +1,62 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
+import { NavLink, Navigate, Outlet, Route, Routes } from "react-router";
+import { StatusStrip } from "./components/StatusStrip";
+import { Monitor } from "./pages/Monitor";
+import { NodeDetail } from "./pages/NodeDetail";
+import { Nodes } from "./pages/Nodes";
+import { Settings } from "./pages/Settings";
+import { bus, useBus } from "./store";
 
-interface Health {
-  status: string;
-  version: string;
-  commit?: string;
-  node_id: string;
-  uptime_seconds: number;
+function Shell() {
+  const { health } = useBus();
+  useEffect(() => {
+    bus.start();
+  }, []);
+  return (
+    <div className="shell">
+      <nav className="rail" aria-label="Main">
+        <NavLink className="rail__brand" to="/nodes">
+          Interlock
+        </NavLink>
+        <NavLink className="rail__link" to="/nodes">
+          Nodes
+        </NavLink>
+        <NavLink className="rail__link" to="/monitor">
+          Monitor
+        </NavLink>
+        <NavLink className="rail__link" to="/settings">
+          Settings
+        </NavLink>
+        <div className="rail__foot">{health ? `v${health.version}` : ""}</div>
+      </nav>
+      <div className="main">
+        <StatusStrip />
+        <Outlet />
+      </div>
+    </div>
+  );
 }
 
-type State =
-  | { kind: "loading" }
-  | { kind: "ok"; health: Health }
-  | { kind: "error"; message: string };
+function NotFound() {
+  return (
+    <section className="page">
+      <h1>Nothing here</h1>
+      <p>There is no page at this address. Try the nodes list.</p>
+    </section>
+  );
+}
 
 export default function App() {
-  const [state, setState] = useState<State>({ kind: "loading" });
-
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/v1/health")
-      .then(async (res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return (await res.json()) as Health;
-      })
-      .then((health) => {
-        if (!cancelled) setState({ kind: "ok", health });
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) {
-          setState({ kind: "error", message: err instanceof Error ? err.message : String(err) });
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
   return (
-    <main className="shell">
-      <h1>Interlock</h1>
-      <p className="tagline">LCC layout controller</p>
-      {state.kind === "loading" && <p>Connecting to the server…</p>}
-      {state.kind === "error" && <p className="error">Could not reach the server: {state.message}</p>}
-      {state.kind === "ok" && (
-        <dl className="facts">
-          <dt>Status</dt>
-          <dd>{state.health.status}</dd>
-          <dt>Version</dt>
-          <dd>
-            {state.health.version}
-            {state.health.commit ? ` (${state.health.commit})` : ""}
-          </dd>
-          <dt>Node ID</dt>
-          <dd>
-            <code>{state.health.node_id}</code>
-          </dd>
-          <dt>Uptime</dt>
-          <dd>{Math.round(state.health.uptime_seconds)} s</dd>
-        </dl>
-      )}
-    </main>
+    <Routes>
+      <Route element={<Shell />}>
+        <Route index element={<Navigate to="/nodes" replace />} />
+        <Route path="nodes" element={<Nodes />} />
+        <Route path="nodes/:id" element={<NodeDetail />} />
+        <Route path="monitor" element={<Monitor />} />
+        <Route path="settings" element={<Settings />} />
+        <Route path="*" element={<NotFound />} />
+      </Route>
+    </Routes>
   );
 }

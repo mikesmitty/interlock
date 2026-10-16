@@ -12,16 +12,27 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
+	"sync"
 	"syscall"
 
 	"github.com/mikesmitty/interlock/internal/api"
 	"github.com/mikesmitty/interlock/internal/config"
 	"github.com/mikesmitty/interlock/internal/identity"
+	"github.com/mikesmitty/interlock/internal/monitor"
+	"github.com/mikesmitty/interlock/internal/registry"
 	"github.com/mikesmitty/interlock/internal/server"
 	"github.com/mikesmitty/interlock/internal/store"
 	"github.com/mikesmitty/interlock/internal/version"
+	"github.com/mikesmitty/interlock/openlcb"
+	"github.com/mikesmitty/interlock/openlcb/hub"
+	"github.com/mikesmitty/interlock/openlcb/node"
+	"github.com/mikesmitty/interlock/openlcb/transport"
 	"github.com/mikesmitty/interlock/web"
 )
+
+// monitorCapacity is how many bus entries the monitor keeps.
+const monitorCapacity = 5000
 
 func main() {
 	if err := run(context.Background(), os.Args[1:], os.Stdout, os.Stderr); err != nil {
@@ -88,13 +99,100 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		"version", version.Version, "commit", version.Commit(),
 		"node_id", nodeID, "data", *dataDir, "listen", cfg.Listen)
 
+	// The bus outlives the request context by a moment so the node can
+	// withdraw its alias on the way out.
+	busCtx, stopBus := context.WithCancel(context.Background())
+	defer stopBus()
+	h := hub.New(logger)
+	defer h.Close()
+
+	snip := openlcb.SNIP{
+		Manufacturer:    "Interlock",
+		Model:           "Layout Controller",
+		HardwareVersion: runtime.GOOS + "/" + runtime.GOARCH,
+		SoftwareVersion: version.Version,
+		UserName:        cfg.Node.Name,
+		UserDescription: cfg.Node.Description,
+	}
+	protocols := openlcb.ProtocolSimple | openlcb.ProtocolDatagram |
+		openlcb.ProtocolEventExchange | openlcb.ProtocolSimpleNodeInformation
+	local := node.New(node.Config{ID: nodeID, SNIP: snip, Protocols: protocols, Send: h.Send, Logger: logger})
+	mon := monitor.New(monitorCapacity, local.Cache())
+	h.Subscribe(func(ev hub.Event) {
+		if ev.Direction == hub.In {
+			local.HandleFrame(ev.Frame)
+		}
+		mon.HandleHubEvent(ev)
+	})
+	local.Observe(mon.HandleNodeEvent)
+	reg := registry.New(local, registry.Options{
+		Interval:       cfg.Discovery.Interval,
+		LocalSNIP:      snip,
+		LocalProtocols: protocols,
+		Logger:         logger,
+	})
+
+	for _, lc := range cfg.Links {
+		var dialer transport.Dialer
+		switch lc.Type {
+		case "serial":
+			dialer = transport.SerialDialer{Device: lc.Device, Baud: lc.Baud}
+		case "tcp":
+			dialer = transport.TCPDialer{Address: lc.Address}
+		default:
+			continue
+		}
+		h.AddLink(busCtx, transport.NewGridConnect(lc.Name, dialer, logger))
+	}
+	if cfg.Hub.Listen != "" {
+		listener := &transport.Listener{
+			Address: cfg.Hub.Listen,
+			Logger:  logger,
+			Accept:  func(link transport.Link) { h.AddLink(busCtx, link) },
+		}
+		if err := listener.Listen(); err != nil {
+			logger.Error("hub port unavailable; other tools cannot connect", "error", err)
+		} else {
+			go func() {
+				if err := listener.Run(busCtx); err != nil {
+					logger.Error("hub listener stopped", "error", err)
+				}
+			}()
+		}
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		if err := local.Run(ctx); err != nil {
+			logger.Error("node stopped", "error", err)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		if err := reg.Run(ctx); err != nil {
+			logger.Error("registry stopped", "error", err)
+		}
+	}()
+
 	srv := server.New(server.Options{
 		Listen: cfg.Listen,
 		Logger: logger,
-		API:    api.New(nodeID),
-		UI:     web.Dist(),
+		API: api.New(api.Deps{
+			Node:        local,
+			Registry:    reg,
+			Monitor:     mon,
+			Bus:         h,
+			SerialPorts: transport.SerialPorts,
+			Logger:      logger,
+		}),
+		UI: web.Dist(),
 	})
-	return srv.Run(ctx)
+	err = srv.Run(ctx)
+	stop()
+	wg.Wait() // the node has sent its AMR by now; the hub can close
+	return err
 }
 
 // defaultDataDir is INTERLOCK_DATA, else an "interlock" directory under the

@@ -144,6 +144,12 @@ func (r *statusRecorder) WriteHeader(status int) {
 	r.ResponseWriter.WriteHeader(status)
 }
 
+// Unwrap lets http.ResponseController reach the real writer, so handlers
+// can flush (the event stream needs that) through this wrapper.
+func (r *statusRecorder) Unwrap() http.ResponseWriter {
+	return r.ResponseWriter
+}
+
 // logRequests logs each request at debug level, and at warn for server
 // errors, so normal browsing does not flood the log.
 func logRequests(logger *slog.Logger, next http.Handler) http.Handler {

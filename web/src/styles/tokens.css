@@ -1,0 +1,85 @@
+/* Design tokens. See docs/design-language.md for the reasoning. */
+:root {
+  color-scheme: dark;
+
+  --enamel: #26332e;
+  --enamel-deep: #1b2622;
+  --enamel-raised: #2f3d37;
+  --enamel-line: #3d4b44;
+  --enamel-hover: #35443d;
+
+  --ivory: #efe9d8;
+  --ivory-dim: #b8b3a4;
+  --ivory-faint: #80887f;
+
+  --brass: #d4a64a;
+  --brass-hover: #e4b85e;
+  --brass-ink: #1b2622;
+
+  --lamp-green: #35b873;
+  --lamp-red: #e0493d;
+  --lamp-amber: #e9a23b;
+  --lamp-off: #3a463f;
+  --lamp-rim: rgba(0, 0, 0, 0.45);
+
+  --font-sans: "Barlow", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-condensed: "Barlow Semi Condensed", var(--font-sans);
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  --fs-sm: 0.833rem;
+  --fs-md: 1rem;
+  --fs-lg: 1.2rem;
+  --fs-xl: 1.44rem;
+  --fs-2xl: 1.728rem;
+  --fs-3xl: 2.074rem;
+
+  --rail-w: 6rem;
+  --strip-h: 2.75rem;
+  --gutter: 1.5rem;
+  --radius: 3px;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+    --enamel: #edefea;
+    --enamel-deep: #e0e4dd;
+    --enamel-raised: #f7f8f5;
+    --enamel-line: #cfd5cd;
+    --enamel-hover: #e6e9e3;
+
+    --ivory: #1f2a26;
+    --ivory-dim: #56615b;
+    --ivory-faint: #7f8983;
+
+    --brass: #9b7420;
+    --brass-hover: #7d5c15;
+    --brass-ink: #fdfaf2;
+
+    --lamp-green: #1f9a5c;
+    --lamp-red: #c93b30;
+    --lamp-amber: #c7851b;
+    --lamp-off: #c3cac1;
+    --lamp-rim: rgba(0, 0, 0, 0.18);
+  }
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --enamel: #edefea;
+  --enamel-deep: #e0e4dd;
+  --enamel-raised: #f7f8f5;
+  --enamel-line: #cfd5cd;
+  --enamel-hover: #e6e9e3;
+  --ivory: #1f2a26;
+  --ivory-dim: #56615b;
+  --ivory-faint: #7f8983;
+  --brass: #9b7420;
+  --brass-hover: #7d5c15;
+  --brass-ink: #fdfaf2;
+  --lamp-green: #1f9a5c;
+  --lamp-red: #c93b30;
+  --lamp-amber: #c7851b;
+  --lamp-off: #c3cac1;
+  --lamp-rim: rgba(0, 0, 0, 0.18);
+}

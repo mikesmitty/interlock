@@ -1,0 +1,165 @@
+package api
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"strings"
+	"sync/atomic"
+	"time"
+
+	"github.com/mikesmitty/interlock/internal/monitor"
+	"github.com/mikesmitty/interlock/internal/registry"
+)
+
+// The event stream at /api/v1/events uses server-sent events: one
+// long-lived GET per browser tab, with named events carrying JSON.
+//
+//	ready   {"seq": N}         sent first; N is the monitor's newest sequence
+//	node    registry.Info      a node appeared, changed or went offline
+//	links   {"links": [...]}   link status changed
+//	frame   monitor.Entry      bus traffic (topic "monitor")
+//	lagged  {}                 the client fell behind and entries were skipped
+//
+// The topics query parameter selects a comma separated subset of
+// nodes, links and monitor; the default is all of them.
+
+const (
+	sseQueue     = 1024
+	sseHeartbeat = 15 * time.Second
+	ssePollLinks = 2 * time.Second
+)
+
+type sseEvent struct {
+	name string
+	data any
+}
+
+func (a *API) events(w http.ResponseWriter, r *http.Request) {
+	rc := http.NewResponseController(w)
+	flush := func() bool {
+		return rc.Flush() == nil
+	}
+	topics := map[string]bool{"nodes": true, "links": true, "monitor": true}
+	if s := r.URL.Query().Get("topics"); s != "" {
+		topics = map[string]bool{}
+		for _, t := range strings.Split(s, ",") {
+			topics[strings.TrimSpace(t)] = true
+		}
+	}
+
+	ch := make(chan sseEvent, sseQueue)
+	var lagged atomic.Bool
+	push := func(ev sseEvent) {
+		select {
+		case ch <- ev:
+		default:
+			lagged.Store(true)
+		}
+	}
+	if topics["nodes"] && a.deps.Registry != nil {
+		unsubscribe := a.deps.Registry.Subscribe(func(info registry.Info) { push(sseEvent{"node", info}) })
+		defer unsubscribe()
+	}
+	if topics["monitor"] && a.deps.Monitor != nil {
+		unsubscribe := a.deps.Monitor.Subscribe(func(e monitor.Entry) { push(sseEvent{"frame", e}) })
+		defer unsubscribe()
+	}
+
+	h := w.Header()
+	h.Set("Content-Type", "text/event-stream")
+	h.Set("Cache-Control", "no-cache")
+	h.Set("Connection", "keep-alive")
+	h.Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+
+	var seq uint64
+	if a.deps.Monitor != nil {
+		seq = a.deps.Monitor.LastSeq()
+	}
+	if err := writeSSE(w, "ready", map[string]uint64{"seq": seq}); err != nil {
+		return
+	}
+	if !flush() {
+		writeError(w, http.StatusInternalServerError, "streaming is not supported")
+		return
+	}
+
+	heartbeat := time.NewTicker(sseHeartbeat)
+	defer heartbeat.Stop()
+	var linkTick <-chan time.Time
+	var lastLinks []byte
+	if topics["links"] && a.deps.Bus != nil {
+		ticker := time.NewTicker(ssePollLinks)
+		defer ticker.Stop()
+		linkTick = ticker.C
+		lastLinks, _ = json.Marshal(a.deps.Bus.Links())
+		if err := writeSSE(w, "links", map[string]any{"links": a.deps.Bus.Links()}); err != nil {
+			return
+		}
+		if !flush() {
+			return
+		}
+	}
+
+	ctx := r.Context()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case ev := <-ch:
+			if lagged.Swap(false) {
+				if err := writeSSE(w, "lagged", struct{}{}); err != nil {
+					return
+				}
+			}
+			if err := writeSSE(w, ev.name, ev.data); err != nil {
+				return
+			}
+			// Drain whatever else is ready before flushing.
+			for drained := 0; drained < 64; drained++ {
+				select {
+				case more := <-ch:
+					if err := writeSSE(w, more.name, more.data); err != nil {
+						return
+					}
+					continue
+				default:
+				}
+				break
+			}
+			if !flush() {
+				return
+			}
+		case <-linkTick:
+			links := a.deps.Bus.Links()
+			current, _ := json.Marshal(links)
+			if !bytes.Equal(current, lastLinks) {
+				lastLinks = current
+				if err := writeSSE(w, "links", map[string]any{"links": links}); err != nil {
+					return
+				}
+				if !flush() {
+					return
+				}
+			}
+		case <-heartbeat.C:
+			if _, err := fmt.Fprint(w, ": ping\n\n"); err != nil {
+				return
+			}
+			if !flush() {
+				return
+			}
+		}
+	}
+}
+
+func writeSSE(w http.ResponseWriter, name string, data any) error {
+	body, err := json.Marshal(data)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", name, body)
+	return err
+}

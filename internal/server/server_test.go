@@ -66,6 +66,29 @@ func TestHandler(t *testing.T) {
 	}
 }
 
+// TestStreamingThroughMiddleware makes sure a handler can flush through the
+// logging wrapper, which the event stream relies on.
+func TestStreamingThroughMiddleware(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/stream", func(w http.ResponseWriter, _ *http.Request) {
+		if err := http.NewResponseController(w).Flush(); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		_, _ = io.WriteString(w, "flushed")
+	})
+	srv := New(Options{API: routesFunc(func(m *http.ServeMux) { m.Handle("/api/", mux) }), UI: builtUI, Logger: slog.New(slog.DiscardHandler)})
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/stream", http.NoBody))
+	if rec.Code != http.StatusOK || rec.Body.String() != "flushed" || !rec.Flushed {
+		t.Fatalf("status %d body %q flushed %v", rec.Code, rec.Body, rec.Flushed)
+	}
+}
+
+type routesFunc func(*http.ServeMux)
+
+func (f routesFunc) Register(mux *http.ServeMux) { f(mux) }
+
 func TestNilUI(t *testing.T) {
 	srv := New(Options{UI: nil, Logger: slog.New(slog.DiscardHandler)})
 	rec := httptest.NewRecorder()

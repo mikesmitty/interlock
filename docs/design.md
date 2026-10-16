@@ -286,8 +286,8 @@ case, with its hash check and A/B trial.
 ### Frontend
 
 **Decision:** React with TypeScript, built by Vite, embedded with
-`go:embed`. Talks to the API over REST for configuration and a WebSocket for
-the live entity and event stream. No server side rendering. The build runs
+`go:embed`. Talks to the API over REST for configuration and the server-sent
+event stream for live state. No server side rendering. The build runs
 in CI; the repo also commits nothing from `web/dist` so Go-only
 contributors run `make web` once.
 
@@ -299,10 +299,13 @@ Settings (links, node ID, profiles).
 
 ### API
 
-REST under `/api/v1`, JSON. WebSocket at `/api/v1/stream` carrying entity
-state changes, decoded messages when the monitor is open, automation trace
-updates and node status. The API is the only way the frontend talks to the
-server, so the same API serves scripts and a future CLI.
+REST under `/api/v1`, JSON. A server-sent event stream at `/api/v1/events`
+carries node changes, link status, bus traffic and, later, entity state and
+automation traces; topics are selectable per connection. Server-sent
+events were chosen over WebSocket because the traffic is one way, browsers
+reconnect on their own, and it needs no library on either side. The API is
+the only way the frontend talks to the server, so the same API serves
+scripts and a future CLI.
 
 ### Testing
 
@@ -396,7 +399,18 @@ train reservation protocol, function description information (space 0xFA).
 - Phase 0 done (2026-10-16): module, config, sqlite store with migrations,
   node identity, HTTP server with the API skeleton and embedded React
   frontend, Makefile, lint, CI and release-please.
-- Next: Phase 1, the bus.
+- Phase 1 done (2026-10-16): `openlcb` core types, CAN layer (identifiers,
+  GridConnect, alias generator and cache, message assembly), serial and
+  TCP GridConnect links with reconnection, a GridConnect TCP listener, the
+  hub, the local node (alias allocation and defense, Verify Node ID, PIP,
+  SNIP, datagrams with acknowledgment and retry, client operations), the
+  registry with discovery and identification, the monitor with decoding,
+  the API with a server-sent event stream, and the Nodes, Monitor and
+  Settings pages. `cmd/simnode` simulates a canbus-outpost over the hub
+  port for development without hardware. Verified against the simulator;
+  not yet against real hardware.
+- Next: Phase 2, registry persistence and configuration (memory
+  configuration client, CDI parser, config forms).
 
 ## References
 

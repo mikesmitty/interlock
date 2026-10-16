@@ -3,26 +3,87 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
+	"github.com/mikesmitty/interlock/internal/monitor"
+	"github.com/mikesmitty/interlock/internal/registry"
 	"github.com/mikesmitty/interlock/internal/version"
 	"github.com/mikesmitty/interlock/openlcb"
+	"github.com/mikesmitty/interlock/openlcb/can"
+	"github.com/mikesmitty/interlock/openlcb/node"
+	"github.com/mikesmitty/interlock/openlcb/transport"
 )
+
+// LocalNode is what the API shows about Interlock's own node.
+type LocalNode interface {
+	ID() openlcb.NodeID
+	Alias() openlcb.Alias
+	State() node.State
+}
+
+// Registry is the node table.
+type Registry interface {
+	List() []registry.Info
+	Get(id openlcb.NodeID) (registry.Info, bool)
+	Refresh(ctx context.Context) error
+	RefreshNode(ctx context.Context, id openlcb.NodeID) error
+	Subscribe(registry.Subscriber) func()
+}
+
+// Monitor is the traffic log.
+type Monitor interface {
+	Since(seq uint64, limit int) []monitor.Entry
+	Recent(limit int) []monitor.Entry
+	LastSeq() uint64
+	Subscribe(monitor.Subscriber) func()
+}
+
+// Bus is the hub: link status and raw frame sending.
+type Bus interface {
+	Links() []transport.Status
+	Send(can.Frame)
+}
+
+// Deps are the parts of the server the API exposes.
+type Deps struct {
+	Node     LocalNode
+	Registry Registry
+	Monitor  Monitor
+	Bus      Bus
+	// SerialPorts lists serial devices for the settings page; may be nil.
+	SerialPorts func() ([]string, error)
+	Logger      *slog.Logger
+}
 
 // API holds what the handlers need.
 type API struct {
-	nodeID  openlcb.NodeID
+	deps    Deps
 	started time.Time
 	mux     *http.ServeMux
 }
 
-// New returns an API for a server running as nodeID.
-func New(nodeID openlcb.NodeID) *API {
-	a := &API{nodeID: nodeID, started: time.Now(), mux: http.NewServeMux()}
+// New returns an API over deps.
+func New(deps Deps) *API {
+	if deps.Logger == nil {
+		deps.Logger = slog.Default()
+	}
+	a := &API{deps: deps, started: time.Now(), mux: http.NewServeMux()}
 	a.mux.HandleFunc("GET /api/v1/health", a.health)
+	a.mux.HandleFunc("GET /api/v1/nodes", a.listNodes)
+	a.mux.HandleFunc("POST /api/v1/nodes/refresh", a.refreshNodes)
+	a.mux.HandleFunc("GET /api/v1/nodes/{id}", a.getNode)
+	a.mux.HandleFunc("POST /api/v1/nodes/{id}/refresh", a.refreshNode)
+	a.mux.HandleFunc("GET /api/v1/links", a.links)
+	a.mux.HandleFunc("GET /api/v1/monitor", a.monitorEntries)
+	a.mux.HandleFunc("POST /api/v1/monitor/send", a.monitorSend)
+	a.mux.HandleFunc("GET /api/v1/serial-ports", a.serialPorts)
+	a.mux.HandleFunc("GET /api/v1/events", a.events)
 	return a
 }
 
@@ -35,33 +96,182 @@ func (a *API) Register(mux *http.ServeMux) {
 // and known paths with the wrong method a JSON 405 with an Allow header,
 // instead of the mux's plain text pages.
 func (a *API) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	handler, pattern := a.mux.Handler(r)
-	if pattern == "" {
-		handler = jsonErrors(handler)
+	// Only the mux's own ServeHTTP fills in path values, so route through
+	// it either way; Handler just tells us whether it will match.
+	if _, pattern := a.mux.Handler(r); pattern == "" {
+		jsonErrors(a.mux).ServeHTTP(w, r)
+		return
 	}
-	handler.ServeHTTP(w, r)
+	a.mux.ServeHTTP(w, r)
 }
 
 type healthResponse struct {
-	Status        string         `json:"status"`
-	Version       string         `json:"version"`
-	Commit        string         `json:"commit,omitempty"`
-	NodeID        openlcb.NodeID `json:"node_id"`
-	UptimeSeconds float64        `json:"uptime_seconds"`
+	Status         string         `json:"status"`
+	Version        string         `json:"version"`
+	Commit         string         `json:"commit,omitempty"`
+	NodeID         openlcb.NodeID `json:"node_id"`
+	Alias          uint16         `json:"alias"`
+	NodeState      string         `json:"node_state"`
+	UptimeSeconds  float64        `json:"uptime_seconds"`
+	Nodes          int            `json:"nodes"`
+	LinksTotal     int            `json:"links_total"`
+	LinksConnected int            `json:"links_connected"`
 }
 
 func (a *API) health(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, healthResponse{
+	resp := healthResponse{
 		Status:        "ok",
 		Version:       version.Version,
 		Commit:        version.Commit(),
-		NodeID:        a.nodeID,
 		UptimeSeconds: time.Since(a.started).Seconds(),
-	})
+	}
+	if a.deps.Node != nil {
+		resp.NodeID = a.deps.Node.ID()
+		resp.Alias = uint16(a.deps.Node.Alias())
+		resp.NodeState = a.deps.Node.State().String()
+	}
+	if a.deps.Registry != nil {
+		resp.Nodes = len(a.deps.Registry.List())
+	}
+	if a.deps.Bus != nil {
+		for _, link := range a.deps.Bus.Links() {
+			resp.LinksTotal++
+			if link.Connected {
+				resp.LinksConnected++
+			}
+		}
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (a *API) listNodes(w http.ResponseWriter, _ *http.Request) {
+	nodes := a.deps.Registry.List()
+	if nodes == nil {
+		nodes = []registry.Info{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"nodes": nodes})
+}
+
+func (a *API) getNode(w http.ResponseWriter, r *http.Request) {
+	id, ok := nodeIDParam(w, r)
+	if !ok {
+		return
+	}
+	info, found := a.deps.Registry.Get(id)
+	if !found {
+		writeError(w, http.StatusNotFound, "unknown node "+id.String())
+		return
+	}
+	writeJSON(w, http.StatusOK, info)
+}
+
+func (a *API) refreshNodes(w http.ResponseWriter, r *http.Request) {
+	if err := a.deps.Registry.Refresh(r.Context()); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "refreshing"})
+}
+
+func (a *API) refreshNode(w http.ResponseWriter, r *http.Request) {
+	id, ok := nodeIDParam(w, r)
+	if !ok {
+		return
+	}
+	err := a.deps.Registry.RefreshNode(r.Context(), id)
+	switch {
+	case errors.Is(err, node.ErrNotFound):
+		writeError(w, http.StatusNotFound, "unknown node "+id.String())
+	case err != nil:
+		writeError(w, http.StatusInternalServerError, err.Error())
+	default:
+		writeJSON(w, http.StatusAccepted, map[string]string{"status": "refreshing"})
+	}
+}
+
+func nodeIDParam(w http.ResponseWriter, r *http.Request) (openlcb.NodeID, bool) {
+	id, err := openlcb.ParseNodeID(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "node ID must be six dotted hex bytes, for example 05.01.01.01.22.00")
+		return 0, false
+	}
+	return id, true
+}
+
+func (a *API) links(w http.ResponseWriter, _ *http.Request) {
+	links := a.deps.Bus.Links()
+	if links == nil {
+		links = []transport.Status{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"links": links})
+}
+
+func (a *API) monitorEntries(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	limit := 500
+	if s := q.Get("limit"); s != "" {
+		n, err := strconv.Atoi(s)
+		if err != nil || n < 0 {
+			writeError(w, http.StatusBadRequest, "limit must be a non-negative integer")
+			return
+		}
+		limit = n
+	}
+	var entries []monitor.Entry
+	if s := q.Get("since"); s != "" {
+		seq, err := strconv.ParseUint(s, 10, 64)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "since must be a sequence number")
+			return
+		}
+		entries = a.deps.Monitor.Since(seq, limit)
+	} else {
+		entries = a.deps.Monitor.Recent(limit)
+	}
+	if entries == nil {
+		entries = []monitor.Entry{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"entries": entries, "last_seq": a.deps.Monitor.LastSeq()})
+}
+
+func (a *API) monitorSend(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Frame string `json:"frame"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "body must be JSON with a frame field")
+		return
+	}
+	f, err := can.ParseGridConnect(body.Frame)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "frame must be GridConnect text such as :X19490ABCN;")
+		return
+	}
+	a.deps.Bus.Send(f)
+	writeJSON(w, http.StatusAccepted, map[string]string{"frame": f.String()})
+}
+
+func (a *API) serialPorts(w http.ResponseWriter, _ *http.Request) {
+	ports := []string{}
+	if a.deps.SerialPorts != nil {
+		list, err := a.deps.SerialPorts()
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if list != nil {
+			ports = list
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ports": ports})
 }
 
 type errorResponse struct {
 	Error string `json:"error"`
+}
+
+func writeError(w http.ResponseWriter, status int, message string) {
+	writeJSON(w, status, errorResponse{Error: message})
 }
 
 func writeJSON(w http.ResponseWriter, status int, body any) {

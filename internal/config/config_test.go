@@ -3,8 +3,10 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestLoadCreatesDefaultFile(t *testing.T) {
@@ -13,7 +15,7 @@ func TestLoadCreatesDefaultFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg != Default() {
+	if !reflect.DeepEqual(cfg, Default()) {
 		t.Fatalf("Load = %+v, want defaults %+v", cfg, Default())
 	}
 	data, err := os.ReadFile(Path(dir))
@@ -29,7 +31,7 @@ func TestLoadCreatesDefaultFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load after write: %v", err)
 	}
-	if again != Default() {
+	if !reflect.DeepEqual(again, Default()) {
 		t.Fatalf("default file parsed to %+v, want %+v", again, Default())
 	}
 	if err := again.Validate(); err != nil {
@@ -39,7 +41,18 @@ func TestLoadCreatesDefaultFile(t *testing.T) {
 
 func TestLoadFillsDefaults(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(Path(dir), []byte("listen: \"127.0.0.1:9000\"\nnode_id: 05.01.01.01.22.00\n"), 0o644); err != nil {
+	text := `listen: "127.0.0.1:9000"
+node_id: 05.01.01.01.22.00
+links:
+  - type: serial
+    device: /dev/cu.usbmodem1
+  - name: jmri
+    type: tcp
+    address: 10.0.0.2:12021
+discovery:
+  interval: 1m
+`
+	if err := os.WriteFile(Path(dir), []byte(text), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err := Load(dir)
@@ -49,8 +62,16 @@ func TestLoadFillsDefaults(t *testing.T) {
 	want := Default()
 	want.Listen = "127.0.0.1:9000"
 	want.NodeID = "05.01.01.01.22.00"
-	if cfg != want {
+	want.Links = []LinkConfig{
+		{Name: "/dev/cu.usbmodem1", Type: "serial", Device: "/dev/cu.usbmodem1"},
+		{Name: "jmri", Type: "tcp", Address: "10.0.0.2:12021"},
+	}
+	want.Discovery.Interval = time.Minute
+	if !reflect.DeepEqual(cfg, want) {
 		t.Fatalf("Load = %+v, want %+v", cfg, want)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate: %v", err)
 	}
 }
 
@@ -65,6 +86,7 @@ func TestLoadRejectsBadYAML(t *testing.T) {
 }
 
 func TestValidate(t *testing.T) {
+	serial := LinkConfig{Name: "a", Type: "serial", Device: "/dev/x"}
 	tests := []struct {
 		name    string
 		mutate  func(*Config)
@@ -72,9 +94,22 @@ func TestValidate(t *testing.T) {
 	}{
 		{name: "defaults", mutate: func(*Config) {}},
 		{name: "node id", mutate: func(c *Config) { c.NodeID = "05.01.01.01.22.00" }},
+		{name: "links", mutate: func(c *Config) {
+			c.Links = []LinkConfig{serial, {Name: "b", Type: "tcp", Address: "h:1"}}
+		}},
+		{name: "hub off", mutate: func(c *Config) { c.Hub.Listen = "" }},
+		{name: "discovery off", mutate: func(c *Config) { c.Discovery.Interval = 0 }},
 		{name: "empty listen", mutate: func(c *Config) { c.Listen = "" }, wantErr: "listen"},
 		{name: "bad node id", mutate: func(c *Config) { c.NodeID = "nope" }, wantErr: "node_id"},
 		{name: "zero node id", mutate: func(c *Config) { c.NodeID = "00.00.00.00.00.00" }, wantErr: "node_id"},
+		{name: "link without name", mutate: func(c *Config) { c.Links = []LinkConfig{{Type: "serial", Device: "/dev/x"}} }, wantErr: "name"},
+		{name: "link bad type", mutate: func(c *Config) { c.Links = []LinkConfig{{Name: "a", Type: "usb"}} }, wantErr: "type"},
+		{name: "serial without device", mutate: func(c *Config) { c.Links = []LinkConfig{{Name: "a", Type: "serial"}} }, wantErr: "device"},
+		{name: "tcp without address", mutate: func(c *Config) { c.Links = []LinkConfig{{Name: "a", Type: "tcp"}} }, wantErr: "address"},
+		{name: "duplicate link names", mutate: func(c *Config) { c.Links = []LinkConfig{serial, serial} }, wantErr: "twice"},
+		{name: "negative baud", mutate: func(c *Config) { c.Links = []LinkConfig{{Name: "a", Type: "serial", Device: "/dev/x", Baud: -1}} }, wantErr: "baud"},
+		{name: "discovery too fast", mutate: func(c *Config) { c.Discovery.Interval = time.Second }, wantErr: "discovery"},
+		{name: "discovery negative", mutate: func(c *Config) { c.Discovery.Interval = -time.Second }, wantErr: "discovery"},
 		{name: "bad level", mutate: func(c *Config) { c.Log.Level = "loud" }, wantErr: "log level"},
 		{name: "bad format", mutate: func(c *Config) { c.Log.Format = "xml" }, wantErr: "log format"},
 	}
@@ -93,6 +128,15 @@ func TestValidate(t *testing.T) {
 				t.Fatalf("Validate() = %v, want error containing %q", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestLinkTarget(t *testing.T) {
+	if got := (LinkConfig{Type: "serial", Device: "/dev/x", Address: "h:1"}).Target(); got != "/dev/x" {
+		t.Errorf("serial Target = %q", got)
+	}
+	if got := (LinkConfig{Type: "tcp", Device: "/dev/x", Address: "h:1"}).Target(); got != "h:1" {
+		t.Errorf("tcp Target = %q", got)
 	}
 }
 

@@ -9,8 +9,19 @@ Interlock is a single Go binary with an embedded web interface. It speaks
 LCC directly over GridConnect (USB serial or TCP), acts as a hub between
 links, and is itself a node on the bus.
 
-**Status:** early. The server skeleton runs; the bus layer is next. See
+**Status:** early. Interlock joins the bus, finds and identifies nodes, and
+shows decoded traffic live. Configuration through CDI is next. See
 [docs/design.md](docs/design.md) for the architecture and roadmap.
+
+## Trying it without hardware
+
+```bash
+make build
+bin/interlock -data ./data &      # web interface on :8080, hub port on :12021
+go run ./cmd/simnode              # a simulated canbus-outpost joins the hub
+```
+
+Open http://localhost:8080 to see the node appear, then watch the monitor.
 
 ## Building
 
@@ -23,7 +34,21 @@ bin/interlock     # serves on :8080 using ~/.config/interlock (or $INTERLOCK_DAT
 
 `bin/interlock -data /path/to/dir` keeps everything in one directory:
 `interlock.yaml` (written with defaults on first start), the sqlite
-database and, later, automations and profiles.
+database and, later, automations and profiles. Links to the layout go in
+that file:
+
+```yaml
+links:
+  - name: outpost
+    type: serial
+    device: /dev/cu.usbmodem1234   # a canbus-outpost or simple-dcc USB port
+  - name: jmri
+    type: tcp
+    address: 192.168.1.10:12021    # any GridConnect TCP server
+```
+
+Interlock also serves GridConnect on port 12021, so JMRI or a second
+Interlock can connect to it.
 
 ## Developing
 

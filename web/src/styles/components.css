@@ -1,0 +1,258 @@
+/* Lamps: the one piece of ornament, and it carries state. */
+.lamp {
+  display: inline-block;
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 50%;
+  background: var(--lamp-off);
+  box-shadow: inset 0 0 0 1px var(--lamp-rim);
+  flex: none;
+  vertical-align: -0.05em;
+}
+
+.lamp--green {
+  background: var(--lamp-green);
+  box-shadow:
+    inset 0 0 0 1px var(--lamp-rim),
+    0 0 6px color-mix(in srgb, var(--lamp-green) 70%, transparent);
+}
+
+.lamp--red {
+  background: var(--lamp-red);
+  box-shadow:
+    inset 0 0 0 1px var(--lamp-rim),
+    0 0 6px color-mix(in srgb, var(--lamp-red) 70%, transparent);
+}
+
+.lamp--amber {
+  background: var(--lamp-amber);
+  box-shadow:
+    inset 0 0 0 1px var(--lamp-rim),
+    0 0 6px color-mix(in srgb, var(--lamp-amber) 70%, transparent);
+}
+
+.lamp--lg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  white-space: nowrap;
+}
+
+/* Buttons */
+.btn {
+  font-family: var(--font-condensed);
+  font-weight: 500;
+  font-size: var(--fs-md);
+  padding: 0.4rem 0.9rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--brass);
+  background: transparent;
+  color: var(--brass);
+  cursor: pointer;
+  line-height: 1.3;
+}
+
+.btn:hover {
+  background: color-mix(in srgb, var(--brass) 12%, transparent);
+  color: var(--brass-hover);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.btn--primary {
+  background: var(--brass);
+  color: var(--brass-ink);
+}
+
+.btn--primary:hover {
+  background: var(--brass-hover);
+  color: var(--brass-ink);
+}
+
+.btn--quiet {
+  border-color: var(--enamel-line);
+  color: var(--ivory-dim);
+}
+
+.btn--quiet:hover {
+  color: var(--ivory);
+  background: var(--enamel-hover);
+}
+
+.btn--quiet[aria-pressed="true"] {
+  color: var(--ivory);
+  border-color: var(--ivory-dim);
+  background: var(--enamel-raised);
+}
+
+/* Inputs */
+.input {
+  font-family: var(--font-sans);
+  font-size: var(--fs-md);
+  padding: 0.4rem 0.6rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--enamel-line);
+  background: var(--enamel-deep);
+  color: var(--ivory);
+  min-width: 14rem;
+}
+
+.input::placeholder {
+  color: var(--ivory-faint);
+}
+
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--ivory-dim);
+  font-size: var(--fs-sm);
+  font-family: var(--font-condensed);
+  cursor: pointer;
+}
+
+.check input {
+  accent-color: var(--brass);
+  margin: 0;
+}
+
+/* Panels and tables */
+.panel {
+  background: var(--enamel-raised);
+  border: 1px solid var(--enamel-line);
+  border-radius: var(--radius);
+  overflow-x: auto;
+}
+
+.panel + .panel,
+.panel + h2,
+h2 + .panel,
+.panel + p,
+p + .panel {
+  margin-top: 1rem;
+}
+
+.table {
+  font-family: var(--font-condensed);
+  font-size: var(--fs-md);
+}
+
+.table th {
+  padding: 0.55rem 0.75rem;
+  background: var(--enamel-deep);
+  color: var(--ivory-dim);
+  font-weight: 500;
+  border-bottom: 1px solid var(--enamel-line);
+  white-space: nowrap;
+}
+
+.table td {
+  padding: 0.6rem 0.75rem;
+  border-bottom: 1px solid var(--enamel-line);
+  vertical-align: top;
+}
+
+.table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.table--rows tbody tr:hover {
+  background: var(--enamel-hover);
+}
+
+.table--rows tbody tr.is-link {
+  cursor: pointer;
+}
+
+.table .num {
+  text-align: right;
+}
+
+.table .dim {
+  color: var(--ivory-dim);
+}
+
+.table .faint {
+  color: var(--ivory-faint);
+}
+
+.cell-title {
+  font-weight: 500;
+  color: var(--ivory);
+}
+
+.cell-sub {
+  color: var(--ivory-dim);
+  font-size: var(--fs-sm);
+}
+
+/* Definition lists for nameplates */
+.plate {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.35rem 1.5rem;
+  margin: 0;
+  padding: 1rem 1.25rem;
+}
+
+.plate dt {
+  color: var(--ivory-dim);
+  font-family: var(--font-condensed);
+}
+
+.plate dd {
+  margin: 0;
+}
+
+/* Notes and empty states */
+.note {
+  padding: 0.75rem 1rem;
+  border-left: 3px solid var(--lamp-amber);
+  background: var(--enamel-raised);
+  color: var(--ivory);
+  max-width: 60ch;
+}
+
+.note--error {
+  border-left-color: var(--lamp-red);
+}
+
+.empty {
+  padding: 2rem 1.5rem;
+  color: var(--ivory-dim);
+  max-width: 60ch;
+}
+
+.empty h2 {
+  color: var(--ivory);
+  margin-bottom: 0.5rem;
+}
+
+.empty p + p {
+  margin-top: 0.5rem;
+}
+
+.muted {
+  color: var(--ivory-dim);
+}
+
+.faint {
+  color: var(--ivory-faint);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}

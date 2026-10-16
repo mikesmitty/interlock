@@ -53,6 +53,12 @@ func (id NodeID) Bytes() [6]byte {
 	return out
 }
 
+// AsSlice returns the wire-order bytes as a new slice, for building payloads.
+func (id NodeID) AsSlice() []byte {
+	b := id.Bytes()
+	return b[:]
+}
+
 // NodeIDFromBytes builds an ID from six wire-order bytes.
 func NodeIDFromBytes(b [6]byte) NodeID {
 	var buf [8]byte
@@ -123,6 +129,12 @@ func (id EventID) Bytes() [8]byte {
 	var out [8]byte
 	binary.BigEndian.PutUint64(out[:], uint64(id))
 	return out
+}
+
+// AsSlice returns the wire-order bytes as a new slice, for building payloads.
+func (id EventID) AsSlice() []byte {
+	b := id.Bytes()
+	return b[:]
 }
 
 // EventIDFromBytes builds an ID from eight wire-order bytes.
