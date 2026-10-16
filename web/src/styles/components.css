@@ -187,11 +187,13 @@ p + .panel {
 .cell-title {
   font-weight: 500;
   color: var(--ivory);
+  white-space: nowrap;
 }
 
 .cell-sub {
   color: var(--ivory-dim);
   font-size: var(--fs-sm);
+  white-space: nowrap;
 }
 
 /* Definition lists for nameplates */
