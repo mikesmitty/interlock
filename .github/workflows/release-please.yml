@@ -1,0 +1,62 @@
+on:
+  push:
+    branches:
+      - main
+
+name: Release Please
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release-please
+        with:
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+    outputs:
+      release-created: ${{ steps.release-please.outputs.release_created }}
+      tag-name: ${{ steps.release-please.outputs.tag_name }}
+      version: ${{ steps.release-please.outputs.version }}
+
+  build-binaries:
+    if: ${{ needs.release-please.outputs.release-created == 'true' }}
+    needs: release-please
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build web interface
+        run: make web
+
+      # Pure Go (no cgo), so every target cross compiles from one runner.
+      - name: Build binaries
+        env:
+          VERSION: ${{ needs.release-please.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          for target in linux/amd64 linux/arm64 linux/arm darwin/arm64 darwin/amd64; do
+            export GOOS="${target%/*}" GOARCH="${target#*/}" CGO_ENABLED=0
+            name="interlock-${VERSION}-${GOOS}-${GOARCH}"
+            go build -trimpath -ldflags "-s -w" -o "dist/${name}/interlock" ./cmd/interlock
+            tar -C dist -czf "dist/${name}.tar.gz" "${name}"
+          done
+          (cd dist && sha256sum *.tar.gz > "interlock-${VERSION}-checksums.txt")
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ needs.release-please.outputs.tag-name }}
+        run: gh release upload "$TAG_NAME" dist/*.tar.gz dist/*-checksums.txt
