@@ -433,10 +433,11 @@ export interface RosterDecoder {
   momentary?: number[];
 }
 
-/** A decoder's saved CV values by the names its definition uses. */
+/** A decoder's saved CV values by the names its definition uses, and the changes not written to it yet. */
 export interface SavedCVs {
   cvs: Record<string, number>;
   updated?: string;
+  changes?: Record<string, { value: number; bits: number }>;
 }
 
 /** A roster decoder that could be the one on the programming track. */
@@ -842,6 +843,13 @@ export const api = {
     request<SavedCVs>(`${trainPath(id)}/decoders/${encodeURIComponent(decoder)}/cvs`, {
       method: replace ? "PUT" : "PATCH",
       body: JSON.stringify({ cvs }),
+    }),
+  /** Keeps the changes not written yet; keepalive lets it finish as the page closes. */
+  saveChanges: (id: string, decoder: string, changes: Record<string, { value: number; bits: number }>, keepalive = false) =>
+    request<void>(`${trainPath(id)}/decoders/${encodeURIComponent(decoder)}/changes`, {
+      method: "PUT",
+      body: JSON.stringify({ changes }),
+      keepalive,
     }),
   importRoster: (files: File[]) => {
     const form = new FormData();

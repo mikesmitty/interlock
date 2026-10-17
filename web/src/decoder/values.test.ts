@@ -19,6 +19,9 @@ import {
   setAddress,
   setSpeedPoint,
   settle,
+  discard,
+  pendingChanges,
+  withChanges,
   variableMap,
   withField,
   withSaved,
@@ -241,5 +244,25 @@ test("saved values count as known and are saved back", () => {
   assert.equal(t["1"].known, true);
   assert.deepEqual(addressOf(addressItems(vars), t, vars), { address: 6641, long: true });
   t = applyUpdates(t, [{ cv: "1", value: 5, bits: 0x7f }], "edited");
-  assert.deepEqual(knownValues(t), { "29": 0x26, "17": 0xd9, "18": 0xf1 });
+  assert.deepEqual(knownValues(t), { "1": 3, "29": 0x26, "17": 0xd9, "18": 0xf1 }, "an edited CV saves what the decoder holds");
+});
+
+test("changes not written yet are kept, survive a read and can be undone", () => {
+  let t: CVTable = withSaved({}, { "29": 0x06, "3": 10 });
+  t = applyUpdates(t, [{ cv: "29", value: 0x26, bits: 0x20 }], "edited");
+  t = applyUpdates(t, [{ cv: "29", value: 0x27, bits: 0x01 }], "edited");
+  assert.deepEqual(t["29"], { value: 0x27, state: "edited", known: true, edited: 0x21, prior: { value: 0x06, state: "saved" } });
+  assert.deepEqual(pendingChanges(t), { "29": { value: 0x21, bits: 0x21 } });
+
+  // Kept by the roster and laid over the saved values again.
+  let reopened = withChanges(withSaved({}, { "29": 0x0e }), pendingChanges(t));
+  assert.deepEqual(reopened["29"], { value: 0x2f, state: "edited", known: true, edited: 0x21, prior: { value: 0x0e, state: "saved" } });
+
+  // A read keeps the change over the decoder's other bits...
+  reopened = settle(reopened, "29", 0x0c, "read");
+  assert.deepEqual(reopened["29"], { value: 0x2d, state: "edited", known: true, edited: 0x21, prior: { value: 0x0c, state: "read" } });
+  // ...and undoing it goes back to what was read.
+  assert.deepEqual(discard(reopened, ["29", "3"])["29"], { value: 0x0c, state: "read", known: true, edited: 0 });
+  // A read that finds the change already made settles it.
+  assert.deepEqual(settle(reopened, "29", 0x21, "read")["29"], { value: 0x21, state: "read", known: true, edited: 0 });
 });

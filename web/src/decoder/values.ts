@@ -15,6 +15,14 @@ export interface CVCell {
   known: boolean;
   /** Bits changed since the value was last known. */
   edited: number;
+  /** An edited CV's value and state before the edits, to go back to. */
+  prior?: { value: number; state: CVState };
+}
+
+/** A change not written yet, as the roster keeps it: the bits it sets and their values. */
+export interface CVChange {
+  value: number;
+  bits: number;
 }
 
 export type CVTable = Record<string, CVCell>;
@@ -294,25 +302,71 @@ export function encode(v: DecoderVariable, value: Value, t: CVTable, vars: Map<s
   }
 }
 
+const blank: CVCell = { value: 0, state: "unknown", known: false, edited: 0 };
+
 /** A copy of the table with updates applied; changed CVs take the state given. */
 export function applyUpdates(t: CVTable, updates: CVUpdate[], state: CVState): CVTable {
   const out = { ...t };
   for (const u of updates) {
-    const old = out[u.cv] ?? { value: 0, state: "unknown", known: false, edited: 0 };
+    const old = out[u.cv] ?? blank;
     if (old.value === u.value && state === "edited") continue;
-    out[u.cv] = {
+    const cell: CVCell = {
       value: u.value,
       state,
       known: old.known,
       edited: state === "edited" ? (old.edited | u.bits) >>> 0 : old.edited,
     };
+    if (state === "edited") cell.prior = old.state === "edited" ? old.prior : { value: old.value, state: old.state };
+    out[u.cv] = cell;
   }
   return out;
 }
 
-/** A copy of the table with a value read from or written to the decoder. */
+/**
+ * A copy of the table with a value read from or written to the decoder.
+ * A read keeps changes not written yet, over the decoder's other bits,
+ * unless the decoder already holds them.
+ */
 export function settle(t: CVTable, cv: string, value: number, state: "read" | "stored"): CVTable {
+  const old = t[cv];
+  if (state === "read" && old?.state === "edited" && old.edited !== 0) {
+    const merged = merge(old, value);
+    if (merged !== value) return { ...t, [cv]: { value: merged, state: "edited", known: true, edited: old.edited, prior: { value, state: "read" } } };
+  }
   return { ...t, [cv]: { value, state, known: true, edited: 0 } };
+}
+
+/** A copy of the table with the changes to these CVs undone. */
+export function discard(t: CVTable, cvs: string[]): CVTable {
+  const out = { ...t };
+  for (const cv of cvs) {
+    const old = out[cv];
+    if (old?.state !== "edited") continue;
+    const prior = old.prior ?? { value: old.value, state: old.known ? "read" : "unknown" };
+    out[cv] = { value: prior.value, state: prior.state, known: old.known, edited: 0 };
+  }
+  return out;
+}
+
+/** The changes not written yet, for the roster to keep, by CV name in order. */
+export function pendingChanges(t: CVTable): Record<string, CVChange> {
+  const out: Record<string, CVChange> = {};
+  for (const cv of Object.keys(t).sort()) {
+    const cell = t[cv];
+    if (cell.state === "edited" && cell.edited !== 0) out[cv] = { value: (cell.value & cell.edited) >>> 0, bits: cell.edited };
+  }
+  return out;
+}
+
+/** A copy of the table with kept changes laid over what it holds. */
+export function withChanges(t: CVTable, changes: Record<string, CVChange>): CVTable {
+  const out = { ...t };
+  for (const [cv, c] of Object.entries(changes)) {
+    const old = out[cv] ?? blank;
+    const value = ((old.value & ~c.bits) | (c.value & c.bits)) >>> 0;
+    out[cv] = { value, state: "edited", known: old.known, edited: c.bits, prior: { value: old.value, state: old.state } };
+  }
+  return out;
 }
 
 /**
@@ -330,10 +384,14 @@ export function withSaved(t: CVTable, cvs: Record<string, number>): CVTable {
   return out;
 }
 
-/** The values the decoder is known to hold, for saving to the roster. */
+/** The values the decoder is known to hold, for saving to the roster: an edited CV's value from before the edits. */
 export function knownValues(t: CVTable): Record<string, number> {
   const out: Record<string, number> = {};
-  for (const [cv, cell] of Object.entries(t)) if (cell.known && cell.state !== "edited") out[cv] = cell.value;
+  for (const [cv, cell] of Object.entries(t)) {
+    if (!cell.known) continue;
+    if (cell.state !== "edited") out[cv] = cell.value;
+    else if (cell.prior && ["read", "stored", "saved"].includes(cell.prior.state)) out[cv] = cell.prior.value;
+  }
   return out;
 }
 

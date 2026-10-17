@@ -125,6 +125,18 @@
   border-bottom-color: var(--brass);
 }
 
+/* A page with changes not written yet. */
+.cfg-tab--dirty::after {
+  content: "";
+  display: inline-block;
+  width: 0.4rem;
+  height: 0.4rem;
+  margin-left: 0.4rem;
+  border-radius: 50%;
+  background: var(--brass);
+  vertical-align: 0.15em;
+}
+
 .cfg-tab:focus-visible {
   outline: 2px solid var(--brass);
   outline-offset: -2px;

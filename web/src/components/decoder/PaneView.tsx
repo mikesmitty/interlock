@@ -11,8 +11,10 @@ import {
   qualified,
   setSpeedPoint,
   type CVTable,
+  type CVUpdate,
   type Value,
 } from "../../decoder/values";
+import { ESUMapView } from "./ESUMapView";
 
 /** What the pane's controls need: the CV values and how to change them. */
 export interface PaneContext {
@@ -26,6 +28,12 @@ export interface PaneContext {
   setValue: (v: DecoderVariable, value: Value) => void;
   setAddress: (address: number) => void;
   setCV: (cv: string, value: number) => void;
+  /** Changes some bits of CVs, as the ESU function map does. */
+  setBits: (updates: CVUpdate[]) => void;
+  /** Reads some of the page's CVs; unset where nothing can be read. */
+  readCVs?: (cvs: string[]) => void;
+  /** The roster's function labels, by function number. */
+  functionLabels?: Record<string, string>;
   /** Problems with the last edit, by setting. */
   errors: Record<string, string>;
 }
@@ -70,12 +78,7 @@ function NodeView({ node, ctx, dir }: { node: DecoderNode; ctx: PaneContext; dir
     case "fnmap":
       return <FunctionMap node={node} ctx={ctx} />;
     case "esu_fnmap":
-      return (
-        <p className="note">
-          ESU decoders map functions to outputs and sounds in a table of their own, which this page does not show yet. The Function Outputs
-          and Function Settings pages cover each output, and the CVs page has every value.
-        </p>
-      );
+      return node.esu_map ? <ESUMapView map={node.esu_map} ctx={ctx} /> : null;
     case "cvtable":
       return <CVTableView ctx={ctx} />;
   }

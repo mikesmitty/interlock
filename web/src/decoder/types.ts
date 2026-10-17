@@ -139,7 +139,29 @@ export interface DecoderNode {
     columns: { name: string; label?: string }[];
     rows: { label: string; cells: (string[] | null)[] }[];
   };
+  esu_map?: ESUMap;
   items?: string[];
+}
+
+/** An ESU decoder's mapping table; see internal/decoder/esumap.go. */
+export interface ESUMap {
+  rows: number;
+  blocks: ESUBlock[];
+}
+
+export interface ESUBlock {
+  name: string;
+  bits: number;
+  page: number;
+  start: number;
+  items: ESUItem[];
+}
+
+export interface ESUItem {
+  name: string;
+  on?: string;
+  off?: string;
+  hidden?: boolean;
 }
 
 export interface DecoderIdentity {

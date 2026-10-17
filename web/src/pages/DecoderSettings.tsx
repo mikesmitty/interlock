@@ -1,28 +1,33 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { api, type RosterIdentity } from "../api";
 import { Status } from "../components/Lamp";
 import { Page } from "../components/Page";
 import { rosterSettingsLink } from "../components/decoder/DecoderPicker";
 import { PaneNodes, type PaneContext } from "../components/decoder/PaneView";
-import type { DecoderDefinition, DecoderPane, DecoderVariable } from "../decoder/types";
+import { esuCVs, esuRowEdited, esuRowKnown } from "../decoder/esumap";
+import type { DecoderDefinition, DecoderNode, DecoderPane, DecoderVariable, ESUMap } from "../decoder/types";
 import { relativeTime, useNow } from "../format";
 import {
   addressItems,
   addressOf,
   applyUpdates,
   cvsOf,
+  discard,
   encode,
   initialTable,
   isEdited,
   isKnown,
   knownValues,
   merge,
+  pendingChanges,
   qualified,
   setAddress,
   settle,
   variableMap,
+  withChanges,
   withSaved,
+  type CVChange,
   type CVTable,
   type CVUpdate,
   type EncodeResult,
@@ -44,9 +49,15 @@ interface Job {
 /** The bits a whole CV holds: 16 for the TCS protocol, 8 for the rest. */
 const fullBits = (cv: string) => (cv.startsWith("T2CV") ? 0xffff : 0xff);
 
+/** The ESU function maps a pane shows. */
+function esuMaps(nodes: DecoderNode[]): ESUMap[] {
+  return nodes.flatMap((n) => [...(n.esu_map ? [n.esu_map] : []), ...esuMaps(n.children ?? [])]);
+}
+
 /** The CVs a pane reads and writes, in its order. */
 function paneCVs(pane: DecoderPane, def: DecoderDefinition, vars: Map<string, DecoderVariable>): string[] {
   if (pane.all_cvs) return def.cvs.map((c) => c.name);
+  const maps = esuMaps(pane.nodes).flatMap(esuCVs);
   const items = [...pane.items];
   // Writing a short address can make a decoder change these, so they go
   // after it.
@@ -57,7 +68,8 @@ function paneCVs(pane: DecoderPane, def: DecoderDefinition, vars: Map<string, De
       if (v && !items.includes(v.item)) items.push(v.item);
     }
   }
-  return cvsOf(items, vars);
+  const cvs = cvsOf(items, vars);
+  return [...cvs, ...maps.filter((cv) => !cvs.includes(cv))];
 }
 
 /** The identity the Identify button read, carried in the address. */
@@ -91,6 +103,11 @@ export function DecoderSettings() {
   const stopRef = useRef(false);
   const [train, setTrain] = useState(params.get("train") ?? "");
   const [message, setMessage] = useState<string>();
+  // How many changes from an earlier visit came back, for a note.
+  const [restored, setRestored] = useState(0);
+  // The changes the roster keeps, as last sent, and the save waiting.
+  const sentRef = useRef("{}");
+  const saveTimer = useRef<number | undefined>(undefined);
   const navigate = useNavigate();
 
   const setTable = (t: CVTable) => {
@@ -100,19 +117,68 @@ export function DecoderSettings() {
 
   useEffect(() => {
     if (!file || !model) return;
+    // Nothing of the last decoder's may be kept for this one.
+    setTable({});
+    sentRef.current = "{}";
     setDef(undefined);
     setLoadError(undefined);
     setSavedAt(undefined);
     const saved = loco && decoderID ? api.savedCVs(loco, decoderID) : Promise.resolve(undefined);
     Promise.all([api.decoderDefinition(file, model), saved])
       .then(([d, values]) => {
+        const t = values ? withChanges(withSaved(initialTable(d), values.cvs), values.changes ?? {}) : initialTable(d);
+        sentRef.current = JSON.stringify(pendingChanges(t));
         setDef(d);
-        setTable(values ? withSaved(initialTable(d), values.cvs) : initialTable(d));
+        setTable(t);
+        setRestored(Object.keys(values?.changes ?? {}).length);
         setSavedAt(values && Object.keys(values.cvs).length > 0 ? values.updated : undefined);
         setTab(0);
       })
       .catch((err) => setLoadError(describe(err)));
   }, [file, model, loco, decoderID]);
+
+  // A roster decoder keeps changes not written yet, so they are there
+  // when its page opens again, here or elsewhere.
+  const flushChanges = useCallback(
+    async (keepalive = false) => {
+      window.clearTimeout(saveTimer.current);
+      if (!loco || !decoderID) return;
+      const changes = pendingChanges(tableRef.current);
+      const json = JSON.stringify(changes);
+      if (json === sentRef.current) return;
+      sentRef.current = json;
+      try {
+        await api.saveChanges(loco, decoderID, changes, keepalive);
+      } catch (err) {
+        sentRef.current = "";
+        setMessage(`Changes not written yet could not be kept: ${describe(err)}`);
+      }
+    },
+    [loco, decoderID],
+  );
+  useEffect(() => {
+    if (!def || !loco) return;
+    window.clearTimeout(saveTimer.current);
+    saveTimer.current = window.setTimeout(() => void flushChanges(), 600);
+  }, [table, def, loco, flushChanges]);
+  useEffect(() => {
+    const onHide = () => void flushChanges(true);
+    window.addEventListener("pagehide", onHide);
+    return () => {
+      window.removeEventListener("pagehide", onHide);
+      void flushChanges(true);
+    };
+  }, [flushChanges]);
+  // A decoder opened on its own keeps nothing, so leaving with changes
+  // asks first.
+  useEffect(() => {
+    if (loco) return;
+    const onLeave = (e: BeforeUnloadEvent) => {
+      if (Object.values(tableRef.current).some((c) => c.state === "edited")) e.preventDefault();
+    };
+    window.addEventListener("beforeunload", onLeave);
+    return () => window.removeEventListener("beforeunload", onLeave);
+  }, [loco]);
 
   const vars = useMemo(() => (def ? variableMap(def) : new Map<string, DecoderVariable>()), [def]);
   const cvInfo = useMemo(() => new Map((def?.cvs ?? []).map((c) => [c.name, c])), [def]);
@@ -174,6 +240,7 @@ export function DecoderSettings() {
   const onMain = train !== "";
   const pane = def.panes[Math.min(tab, def.panes.length - 1)];
   const busy = job !== undefined;
+  const programmable = def.programming.no_decoder !== true && !(def.programming.modes ?? []).some((m) => m.startsWith("LOCONET"));
 
   function edit(item: string, r: EncodeResult) {
     if ("error" in r) {
@@ -200,6 +267,9 @@ export function DecoderSettings() {
       const u: CVUpdate = { cv, value, bits: fullBits(cv) };
       setTable(applyUpdates(tableRef.current, [u], "edited"));
     },
+    setBits: (updates: CVUpdate[]) => setTable(applyUpdates(tableRef.current, updates, "edited")),
+    readCVs: onMain || !programmable ? undefined : (list: string[]) => void run("read", list.filter(readable), readCV),
+    functionLabels: entry ? (entry.installed === decoderID ? entry.functions : rosterDecoder?.functions) : undefined,
   };
 
   async function cvCall(cv: string, write?: number) {
@@ -237,6 +307,9 @@ export function DecoderSettings() {
     setJob({ kind, done: 0, total: cvs.length, failed });
     const newFailures: Record<string, string> = {};
     try {
+      // The roster has the latest changes before the decoder is touched,
+      // so a value read or written that holds one can drop it.
+      await flushChanges();
       for (let i = 0; i < cvs.length; i++) {
         if (stopRef.current) break;
         let problem: string | undefined;
@@ -301,12 +374,19 @@ export function DecoderSettings() {
   const changed = cvs.filter((cv) => writable(cv) && table[cv]?.state === "edited");
   const toWrite = cvs.filter((cv) => writable(cv) && table[cv] && table[cv].state !== "unknown");
   const allChanged = def.cvs.filter((c) => !c.info_only && !c.read_only && table[c.name]?.state === "edited").map((c) => c.name);
-  const unread = pane ? pane.items.map((i) => vars.get(i)).filter((v): v is DecoderVariable => !!v && v.type !== "constant" && !isKnown(v, table)).length : 0;
-  const changedSettings = pane ? pane.items.filter((i) => { const v = vars.get(i); return v && isEdited(v, table); }).length : 0;
+  const pageEdited = cvs.filter((cv) => table[cv]?.state === "edited");
+  const anyEdited = Object.values(table).some((c) => c.state === "edited");
+  // An ESU function map's rows count as settings.
+  const mapRows = pane ? esuMaps(pane.nodes).flatMap((m) => Array.from({ length: m.rows }, (_, r) => ({ m, r }))) : [];
+  const unread =
+    (pane ? pane.items.map((i) => vars.get(i)).filter((v): v is DecoderVariable => !!v && v.type !== "constant" && !isKnown(v, table)).length : 0) +
+    mapRows.filter(({ m, r }) => !esuRowKnown(m, table, r)).length;
+  const changedSettings =
+    (pane ? pane.items.filter((i) => { const v = vars.get(i); return v && isEdited(v, table); }).length : 0) +
+    mapRows.filter(({ m, r }) => esuRowEdited(m, table, r)).length;
   const roster = Object.values(trains)
     .filter((t) => t.roster)
     .sort((a, b) => a.name.localeCompare(b.name));
-  const programmable = def.programming.no_decoder !== true && !(def.programming.modes ?? []).some((m) => m.startsWith("LOCONET"));
 
   const decoderTitle = rosterDecoder?.name || def.model;
   const lead = entry
@@ -340,16 +420,25 @@ export function DecoderSettings() {
         {onMain && <span className="dim">Writes only: reading on the main needs RailCom.</span>}
       </div>
 
+      {restored > 0 && anyEdited && (
+        <p className="note">
+          {restored === 1 ? "A change" : `${restored} changes`} made earlier {restored === 1 ? "is" : "are"} not written to the decoder yet. Pages with
+          changes are marked; write them or discard them there.
+        </p>
+      )}
+
       <div className="cfg-tabs" role="tablist" aria-label="Pages">
         {def.panes.map((p, i) => {
           const enabled = qualified(p.qualifiers, table, vars);
+          const dirty = !p.all_cvs && anyEdited && paneCVs(p, def, vars).some((cv) => table[cv]?.state === "edited");
           return (
             <button
               key={i}
               role="tab"
               type="button"
-              className="cfg-tab"
+              className={dirty ? "cfg-tab cfg-tab--dirty" : "cfg-tab"}
               aria-selected={i === tab}
+              aria-description={dirty ? "Has changes not written yet" : undefined}
               disabled={!enabled || busy}
               title={p.tooltip}
               onClick={() => {
@@ -376,6 +465,11 @@ export function DecoderSettings() {
             <button className="btn btn--quiet" disabled={busy || !programmable || toWrite.length === 0} onClick={() => void run("write", toWrite, writeCV)}>
               Write page
             </button>
+            {pageEdited.length > 0 && (
+              <button className="btn btn--quiet" disabled={busy} onClick={() => setTable(discard(tableRef.current, pageEdited))}>
+                Discard changes
+              </button>
+            )}
             {allChanged.length > changed.length && !busy && (
               <button className="btn btn--quiet" disabled={!programmable} onClick={() => void run("write", allChanged, writeCV)}>
                 Write changes on every page ({allChanged.length})
@@ -398,7 +492,7 @@ export function DecoderSettings() {
                 <>
                   {message && <span>{message}</span>}
                   {!message && unread > 0 && <Status color="amber">{`${unread} not read yet`}</Status>}
-                  {!message && unread === 0 && changedSettings === 0 && pane.items.length > 0 && <Status color="green">Up to date</Status>}
+                  {!message && unread === 0 && changedSettings === 0 && (pane.items.length > 0 || mapRows.length > 0) && <Status color="green">Up to date</Status>}
                 </>
               )}
             </span>
@@ -425,6 +519,7 @@ export function DecoderSettings() {
           identity={identityParam(params)}
           address={addressOf(addressItems(vars), table, vars)}
           values={() => knownValues(tableRef.current)}
+          changes={() => pendingChanges(tableRef.current)}
           onAdded={(t, d) => navigate(rosterSettingsLink(t, d), { replace: true })}
         />
       )}
@@ -448,12 +543,14 @@ function AddToRoster({
   identity,
   address,
   values,
+  changes,
   onAdded,
 }: {
   def: DecoderDefinition;
   identity?: RosterIdentity;
   address?: { address: number; long: boolean };
   values: () => Record<string, number>;
+  changes: () => Record<string, CVChange>;
   onAdded: (train: string, decoder: string) => void;
 }) {
   const { trains } = useBus();
@@ -481,6 +578,8 @@ function AddToRoster({
       const r = await api.addDecoder(id, { file: def.file, family: def.family, model: def.model, identity, install: !into || !trains[into]?.installed });
       const cvs = values();
       if (Object.keys(cvs).length > 0) await api.saveCVs(id, r.decoder.id, cvs, true);
+      const kept = changes();
+      if (Object.keys(kept).length > 0) await api.saveChanges(id, r.decoder.id, kept);
       onAdded(id, r.decoder.id);
     } catch (err) {
       setError(describe(err));
@@ -491,7 +590,10 @@ function AddToRoster({
   return (
     <form className="panel dec-keep" onSubmit={(e) => void add(e)}>
       <h2>Keep in the roster</h2>
-      <p className="dim">Save this decoder with a locomotive, with the values read so far, so its settings open without reading them again.</p>
+      <p className="dim">
+        Save this decoder with a locomotive, with the values read so far and any changes not written yet, so its settings open without reading
+        them again.
+      </p>
       <div className="dec-keep__row">
         <label className="auto-field">
           <span>Locomotive</span>

@@ -61,9 +61,12 @@
   color: var(--ivory-dim);
 }
 
+/* Wide content (the speed curve, the ESU map) sizes itself to the
+   panel. */
 .dec-panel {
   display: grid;
   gap: 1rem;
+  container-type: inline-size;
 }
 
 .dec-toolbar {
@@ -240,7 +243,7 @@
   align-items: flex-end;
   gap: 0.25rem;
   overflow-x: auto;
-  max-width: calc(100vw - var(--rail-w) - 7rem);
+  max-width: 100cqi;
   padding-bottom: 0.25rem;
 }
 
@@ -288,6 +291,85 @@
   font-weight: 400;
 }
 
+/* The ESU function map: a line per row, the open row's editor below it. */
+.dec-esumap {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+  width: 64rem;
+  max-width: 100cqi;
+}
+
+.dec-esumap__table {
+  width: 100%;
+}
+
+.dec-esumap__table td:first-child,
+.dec-esumap__table th:first-child {
+  width: 3.5rem;
+  border-left: 3px solid transparent;
+}
+
+.dec-esumap__row.is-dirty td:first-child {
+  border-left-color: var(--brass);
+}
+
+.dec-esumap__row.is-unread td,
+.dec-esumap__row.is-unused td {
+  color: var(--ivory-dim);
+}
+
+.dec-esumap__open td {
+  background: var(--enamel-deep);
+}
+
+.dec-esumap__editor {
+  display: grid;
+  gap: 1rem;
+}
+
+.dec-esumap__block {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.dec-esumap__block legend {
+  padding: 0;
+  margin-bottom: 0.4rem;
+  color: var(--ivory);
+  font-weight: 500;
+}
+
+.dec-esumap__items {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
+  gap: 0.35rem 1.25rem;
+}
+
+.dec-esumap__cond {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--ivory-dim);
+  font-size: var(--fs-sm);
+}
+
+.dec-esumap__cond .input {
+  min-width: 0;
+  width: 7.5rem;
+  padding-top: 0.2rem;
+  padding-bottom: 0.2rem;
+}
+
+.dec-esumap__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
 .dec-cvtable .input--num {
   width: 6rem;
 }
@@ -307,7 +389,4 @@
     margin-left: 0;
   }
 
-  .dec-speed {
-    max-width: calc(100vw - 3rem);
-  }
 }
