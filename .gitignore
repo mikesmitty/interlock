@@ -32,8 +32,11 @@ go.work.sum
 # .idea/
 # .vscode/
 
-# Build output
+# Build output; dist/ holds the release archives the Binaries workflow
+# builds inside the checkout, which would otherwise mark every binary
+# after the first as built from a modified tree.
 bin/
+/dist/
 
 # Web interface: dependencies and build output (the Go binary embeds dist/)
 web/node_modules/
