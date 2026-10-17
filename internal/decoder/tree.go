@@ -53,11 +53,15 @@ func (e *element) all(name string) []*element {
 }
 
 // treeLoader reads definition files into elements, following includes.
+// The trees are never changed once read, so a fragment included many
+// times (some enum lists are included thousands of times) is read once
+// and shared.
 type treeLoader struct {
 	fsys fs.FS
 	// Missing lists includes that name files the source does not have;
 	// JMRI skips them, and so does Interlock.
 	Missing []string
+	cache   map[string]*element
 }
 
 // load reads a file, by its path under the xml folder.
@@ -69,6 +73,9 @@ func (t *treeLoader) loadDepth(name string, depth int) (*element, error) {
 	if depth > maxIncludeDepth {
 		return nil, fmt.Errorf("%s: includes nest too deeply", name)
 	}
+	if el, ok := t.cache[name]; ok {
+		return el, nil
+	}
 	f, err := t.fsys.Open(name)
 	if err != nil {
 		return nil, err
@@ -78,6 +85,10 @@ func (t *treeLoader) loadDepth(name string, depth int) (*element, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", name, err)
 	}
+	if t.cache == nil {
+		t.cache = make(map[string]*element)
+	}
+	t.cache[name] = root
 	return root, nil
 }
 
@@ -188,7 +199,7 @@ func (t *treeLoader) include(tok xml.StartElement, from string, depth int, stack
 // mirrors the xml folder; relative names are relative to the including
 // file.
 func resolveHref(from, href string) (string, bool) {
-	for _, prefix := range []string{"http://jmri.org/xml/", "https://jmri.org/xml/", "http://www.jmri.org/xml/", "https://www.jmri.org/xml/", "/xml/"} {
+	for _, prefix := range []string{"http://jmri.org/xml/", "https://jmri.org/xml/", "http://www.jmri.org/xml/", "https://www.jmri.org/xml/", "file:xml/", "/xml/"} {
 		if rest, ok := strings.CutPrefix(href, prefix); ok {
 			return validTarget(path.Clean(rest))
 		}

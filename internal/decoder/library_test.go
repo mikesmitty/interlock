@@ -298,7 +298,7 @@ func TestIndex(t *testing.T) {
 		t.Errorf("retired model = %+v", retired)
 	}
 	dh163 := idx.Families[1].Models[0]
-	if dh163.NumOuts != 6 || dh163.NumFns != 10 || len(dh163.Versions) != 1 || dh163.Versions[0] != (VersionRange{49, 50}) {
+	if dh163.NumOuts != 6 || dh163.NumFns != 10 || len(dh163.VersionCVs) != 1 || dh163.VersionCVs[0] != (VersionRange{49, 50}) {
 		t.Errorf("DH163 = %+v", dh163)
 	}
 	board := idx.Families[2]

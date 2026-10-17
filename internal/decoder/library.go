@@ -18,6 +18,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sync"
 	"time"
 )
@@ -124,7 +125,16 @@ type Library struct {
 	mu      sync.Mutex
 	index   *Index
 	archive ArchiveStatus
+	// defs keeps the last few definitions read, newest last.
+	defs []*Definition
 }
+
+// keepDefinitions is how many read definitions are kept; a session
+// usually works on one decoder at a time.
+const keepDefinitions = 4
+
+// ErrUnknownDecoder means the index lists no such family file and model.
+var ErrUnknownDecoder = errors.New("decoder definitions: no such decoder")
 
 // Open prepares a Library. A folder or zip is checked now; nothing is
 // fetched until it is needed.
@@ -284,4 +294,43 @@ func findRoot(fsys fs.FS) (string, error) {
 func exists(fsys fs.FS, name string) bool {
 	_, err := fs.Stat(fsys, name)
 	return err == nil
+}
+
+// Definition returns a model's resolved definition from its family file.
+// Only files and models in the index can be read.
+func (l *Library) Definition(file, model string) (*Definition, error) {
+	idx, err := l.Index()
+	if err != nil {
+		return nil, err
+	}
+	known := false
+	for _, f := range idx.Families {
+		if f.File == file && slices.ContainsFunc(f.Models, func(m Model) bool { return m.Name == model }) {
+			known = true
+			break
+		}
+	}
+	if !known {
+		return nil, ErrUnknownDecoder
+	}
+	l.mu.Lock()
+	for i, d := range l.defs {
+		if d.File == file && d.Model == model {
+			l.defs = append(append(l.defs[:i:i], l.defs[i+1:]...), d)
+			l.mu.Unlock()
+			return d, nil
+		}
+	}
+	l.mu.Unlock()
+	d, err := loadDefinition(&treeLoader{fsys: l.fsys}, file, model, DefaultProgrammer)
+	if err != nil {
+		return nil, fmt.Errorf("decoder definition: %w", err)
+	}
+	l.mu.Lock()
+	l.defs = append(l.defs, d)
+	if len(l.defs) > keepDefinitions {
+		l.defs = l.defs[len(l.defs)-keepDefinitions:]
+	}
+	l.mu.Unlock()
+	return d, nil
 }

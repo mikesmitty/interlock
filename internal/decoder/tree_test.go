@@ -77,6 +77,7 @@ func TestResolveHref(t *testing.T) {
 		{"decoders/ESU_LokSound5.xml", "http://jmri.org/xml/decoders/esu/v5standardCVs.xml", "decoders/esu/v5standardCVs.xml", true},
 		{"decoders/a.xml", "https://www.jmri.org/xml/programmers/parts/BasicPane.xml", "programmers/parts/BasicPane.xml", true},
 		{"decoders/a.xml", "/xml/decoders/nmra/x.xml", "decoders/nmra/x.xml", true},
+		{"programmers/Advanced.xml", "file:xml/programmers/parts/BasicPane.xml", "programmers/parts/BasicPane.xml", true},
 		{"decoders/esu/a.xml", "b.xml", "decoders/esu/b.xml", true},
 		{"decoders/esu/a.xml", "../nmra/b.xml", "decoders/nmra/b.xml", true},
 		{"decoders/a.xml", "../../../etc/passwd", "", false},
@@ -126,4 +127,49 @@ func names(els []*element) []string {
 		out[i] = e.Name
 	}
 	return out
+}
+
+// TestRealModels loads every model's definition from the folder named by
+// INTERLOCK_JMRI_XML and reports what could not be used.
+func TestRealModels(t *testing.T) {
+	dir := os.Getenv("INTERLOCK_JMRI_XML")
+	if dir == "" {
+		t.Skip("INTERLOCK_JMRI_XML is not set")
+	}
+	lib, err := Open(Options{Source: SourceFolder, Path: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	idx, err := lib.Index()
+	if err != nil {
+		t.Fatal(err)
+	}
+	models, problems, panes, vars := 0, map[string]int{}, 0, 0
+	for _, f := range idx.Families {
+		if !f.Programmable() {
+			continue
+		}
+		ld := &treeLoader{fsys: lib.fsys}
+		for _, m := range f.Models {
+			d, err := loadDefinition(ld, f.File, m.Name, DefaultProgrammer)
+			if err != nil {
+				t.Errorf("%s %s: %v", f.File, m.Name, err)
+				continue
+			}
+			models++
+			panes += len(d.Panes)
+			vars += len(d.Variables)
+			for _, p := range d.Problems {
+				key := p
+				if i := strings.Index(p, ": "); i >= 0 {
+					key = p[i+2:]
+				}
+				problems[key]++
+			}
+		}
+	}
+	t.Logf("%d models, %d panes, %d variables", models, panes, vars)
+	for p, n := range problems {
+		t.Logf("%5d  %s", n, p)
+	}
 }

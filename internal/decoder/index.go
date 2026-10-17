@@ -50,12 +50,16 @@ type Model struct {
 	// ProductIDs are the values the decoder reports in its manufacturer's
 	// product ID CVs; most are numbers.
 	ProductIDs []string `json:"product_ids,omitempty"`
-	// Versions narrows the family's CV 7 range for this model; empty means
-	// the family's range.
-	Versions []VersionRange `json:"versions,omitempty"`
-	NumFns   int            `json:"num_fns,omitempty"`
-	NumOuts  int            `json:"num_outs,omitempty"`
-	Comment  string         `json:"comment,omitempty"`
+	// LowVersion and HighVersion replace the family's CV 7 bounds when
+	// set; -1 when not.
+	LowVersion  int `json:"low_version"`
+	HighVersion int `json:"high_version"`
+	// VersionCVs add more CV 7 ranges; an open end takes the model's
+	// bound.
+	VersionCVs []VersionRange `json:"version_cvs,omitempty"`
+	NumFns     int            `json:"num_fns,omitempty"`
+	NumOuts    int            `json:"num_outs,omitempty"`
+	Comment    string         `json:"comment,omitempty"`
 	// Show is "no" for models listed only to identify old decoders, and
 	// "maybe" for ones shown when asked; empty means shown.
 	Show string `json:"show,omitempty"`
@@ -69,6 +73,45 @@ type Model struct {
 type VersionRange struct {
 	Low  int `json:"low"`
 	High int `json:"high"`
+}
+
+// Versions returns the CV 7 ranges a model covers in its family. A
+// model's own bounds replace the family's; a range with one end covers
+// just that value, and one with neither covers nothing, so such a model
+// is only ever chosen by hand.
+func (m Model) Versions(f Family) []VersionRange {
+	low, high := m.LowVersion, m.HighVersion
+	if low < 0 {
+		low = f.LowVersion
+	}
+	if high < 0 {
+		high = f.HighVersion
+	}
+	var out []VersionRange
+	add := func(lo, hi int) {
+		switch {
+		case lo >= 0 && hi >= 0:
+			if lo <= hi {
+				out = append(out, VersionRange{lo, hi})
+			}
+		case lo >= 0:
+			out = append(out, VersionRange{lo, lo})
+		case hi >= 0:
+			out = append(out, VersionRange{hi, hi})
+		}
+	}
+	add(low, high)
+	for _, v := range m.VersionCVs {
+		lo, hi := v.Low, v.High
+		if lo < 0 {
+			lo = low
+		}
+		if hi < 0 {
+			hi = high
+		}
+		add(lo, hi)
+	}
+	return out
 }
 
 // Programmable reports whether the family can be programmed through a
@@ -161,11 +204,9 @@ func parseIndex(r io.Reader) (*Index, error) {
 					model.ProductIDs = append(model.ProductIDs, id)
 				}
 			}
-			if m.LowVersion != "" || m.HighVersion != "" {
-				model.Versions = append(model.Versions, VersionRange{Low: number(m.LowVersion, -1), High: number(m.HighVersion, -1)})
-			}
+			model.LowVersion, model.HighVersion = number(m.LowVersion, -1), number(m.HighVersion, -1)
 			for _, v := range m.VersionCVs {
-				model.Versions = append(model.Versions, VersionRange{Low: number(v.Low, -1), High: number(v.High, -1)})
+				model.VersionCVs = append(model.VersionCVs, VersionRange{Low: number(v.Low, -1), High: number(v.High, -1)})
 			}
 			fam.Models = append(fam.Models, model)
 		}
