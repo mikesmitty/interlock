@@ -396,7 +396,7 @@ func TestDrive(t *testing.T) {
 	}
 
 	// Refresh reads back what another throttle did.
-	simTrain.Decoder.Functions[4] = true
+	b.station.ChangeDecoder(1234, true, func(d *sim.Decoder) { d.Functions[4] = true })
 	tr, err = b.m.Refresh(b.ctx, "1234")
 	if err != nil || len(tr.On) != 2 || tr.On[1] != 4 || !tr.Controlled {
 		t.Fatalf("Refresh = %+v, %v", tr, err)

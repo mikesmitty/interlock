@@ -239,6 +239,15 @@ func (s *Station) DecoderState(address uint16, long bool) Decoder {
 	return snapshot
 }
 
+// ChangeDecoder changes a decoder's state under the station's lock, as
+// another throttle would while the station drives it.
+func (s *Station) ChangeDecoder(address uint16, long bool, change func(*Decoder)) {
+	d := s.Decoder(address, long)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	change(d)
+}
+
 // Decoder returns the decoder at address, creating one when the layout
 // has none, as a real locomotive would answer whatever address it has.
 // The station writes its fields under its own lock; read them through
