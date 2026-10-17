@@ -45,7 +45,7 @@ Open http://localhost:8080 to see the node appear, then watch the monitor.
 
 ## Building
 
-Requires Go (see `go.mod`) and Node 22 or newer.
+Requires Go (see `go.mod`) and Node 22.22 or newer.
 
 ```bash
 make build        # builds the web interface and bin/interlock

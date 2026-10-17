@@ -7,7 +7,7 @@ phased roadmap are in `docs/design.md`; read it before structural changes.
 
 ## Build
 
-Go (version in `go.mod`; the toolchain downloads it if needed) and Node 22+.
+Go (version in `go.mod`; the toolchain downloads it if needed) and Node 22.22+ (React Router needs it; CI uses 24).
 
 ```bash
 make build      # web interface, then Go binary -> bin/interlock

@@ -12,7 +12,7 @@ Download the build for your machine from the
 amd64, arm64 or arm (the Raspberry Pi family) and macOS. Put the file
 somewhere on your path and make it executable.
 
-To build it yourself you need Go (the version in `go.mod`) and Node 22 or
+To build it yourself you need Go (the version in `go.mod`) and Node 22.22 or
 newer:
 
 ```bash
