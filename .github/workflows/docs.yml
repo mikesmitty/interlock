@@ -34,7 +34,7 @@ jobs:
           cache: npm
           cache-dependency-path: docs/package-lock.json
 
-      - uses: actions/configure-pages@v5
+      - uses: actions/configure-pages@v6
         with:
           # Turns Pages on for the repository the first time, with
           # GitHub Actions as its source.
