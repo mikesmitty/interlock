@@ -10,6 +10,8 @@ import (
 	"reflect"
 	"sync"
 
+	"github.com/mikesmitty/interlock/internal/yamlstrict"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -51,7 +53,7 @@ func OpenFile(path string) (*File, error) {
 	if root.Kind == 0 {
 		return f, nil // an empty file
 	}
-	if err := unknownFields(&root, reflect.TypeOf(fileDoc{})); err != nil {
+	if err := yamlstrict.Check(&root, reflect.TypeOf(fileDoc{})); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
 	if err := root.Decode(&f.doc); err != nil && !errors.Is(err, io.EOF) {

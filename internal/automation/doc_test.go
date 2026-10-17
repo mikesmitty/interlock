@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mikesmitty/interlock/internal/train"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -388,4 +390,57 @@ func writeFile(t *testing.T, path, body string) {
 	if err := writeText(path, body); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestTrainActionValidation(t *testing.T) {
+	base := Automation{Name: "t", Triggers: []Trigger{{Type: TriggerStart}}}
+	cases := []struct {
+		name   string
+		action Action
+		path   string
+	}{
+		{"speed ok", Action{Type: ActionTrain, Address: 1234, Command: "speed", Speed: 30, Direction: "forward"}, ""},
+		{"stop ok", Action{Type: ActionTrain, Address: 3, AddressType: "short", Command: "stop"}, ""},
+		{"function ok", Action{Type: ActionTrain, Address: 3, Command: "function", Function: 0, State: "off"}, ""},
+		{"no address", Action{Type: ActionTrain, Command: "stop"}, "actions[0].address"},
+		{"bad type", Action{Type: ActionTrain, Address: 300, AddressType: "short", Command: "stop"}, "actions[0].address_type"},
+		{"bad command", Action{Type: ActionTrain, Address: 3, Command: "fly"}, "actions[0].command"},
+		{"fast", Action{Type: ActionTrain, Address: 3, Command: "speed", Speed: 200}, "actions[0].speed"},
+		{"sideways", Action{Type: ActionTrain, Address: 3, Command: "speed", Speed: 2, Direction: "up"}, "actions[0].direction"},
+		{"F99", Action{Type: ActionTrain, Address: 3, Command: "function", Function: 99, State: "on"}, "actions[0].function"},
+		{"no state", Action{Type: ActionTrain, Address: 3, Command: "function", Function: 1}, "actions[0].state"},
+	}
+	for _, c := range cases {
+		doc := base
+		doc.Actions = []Action{c.action}
+		err := doc.Normalize().Validate()
+		var inv *InvalidError
+		switch {
+		case c.path == "" && err != nil:
+			t.Errorf("%s: unexpected error %v", c.name, err)
+		case c.path != "" && (!errors.As(err, &inv) || inv.Path != c.path):
+			t.Errorf("%s: error = %v, want path %s", c.name, err, c.path)
+		}
+	}
+	n := names{train: func(address uint16, long bool) string {
+		if address == 1234 && long {
+			return "Challenger"
+		}
+		return ""
+	}}
+	for _, c := range []struct {
+		action Action
+		want   string
+	}{
+		{Action{Type: ActionTrain, Address: 1234, Command: "speed", Speed: 30, Direction: "forward"}, "Set Challenger to speed 30 forward"},
+		{Action{Type: ActionTrain, Address: 1234, Command: "speed", Speed: 0}, "Set Challenger to speed 0"},
+		{Action{Type: ActionTrain, Address: 3, Command: "stop"}, "Stop locomotive 3 (short)"},
+		{Action{Type: ActionTrain, Address: 3, AddressType: "long", Command: "estop"}, "Emergency stop locomotive 3 (long)"},
+		{Action{Type: ActionTrain, Address: 1234, Command: "function", Function: 2, State: "off"}, "Turn off F2 of Challenger"},
+	} {
+		if got := describeAction(c.action, n); got != c.want {
+			t.Errorf("describeAction = %q, want %q", got, c.want)
+		}
+	}
+	_ = train.MaxSpeed
 }

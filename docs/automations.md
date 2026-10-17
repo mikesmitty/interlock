@@ -87,6 +87,7 @@ node, say) ends the run with an error. Any action can carry
 | `type` | Fields | Does |
 |---|---|---|
 | `command` | `entity`, `command` | Sends an entity's command: `throw`, `close`, `center`, `on`, `off`, `press`. |
+| `train` | `address`, `address_type`, `command`, `speed`, `direction`, `function`, `state` | Drives a locomotive by DCC address: `command` is `speed` (with `speed` 0 to 126 and an optional `direction`), `stop`, `estop` or `function` (with `function` and `state` on or off). See `docs/trains.md`. |
 | `event` | `event` | Produces that event from Interlock's node. |
 | `delay` | `for` | Waits. |
 | `wait` | `triggers`, `timeout`, `stop_on_timeout` | Waits for one of the triggers (any type but `start`, `time` and `interval`). After `timeout` the run goes on, or stops when `stop_on_timeout` is set. |

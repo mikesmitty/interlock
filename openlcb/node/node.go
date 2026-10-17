@@ -150,6 +150,8 @@ type Node struct {
 	pending     map[pendingKey]*pendingRequest
 	resolving   map[openlcb.Alias]time.Time
 	dgHandlers  map[byte]DatagramHandler
+	traction    TractionHandler
+	collectors  []*collector
 	observers   map[int]Observer
 	nextObs     int
 	initialized chan struct{}
@@ -572,8 +574,14 @@ func (n *Node) handleGlobal(msg *openlcb.Message) {
 		}
 	case openlcb.MTIVerifiedNodeID, openlcb.MTIVerifiedNodeIDSimple:
 		n.completeRequest(pendingKey{kind: pendVerify, alias: msg.Source.Alias}, msg, nil)
+	case openlcb.MTIProducerIdentifiedValid:
+		n.deliverProducer(msg, "valid")
+	case openlcb.MTIProducerIdentifiedInvalid:
+		n.deliverProducer(msg, "invalid")
+	case openlcb.MTIProducerIdentifiedUnknown:
+		n.deliverProducer(msg, "unknown")
 	case openlcb.MTIIdentifyEventsGlobal:
-		// No events registered yet (Phase 3).
+		// Interlock registers no events of its own.
 	}
 }
 
@@ -586,7 +594,7 @@ func (n *Node) handleAddressed(msg *openlcb.Message) {
 	case openlcb.MTISimpleNodeIdentInfoRequest:
 		n.sendAddressed(openlcb.MTISimpleNodeIdentInfoReply, msg.Source, n.SNIPInfo().Encode())
 	case openlcb.MTIIdentifyEventsAddressed:
-		// No events registered yet (Phase 3).
+		// Interlock registers no events of its own.
 	case openlcb.MTIDatagram:
 		n.handleDatagram(msg)
 	case openlcb.MTIDatagramOK, openlcb.MTIDatagramRejected:
@@ -598,7 +606,9 @@ func (n *Node) handleAddressed(msg *openlcb.Message) {
 	case openlcb.MTIOptionalInteractionRejected, openlcb.MTITerminateDueToError:
 		n.handleRejection(msg)
 	case openlcb.MTITractionControlReply:
-		// Delivered to observers; traction clients come in Phase 5.
+		n.completeRequest(pendingKey{kind: pendTraction, alias: msg.Source.Alias, code: tractionCode(msg.Payload)}, msg, nil)
+	case openlcb.MTITractionControlCommand:
+		n.handleTractionCommand(msg)
 	default:
 		n.sendAddressed(openlcb.MTIOptionalInteractionRejected, msg.Source,
 			append(errorPayload(openlcb.ErrCodeNotImplementedMTI), byte(msg.MTI>>8), byte(msg.MTI)))
@@ -624,6 +634,9 @@ func (n *Node) handleRejection(msg *openlcb.Message) {
 		kind = pendDatagram
 	case openlcb.MTIVerifyNodeIDAddressed:
 		kind = pendVerify
+	case openlcb.MTITractionControlCommand:
+		n.failTraction(msg.Source.Alias, err)
+		return
 	default:
 		return
 	}

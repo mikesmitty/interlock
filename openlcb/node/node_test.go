@@ -679,3 +679,82 @@ func TestTwoNodes(t *testing.T) {
 		t.Errorf("a's cache does not know b: %v %v", id, ok)
 	}
 }
+
+func TestTractionAndProducers(t *testing.T) {
+	var a, b *Node
+	logger := slog.New(slog.DiscardHandler)
+	a = New(Config{ID: ourID, SNIP: ourSNIP, Logger: logger, CIDWait: 20 * time.Millisecond, ReplyTimeout: time.Second,
+		Send: func(f can.Frame) { b.HandleFrame(f) }})
+	b = New(Config{ID: peerID, SNIP: ourSNIP, Logger: logger, CIDWait: 20 * time.Millisecond, ReplyTimeout: time.Second,
+		Send: func(f can.Frame) { a.HandleFrame(f) }})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = a.Run(ctx) }()
+	go func() { _ = b.Run(ctx) }()
+	opCtx, opCancel := context.WithTimeout(ctx, 5*time.Second)
+	defer opCancel()
+
+	// Without a handler, b rejects traction commands and a's request fails.
+	if _, err := a.TractionCommand(opCtx, peerID, []byte{0x10}, true); err == nil {
+		t.Fatal("command to a node without traction support should fail")
+	} else if !strings.Contains(err.Error(), "0x1043") {
+		t.Fatalf("error = %v", err)
+	}
+
+	// b acts as a train: it answers queries and notes set speed.
+	var mu sync.Mutex
+	var got [][]byte
+	b.HandleTraction(func(_ openlcb.NodeHandle, payload []byte) []byte {
+		mu.Lock()
+		got = append(got, append([]byte(nil), payload...))
+		mu.Unlock()
+		switch payload[0] {
+		case 0x10:
+			return []byte{0x10, 0x4F, 0x80, 0x00}
+		case 0x20:
+			return []byte{0x20, payload[1], 0x00}
+		}
+		return nil
+	})
+	if _, err := a.TractionCommand(opCtx, peerID, []byte{0x00, 0x4F, 0x80}, false); err != nil {
+		t.Fatal(err)
+	}
+	reply, err := a.TractionCommand(opCtx, peerID, []byte{0x10}, true)
+	if err != nil || string(reply) != string([]byte{0x10, 0x4F, 0x80, 0x00}) {
+		t.Fatalf("query speeds reply = %X, %v", reply, err)
+	}
+	reply, err = a.TractionCommand(opCtx, peerID, []byte{0x20, 0x01, 0, 5, 1, 1, 1, 0x22, 0}, true)
+	if err != nil || string(reply) != string([]byte{0x20, 0x01, 0x00}) {
+		t.Fatalf("assign reply = %X, %v", reply, err)
+	}
+	mu.Lock()
+	n := len(got)
+	mu.Unlock()
+	if n != 3 {
+		t.Fatalf("b saw %d commands, want 3", n)
+	}
+
+	// b produces an event: it answers Identify Producer from a goroutine,
+	// as a real implementation would.
+	ev := openlcb.EventID(0x0102030405060708)
+	b.Observe(func(e Event) {
+		if e.Kind == EventMessage && e.Message.MTI == openlcb.MTIIdentifyProducer {
+			if id, ok := e.Message.EventID(); ok && id == ev {
+				go func() {
+					_ = b.Send(ctx, openlcb.Message{MTI: openlcb.MTIProducerIdentifiedValid, Payload: ev.AsSlice()})
+				}()
+			}
+		}
+	})
+	producers, err := a.Producers(opCtx, ev, 200*time.Millisecond, false)
+	if err != nil || len(producers) != 1 || producers[0].Node != peerID || producers[0].State != "valid" {
+		t.Fatalf("producers = %+v, %v", producers, err)
+	}
+	producers, err = a.Producers(opCtx, ev+1, 100*time.Millisecond, true)
+	if err != nil || len(producers) != 0 {
+		t.Fatalf("producers of another event = %+v, %v", producers, err)
+	}
+	if id, err := a.VerifyAlias(opCtx, b.Alias()); err != nil || id != peerID {
+		t.Fatalf("VerifyAlias = %v, %v", id, err)
+	}
+}

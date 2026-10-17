@@ -192,7 +192,12 @@ export interface EventName {
 export interface Profile {
   name: string;
   description?: string;
-  match: { manufacturer?: string; model?: string; software_version?: string; any?: boolean };
+  match: {
+    manufacturer?: string;
+    model?: string;
+    software_version?: string;
+    any?: boolean;
+  };
   suggest?: boolean;
   source: string;
   entities: { kind: EntityKind; group?: string }[];
@@ -203,7 +208,7 @@ export interface Profile {
 export type AutomationMode = "single" | "restart" | "queued" | "parallel";
 export type TriggerType = "state" | "event" | "locomotive" | "node" | "time" | "interval" | "start";
 export type ConditionType = "state" | "time" | "trigger" | "and" | "or" | "not";
-export type ActionType = "command" | "event" | "delay" | "wait" | "if" | "choose" | "repeat" | "stop" | "log";
+export type ActionType = "command" | "train" | "event" | "delay" | "wait" | "if" | "choose" | "repeat" | "stop" | "log";
 
 export interface Trigger {
   id?: string;
@@ -244,6 +249,12 @@ export interface Action {
   disabled?: boolean;
   entity?: string;
   command?: string;
+  address?: number;
+  address_type?: "long" | "short";
+  speed?: number;
+  direction?: Direction;
+  function?: number;
+  state?: "on" | "off";
   event?: string;
   for?: string;
   triggers?: Trigger[];
@@ -325,6 +336,69 @@ export interface Trace {
   error?: string;
   trigger: TriggerInfo;
   steps: TraceStep[];
+}
+
+// Trains: the roster, what the throttle set, and the layout's emergency state.
+
+export type Direction = "forward" | "reverse";
+
+export interface TrainEntry {
+  id: string;
+  name: string;
+  address: number;
+  long: boolean;
+  functions?: Record<string, string>;
+  momentary?: number[];
+}
+
+export interface Train extends TrainEntry {
+  roster: boolean;
+  node?: string;
+  online: boolean;
+  controlled: boolean;
+  controller?: string;
+  speed: number;
+  direction: Direction;
+  estop: boolean;
+  on: number[];
+  known: boolean;
+  updated: string;
+  removed?: boolean;
+}
+
+export interface FoundTrain {
+  id: string;
+  name: string;
+  node: string;
+  address: number;
+  long: boolean;
+  roster: boolean;
+}
+
+export interface LayoutState {
+  power_off: boolean;
+  emergency_stop: boolean;
+  updated?: string;
+}
+
+export interface ProgrammingTrack {
+  node?: string;
+  name?: string;
+  online: boolean;
+  checked?: string;
+}
+
+export interface CVOp {
+  id: number;
+  kind: "read" | "write" | "pom";
+  train?: string;
+  train_name?: string;
+  cv: number;
+  value: number;
+  ok: boolean;
+  error?: string;
+  started: string;
+  finished: string;
 }
 
 export interface LinkStatus {
@@ -428,6 +502,7 @@ async function requestText(path: string): Promise<string> {
 
 const nodePath = (id: string) => `/api/v1/nodes/${encodeURIComponent(id)}`;
 const automationPath = (id: string) => `/api/v1/automations/${encodeURIComponent(id)}`;
+const trainPath = (id: string) => `/api/v1/trains/${encodeURIComponent(id)}`;
 
 export const api = {
   health: () => request<Health>("/api/v1/health"),
@@ -444,47 +519,155 @@ export const api = {
     return request<{ entries: MonitorEntry[]; last_seq: number }>(`/api/v1/monitor?${q.toString()}`);
   },
   sendFrame: (frame: string) =>
-    request<{ frame: string }>("/api/v1/monitor/send", { method: "POST", body: JSON.stringify({ frame }) }),
+    request<{ frame: string }>("/api/v1/monitor/send", {
+      method: "POST",
+      body: JSON.stringify({ frame }),
+    }),
   serialPorts: () => request<{ ports: string[] }>("/api/v1/serial-ports").then((r) => r.ports),
   forgetNode: (id: string) => request<void>(nodePath(id), { method: "DELETE" }),
   cdi: (id: string) => request<{ status: CdiStatus; layout: Layout }>(`${nodePath(id)}/cdi`),
   cdiXML: (id: string) => requestText(`${nodePath(id)}/cdi?format=xml`),
-  refreshCdi: (id: string) => request<{ status: string }>(`${nodePath(id)}/cdi/refresh`, { method: "POST" }),
+  refreshCdi: (id: string) =>
+    request<{ status: string }>(`${nodePath(id)}/cdi/refresh`, {
+      method: "POST",
+    }),
   configRead: (id: string, range: { space: number; address: number; size: number }) =>
-    request<ReadResult>(`${nodePath(id)}/config/read`, { method: "POST", body: JSON.stringify(range) }),
+    request<ReadResult>(`${nodePath(id)}/config/read`, {
+      method: "POST",
+      body: JSON.stringify(range),
+    }),
   configWrite: (id: string, values: Values) =>
-    request<WriteResult>(`${nodePath(id)}/config/write`, { method: "POST", body: JSON.stringify({ values }) }),
-  reboot: (id: string) => request<{ status: string }>(`${nodePath(id)}/config/reboot`, { method: "POST" }),
+    request<WriteResult>(`${nodePath(id)}/config/write`, {
+      method: "POST",
+      body: JSON.stringify({ values }),
+    }),
+  reboot: (id: string) =>
+    request<{ status: string }>(`${nodePath(id)}/config/reboot`, {
+      method: "POST",
+    }),
   factoryReset: (id: string) =>
-    request<{ status: string }>(`${nodePath(id)}/config/factory-reset`, { method: "POST", body: JSON.stringify({ confirm: id }) }),
+    request<{ status: string }>(`${nodePath(id)}/config/factory-reset`, {
+      method: "POST",
+      body: JSON.stringify({ confirm: id }),
+    }),
   entities: () => request<{ entities: Entity[] }>("/api/v1/entities").then((r) => r.entities),
   entity: (id: string) => request<Entity>(`/api/v1/entities/${encodeURIComponent(id)}`),
   entityKinds: () => request<{ kinds: KindDef[] }>("/api/v1/entities/kinds").then((r) => r.kinds),
   command: (id: string, command: string) =>
-    request<Entity>(`/api/v1/entities/${encodeURIComponent(id)}/command`, { method: "POST", body: JSON.stringify({ command }) }),
+    request<Entity>(`/api/v1/entities/${encodeURIComponent(id)}/command`, {
+      method: "POST",
+      body: JSON.stringify({ command }),
+    }),
   updateEntity: (id: string, change: EntityChange) =>
-    request<Entity>(`/api/v1/entities/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(change) }),
-  createEntity: (manual: ManualEntity) => request<Entity>("/api/v1/entities", { method: "POST", body: JSON.stringify(manual) }),
-  deleteEntity: (id: string) => request<void>(`/api/v1/entities/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    request<Entity>(`/api/v1/entities/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: JSON.stringify(change),
+    }),
+  createEntity: (manual: ManualEntity) =>
+    request<Entity>("/api/v1/entities", {
+      method: "POST",
+      body: JSON.stringify(manual),
+    }),
+  deleteEntity: (id: string) =>
+    request<void>(`/api/v1/entities/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    }),
   refreshEntities: () => request<{ status: string }>("/api/v1/entities/refresh", { method: "POST" }),
   eventNames: (node?: string) =>
-    request<{ events: EventName[] }>(node ? `/api/v1/event-names?node=${encodeURIComponent(node)}` : "/api/v1/event-names").then((r) => r.events),
-  refreshEventNames: (node: string) => request<{ status: string }>(`${nodePath(node)}/event-names/refresh`, { method: "POST" }),
+    request<{ events: EventName[] }>(
+      node ? `/api/v1/event-names?node=${encodeURIComponent(node)}` : "/api/v1/event-names",
+    ).then((r) => r.events),
+  refreshEventNames: (node: string) =>
+    request<{ status: string }>(`${nodePath(node)}/event-names/refresh`, {
+      method: "POST",
+    }),
   profiles: () => request<{ profiles: Profile[] }>("/api/v1/profiles").then((r) => r.profiles),
   automations: () => request<{ automations: AutomationStatus[] }>("/api/v1/automations").then((r) => r.automations),
   automation: (id: string) => request<AutomationStatus>(automationPath(id)),
-  createAutomation: (doc: Automation) => request<AutomationStatus>("/api/v1/automations", { method: "POST", body: JSON.stringify(doc) }),
-  updateAutomation: (id: string, doc: Automation) => request<AutomationStatus>(automationPath(id), { method: "PUT", body: JSON.stringify(doc) }),
+  createAutomation: (doc: Automation) =>
+    request<AutomationStatus>("/api/v1/automations", {
+      method: "POST",
+      body: JSON.stringify(doc),
+    }),
+  updateAutomation: (id: string, doc: Automation) =>
+    request<AutomationStatus>(automationPath(id), {
+      method: "PUT",
+      body: JSON.stringify(doc),
+    }),
   setAutomationEnabled: (id: string, enabled: boolean) =>
-    request<AutomationStatus>(automationPath(id), { method: "PATCH", body: JSON.stringify({ enabled }) }),
+    request<AutomationStatus>(automationPath(id), {
+      method: "PATCH",
+      body: JSON.stringify({ enabled }),
+    }),
   deleteAutomation: (id: string) => request<void>(automationPath(id), { method: "DELETE" }),
   automationYAML: (id: string) => requestText(`${automationPath(id)}/yaml`),
   runAutomation: (id: string, checkConditions = false) =>
-    request<Trace>(`${automationPath(id)}/run`, { method: "POST", body: JSON.stringify({ check_conditions: checkConditions }) }),
-  stopAutomation: (id: string) => request<{ status: string }>(`${automationPath(id)}/stop`, { method: "POST" }),
+    request<Trace>(`${automationPath(id)}/run`, {
+      method: "POST",
+      body: JSON.stringify({ check_conditions: checkConditions }),
+    }),
+  stopAutomation: (id: string) =>
+    request<{ status: string }>(`${automationPath(id)}/stop`, {
+      method: "POST",
+    }),
   traces: (id: string, limit?: number) =>
     request<{ traces: Trace[] }>(`${automationPath(id)}/traces${limit ? `?limit=${limit}` : ""}`).then((r) => r.traces),
   trace: (id: string, traceId: string) => request<Trace>(`${automationPath(id)}/traces/${encodeURIComponent(traceId)}`),
+  trains: () => request<{ trains: Train[]; layout: LayoutState }>("/api/v1/trains"),
+  train: (id: string) => request<Train>(trainPath(id)),
+  createTrain: (entry: Partial<TrainEntry>) =>
+    request<Train>("/api/v1/trains", {
+      method: "POST",
+      body: JSON.stringify(entry),
+    }),
+  updateTrain: (id: string, entry: Partial<TrainEntry>) =>
+    request<Train>(trainPath(id), {
+      method: "PATCH",
+      body: JSON.stringify(entry),
+    }),
+  deleteTrain: (id: string) => request<void>(trainPath(id), { method: "DELETE" }),
+  searchTrains: (query: string) =>
+    request<{ trains: FoundTrain[] }>("/api/v1/trains/search", {
+      method: "POST",
+      body: JSON.stringify({ query }),
+    }).then((r) => r.trains),
+  acquireTrain: (id: string) => request<Train>(`${trainPath(id)}/acquire`, { method: "POST" }),
+  releaseTrain: (id: string) => request<Train>(`${trainPath(id)}/release`, { method: "POST" }),
+  refreshTrain: (id: string) => request<Train>(`${trainPath(id)}/refresh`, { method: "POST" }),
+  trainSpeed: (id: string, speed: number, direction?: Direction) =>
+    request<Train>(`${trainPath(id)}/speed`, {
+      method: "POST",
+      body: JSON.stringify({ speed, direction }),
+    }),
+  trainEStop: (id: string) => request<Train>(`${trainPath(id)}/estop`, { method: "POST" }),
+  trainFunction: (id: string, fn: number, on: boolean) =>
+    request<Train>(`${trainPath(id)}/function`, {
+      method: "POST",
+      body: JSON.stringify({ function: fn, on }),
+    }),
+  writePOM: (id: string, cv: number, value: number) =>
+    request<CVOp>(`${trainPath(id)}/cv`, {
+      method: "POST",
+      body: JSON.stringify({ cv, value }),
+    }),
+  layout: () => request<LayoutState>("/api/v1/trains/layout"),
+  setLayout: (change: { power?: boolean; emergency_stop?: boolean }) =>
+    request<LayoutState>("/api/v1/trains/layout", {
+      method: "POST",
+      body: JSON.stringify(change),
+    }),
+  programming: () => request<{ track: ProgrammingTrack; history: CVOp[] }>("/api/v1/programming"),
+  findProgrammingTrack: () => request<ProgrammingTrack>("/api/v1/programming/find", { method: "POST" }),
+  readCV: (cv: number) =>
+    request<CVOp>("/api/v1/programming/read", {
+      method: "POST",
+      body: JSON.stringify({ cv }),
+    }),
+  writeCV: (cv: number, value: number) =>
+    request<CVOp>("/api/v1/programming/write", {
+      method: "POST",
+      body: JSON.stringify({ cv, value }),
+    }),
 };
 
 /** A short label for an event ID: the entity or named event it belongs to. */

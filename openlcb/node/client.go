@@ -21,12 +21,14 @@ const (
 	pendVerify
 	pendDatagram
 	pendResolve // waiting for a node ID to show up with an alias
+	pendTraction
 )
 
 type pendingKey struct {
 	kind  pendingKind
 	alias openlcb.Alias  // the node we expect to hear from
 	id    openlcb.NodeID // for pendResolve
+	code  uint16         // for pendTraction: which command the reply answers
 }
 
 type reply struct {

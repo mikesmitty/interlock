@@ -4,12 +4,16 @@
 // outpost's real CDI with a configuration space behind it that can be
 // read and written, moves its servos when their throw and close events
 // arrive and reports the feedback, and walks a locomotive around its
-// four tracks so the blocks and reporters have something to show.
+// four tracks so the blocks and reporters have something to show. As a
+// command station (-cdi cs) it behaves like simple-dcc instead: it
+// creates train nodes when a throttle searches for them, drives them
+// with Train Control, and owns a programming track with a decoder on it
+// whose CVs can be read and written.
 //
 //	go run ./cmd/simnode                 # connects to 127.0.0.1:12021
 //	go run ./cmd/simnode -hub host:port
 //	go run ./cmd/simnode -pace 0         # no locomotive
-//	go run ./cmd/simnode -cdi cs         # simulate the command station instead
+//	go run ./cmd/simnode -cdi cs -id 0A.00.00.00.00.43   # the command station
 package main
 
 import (
@@ -42,7 +46,7 @@ func main() {
 	name := flag.String("name", "Sim Outpost", "user name reported in SNIP and the configuration")
 	which := flag.String("cdi", "outpost", "which device to simulate: outpost or cs (command station)")
 	pace := flag.Duration("pace", 6*time.Second, "how often the locomotive moves to the next track; 0 for never")
-	address := flag.Int("address", 1234, "DCC address of the locomotive")
+	address := flag.Int("address", 1234, "DCC address of the locomotive (outpost: the one detected; cs: the one on the programming track)")
 	verbose := flag.Bool("v", false, "log every frame")
 	flag.Parse()
 
@@ -77,7 +81,14 @@ func main() {
 		outpost, err = sim.NewOutpost(cfg)
 		peer = outpost
 	case "cs":
-		peer, err = sim.New(cfg, sim.CommandStationCDI)
+		if *name == "Sim Outpost" {
+			cfg.SNIP.UserName = "Sim Command Station"
+		}
+		long := *address > 127
+		peer, err = sim.NewStation(cfg, sim.StationOptions{
+			Decoders:         []*sim.Decoder{sim.NewDecoder(uint16(*address), long)},
+			ProgrammingTrack: uint16(*address),
+		})
 	default:
 		err = fmt.Errorf("-cdi must be outpost or cs, not %q", *which)
 	}

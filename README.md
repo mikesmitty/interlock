@@ -19,9 +19,12 @@ canbus-outpost and simple-dcc and guessed for other nodes, and shows them
 on an Entities page with live state and levers. Automations with Home
 Assistant style triggers, conditions and actions are built in a when /
 only if / then editor, kept in `automations.yaml`, and every run leaves
-a trace you can read step by step (`docs/automations.md`). Throttles
-and firmware upgrades are still to come; see `docs/design.md` for the
-plan.
+a trace you can read step by step (`docs/automations.md`). A Throttle
+page drives locomotives by DCC address through the command station's
+train nodes, with a roster in `trains.yaml`, and a Programming page reads
+and writes CVs on the programming track and on the main
+(`docs/trains.md`). Firmware upgrades are still to come; see
+`docs/design.md` for the plan.
 
 ## Trying it without hardware
 
@@ -29,6 +32,7 @@ plan.
 make build
 bin/interlock -data ./data &      # web interface on :8080, hub port on :12021
 go run ./cmd/simnode              # a simulated canbus-outpost joins the hub
+go run ./cmd/simnode -cdi cs -id 0A.00.00.00.00.43   # and a simulated command station
 ```
 
 Open http://localhost:8080 to see the node appear, then watch the monitor.

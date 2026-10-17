@@ -12,7 +12,9 @@ import (
 	"github.com/mikesmitty/interlock/internal/automation"
 	"github.com/mikesmitty/interlock/internal/entity"
 	"github.com/mikesmitty/interlock/internal/monitor"
+	"github.com/mikesmitty/interlock/internal/programmer"
 	"github.com/mikesmitty/interlock/internal/registry"
+	"github.com/mikesmitty/interlock/internal/train"
 	"github.com/mikesmitty/interlock/openlcb"
 )
 
@@ -27,11 +29,14 @@ import (
 //	event_names  {"node": id}       a node's named events changed
 //	automation   automation.Status  an automation changed, ran or was removed (topic "automations")
 //	trace        automation.Trace   a run started, took a step or ended (topic "automations")
+//	train        train.Train        a train changed, was added or removed (topic "trains")
+//	layout       train.Layout       track power or emergency stop changed (topic "trains")
+//	cv           programmer.Op      a CV operation finished (topic "trains")
 //	lagged       {}                 the client fell behind and entries were skipped
 //
 // The topics query parameter selects a comma separated subset of
-// nodes, links, monitor, entities and automations; the default is all
-// of them.
+// nodes, links, monitor, entities, automations and trains; the default is
+// all of them.
 
 const (
 	sseQueue     = 1024
@@ -49,7 +54,7 @@ func (a *API) events(w http.ResponseWriter, r *http.Request) {
 	flush := func() bool {
 		return rc.Flush() == nil
 	}
-	topics := map[string]bool{"nodes": true, "links": true, "monitor": true, "entities": true, "automations": true}
+	topics := map[string]bool{"nodes": true, "links": true, "monitor": true, "entities": true, "automations": true, "trains": true}
 	if s := r.URL.Query().Get("topics"); s != "" {
 		topics = map[string]bool{}
 		for _, t := range strings.Split(s, ",") {
@@ -83,6 +88,16 @@ func (a *API) events(w http.ResponseWriter, r *http.Request) {
 		defer unsubscribe()
 		unsubscribeTraces := a.deps.Automations.SubscribeTraces(func(tr automation.Trace) { push(sseEvent{"trace", tr}) })
 		defer unsubscribeTraces()
+	}
+	if topics["trains"] && a.deps.Trains != nil {
+		unsubscribe := a.deps.Trains.Subscribe(func(tr train.Train) { push(sseEvent{"train", tr}) })
+		defer unsubscribe()
+		unsubscribeLayout := a.deps.Trains.SubscribeLayout(func(l train.Layout) { push(sseEvent{"layout", l}) })
+		defer unsubscribeLayout()
+	}
+	if topics["trains"] && a.deps.Programmer != nil {
+		unsubscribe := a.deps.Programmer.Subscribe(func(op programmer.Op) { push(sseEvent{"cv", op}) })
+		defer unsubscribe()
 	}
 	if topics["entities"] && a.deps.EventNames != nil {
 		unsubscribe := a.deps.EventNames.Subscribe(func(id openlcb.NodeID) {

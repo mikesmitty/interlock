@@ -482,7 +482,36 @@ train reservation protocol, function description information (space 0xFA).
   variables yet), templates and the expression language, event triggers
   by name rather than ID, and the Interlock node answering Identify
   Events for the events its automations send.
-- Next: Phase 5, trains.
+- Phase 5 done (2026-10-16): `openlcb/traction` (Train Control command
+  and reply encoding, the Train Search event, DCC train node IDs), the
+  node's traction request path (replies matched by command, a handler for
+  commands addressed to Interlock, Identify Producer collection for
+  searches), `openlcb/sim.Station` (a simulated simple-dcc: train nodes
+  made on search, Train Control, a programming track with a decoder on it
+  answering through reply pending, the emergency events), the memconfig
+  server's deferred spaces, `internal/train` (the roster in `trains.yaml`,
+  search with allocate, controller assign, speed, direction, functions,
+  emergency stop, read-back, the layout's emergency events, notices from
+  trains another throttle took), `internal/programmer` (service mode and
+  POM through space 0xF8 with the DCC error codes in plain words), the
+  `train` automation action, train and programming endpoints with
+  `train`, `layout` and `cv` SSE events, the Throttle page (roster, cab
+  with slider, direction lever, functions, emergency controls) and the
+  Programming page (CV read and write with bits, POM, history).
+  `docs/trains.md` documents it. Milestone met against the simulator: a
+  locomotive driven from the browser and CV 8 read on the programming
+  track. Not yet against real hardware.
+- Decided in Phase 5: trains are their own domain rather than entities.
+  An entity has one state word and parameterless commands; a train has a
+  speed, a direction and functions, and is addressed by DCC address, not
+  by the node a command station happens to make for it. Automations reach
+  trains through the `train` action; a train trigger and condition can
+  come later on the same manager.
+- Deferred from Phase 5: consist building and listener registration (the
+  firmware does not forward to listeners on other nodes yet), reading CVs
+  on the main (needs RailCom), function descriptions from space 0xFA,
+  decoder definitions, and train entities for state triggers.
+- Next: Phase 6, firmware upgrade and polish.
 
 ## References
 

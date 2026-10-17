@@ -277,6 +277,19 @@ func (r *run) action(a Action, path string, n names) flow {
 			return r.fail(idx, err)
 		}
 		r.finish(idx, StepOK, "", nil)
+	case ActionTrain:
+		if r.e.opts.Trains == nil {
+			return r.fail(idx, errors.New("trains are not available"))
+		}
+		tr, err := r.e.opts.Trains.Command(r.ctx, a.trainCommand())
+		if err != nil {
+			return r.fail(idx, err)
+		}
+		detail := fmt.Sprintf("speed %s %s", strconv.FormatFloat(float64(tr.Speed), 'f', -1, 32), tr.Direction)
+		if tr.EStop {
+			detail = "emergency stopped"
+		}
+		r.finish(idx, StepOK, detail, nil)
 	case ActionEvent:
 		if err := r.e.opts.Bus.SendEvent(r.ctx, a.Event); err != nil {
 			return r.fail(idx, err)

@@ -8,7 +8,9 @@ import { Entities } from "./pages/Entities";
 import { Monitor } from "./pages/Monitor";
 import { NodeDetail } from "./pages/NodeDetail";
 import { Nodes } from "./pages/Nodes";
+import { Programming } from "./pages/Programming";
 import { Settings } from "./pages/Settings";
+import { Throttle } from "./pages/Throttle";
 import { bus, useBus } from "./store";
 
 function Shell() {
@@ -28,8 +30,14 @@ function Shell() {
         <NavLink className="rail__link" to="/entities">
           Entities
         </NavLink>
+        <NavLink className="rail__link" to="/throttle">
+          Throttle
+        </NavLink>
         <NavLink className="rail__link" to="/automations">
           Automations
+        </NavLink>
+        <NavLink className="rail__link" to="/programming">
+          Programming
         </NavLink>
         <NavLink className="rail__link" to="/monitor">
           Monitor
@@ -68,6 +76,9 @@ export default function App() {
         <Route path="automations/new" element={<AutomationEditor />} />
         <Route path="automations/:id" element={<AutomationEditor />} />
         <Route path="automations/:id/traces" element={<AutomationTraces />} />
+        <Route path="throttle" element={<Throttle />} />
+        <Route path="throttle/:id" element={<Throttle />} />
+        <Route path="programming" element={<Programming />} />
         <Route path="monitor" element={<Monitor />} />
         <Route path="settings" element={<Settings />} />
         <Route path="*" element={<NotFound />} />

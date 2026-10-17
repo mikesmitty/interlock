@@ -7,10 +7,12 @@ import {
   type Entity,
   type EventName,
   type Health,
+  type LayoutState,
   type LinkStatus,
   type MonitorEntry,
   type NodeInfo,
   type Trace,
+  type Train,
 } from "./api";
 
 export type Connection = "connecting" | "live" | "reconnecting";
@@ -32,6 +34,8 @@ export interface BusState {
   /** Traces that moved since the page loaded, newest last; a trace page
    * merges these over what it fetched. */
   liveTraces: Trace[];
+  trains: Record<string, Train>;
+  layout: LayoutState;
 }
 
 const MAX_LIVE_TRACES = 50;
@@ -62,6 +66,8 @@ class BusStore {
     eventNames: [],
     automations: {},
     liveTraces: [],
+    trains: {},
+    layout: { power_off: false, emergency_stop: false },
   };
   private listeners = new Set<Listener>();
   private source?: EventSource;
@@ -88,7 +94,9 @@ class BusStore {
     const es = new EventSource("/api/v1/events");
     this.source = es;
     es.addEventListener("ready", (ev) => {
-      const { seq } = JSON.parse((ev as MessageEvent<string>).data) as { seq: number };
+      const { seq } = JSON.parse((ev as MessageEvent<string>).data) as {
+        seq: number;
+      };
       void this.load(seq);
     });
     es.addEventListener("node", (ev) => {
@@ -102,7 +110,9 @@ class BusStore {
       this.set({ nodes: { ...this.state.nodes, [info.id]: info } });
     });
     es.addEventListener("links", (ev) => {
-      const { links } = JSON.parse((ev as MessageEvent<string>).data) as { links: LinkStatus[] };
+      const { links } = JSON.parse((ev as MessageEvent<string>).data) as {
+        links: LinkStatus[];
+      };
       this.set({ links });
     });
     es.addEventListener("frame", (ev) => {
@@ -136,7 +146,22 @@ class BusStore {
     es.addEventListener("trace", (ev) => {
       const trace = JSON.parse((ev as MessageEvent<string>).data) as Trace;
       const liveTraces = this.state.liveTraces.filter((t) => t.id !== trace.id).concat(trace);
-      this.set({ liveTraces: liveTraces.length > MAX_LIVE_TRACES ? liveTraces.slice(liveTraces.length - MAX_LIVE_TRACES) : liveTraces });
+      this.set({
+        liveTraces:
+          liveTraces.length > MAX_LIVE_TRACES ? liveTraces.slice(liveTraces.length - MAX_LIVE_TRACES) : liveTraces,
+      });
+    });
+    es.addEventListener("train", (ev) => {
+      const train = JSON.parse((ev as MessageEvent<string>).data) as Train;
+      const trains = { ...this.state.trains };
+      if (train.removed) delete trains[train.id];
+      else trains[train.id] = train;
+      this.set({ trains });
+    });
+    es.addEventListener("layout", (ev) => {
+      this.set({
+        layout: JSON.parse((ev as MessageEvent<string>).data) as LayoutState,
+      });
     });
     es.addEventListener("lagged", () => this.set({ lagged: true }));
     es.onerror = () => {
@@ -159,14 +184,17 @@ class BusStore {
   private async load(serverSeq: number) {
     this.set({ connection: "live" });
     try {
-      const [nodes, links, health, entityList, eventNames, automationList] = await Promise.all([
+      const [nodes, links, health, entityList, eventNames, automationList, trainsResponse] = await Promise.all([
         api.nodes(),
         api.links(),
         api.health(),
         api.entities(),
         api.eventNames(),
         api.automations(),
+        api.trains(),
       ]);
+      const trains: Record<string, Train> = {};
+      for (const t of trainsResponse.trains) trains[t.id] = t;
       const automations: Record<string, AutomationStatus> = {};
       for (const a of automationList) automations[a.id] = a;
       const map: Record<string, NodeInfo> = {};
@@ -185,6 +213,8 @@ class BusStore {
         entities,
         eventNames,
         automations,
+        trains,
+        layout: trainsResponse.layout,
         entries,
         lastSeq: Math.max(this.state.lastSeq, backlog.last_seq),
         lagged: false,

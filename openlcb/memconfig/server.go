@@ -25,6 +25,18 @@ type Space interface {
 	Write(address uint32, data []byte) error
 }
 
+// Deferred marks a Space whose reads and writes take a while, such as a
+// DCC programming track. The server acknowledges requests to it with
+// reply pending and the timeout it names, and answers from a goroutine, so
+// its Read and Write may block; a failed write becomes a write failed
+// reply rather than a rejected datagram.
+type Deferred interface {
+	Space
+	// TimeoutExp is how long the requester should wait for the reply, as
+	// a power of two seconds.
+	TimeoutExp() uint8
+}
+
 // Memory is a Space backed by a byte slice.
 type Memory struct {
 	mu       sync.RWMutex
@@ -135,8 +147,14 @@ func (s *Server) handle(msg *openlcb.Message) (node.DatagramFlags, error) {
 		if err != nil || len(rw.Data) < 1 || rw.Data[0] == 0 || int(rw.Data[0]) > MaxTransfer {
 			return node.DatagramFlags{}, &openlcb.Error{Code: openlcb.ErrCodeInvalidArguments}
 		}
+		exp := uint8(1)
+		if sp, ok := s.Space(rw.Space); ok {
+			if d, ok := sp.(Deferred); ok {
+				exp = d.TimeoutExp()
+			}
+		}
 		go s.reply(msg.Source, s.read(rw))
-		return node.DatagramFlags{ReplyPending: true, TimeoutExp: 1}, nil
+		return node.DatagramFlags{ReplyPending: true, TimeoutExp: exp}, nil
 	case IsReadWrite(cmd) && cmd&rwCommandMask == CmdWrite:
 		rw, err := ParseReadWrite(p)
 		if err != nil || len(rw.Data) == 0 {
@@ -148,6 +166,10 @@ func (s *Server) handle(msg *openlcb.Message) (node.DatagramFlags, error) {
 		}
 		if sp.ReadOnly() {
 			return node.DatagramFlags{}, &openlcb.Error{Code: ErrCodeWriteReadOnly}
+		}
+		if d, ok := sp.(Deferred); ok {
+			go s.reply(msg.Source, s.write(d, rw))
+			return node.DatagramFlags{ReplyPending: true, TimeoutExp: d.TimeoutExp()}, nil
 		}
 		if err := sp.Write(rw.Address, rw.Data); err != nil {
 			return node.DatagramFlags{}, err
@@ -214,6 +236,19 @@ func (s *Server) read(rw ReadWrite) []byte {
 		return ReadFailedReply(rw.Space, rw.Address, code)
 	}
 	return ReadReply(rw.Space, rw.Address, buf[:n])
+}
+
+// write performs a deferred write and builds its reply.
+func (s *Server) write(sp Space, rw ReadWrite) []byte {
+	if err := sp.Write(rw.Address, rw.Data); err != nil {
+		code := openlcb.ErrCodePermanent
+		var oerr *openlcb.Error
+		if errors.As(err, &oerr) {
+			code = oerr.Code
+		}
+		return WriteFailedReply(rw.Space, rw.Address, code)
+	}
+	return WriteReply(rw.Space, rw.Address)
 }
 
 func (s *Server) options() Options {

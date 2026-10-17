@@ -25,9 +25,11 @@ import (
 	"github.com/mikesmitty/interlock/internal/monitor"
 	"github.com/mikesmitty/interlock/internal/nodeconfig"
 	"github.com/mikesmitty/interlock/internal/profile"
+	"github.com/mikesmitty/interlock/internal/programmer"
 	"github.com/mikesmitty/interlock/internal/registry"
 	"github.com/mikesmitty/interlock/internal/server"
 	"github.com/mikesmitty/interlock/internal/store"
+	"github.com/mikesmitty/interlock/internal/train"
 	"github.com/mikesmitty/interlock/internal/version"
 	"github.com/mikesmitty/interlock/openlcb"
 	"github.com/mikesmitty/interlock/openlcb/hub"
@@ -165,13 +167,24 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	reg.Subscribe(entities.HandleNode)
 	table.Subscribe(entities.Rebuild)
 
-	// The automations over the entities.
+	// The trains and the CV programmer.
+	trainFile, err := train.OpenFile(filepath.Join(*dataDir, train.FileName))
+	if err != nil {
+		return err
+	}
+	trains := train.New(train.Options{Bus: local, Nodes: reg, File: trainFile, Logger: logger})
+	logger.Info("loaded the roster", "count", len(trainFile.List()))
+	reg.Subscribe(trains.HandleNode)
+	prog := programmer.New(programmer.Options{Bus: local, Memory: mem, Nodes: reg, Trains: trains, Logger: logger})
+	reg.Subscribe(prog.HandleNode)
+
+	// The automations over the entities and trains.
 	autoFile, err := automation.OpenFile(filepath.Join(*dataDir, automation.FileName))
 	if err != nil {
 		return err
 	}
 	engine := automation.New(automation.Options{
-		Entities: entities, Bus: local, Nodes: reg, Store: st, File: autoFile, Logger: logger,
+		Entities: entities, Bus: local, Nodes: reg, Trains: trains, Store: st, File: autoFile, Logger: logger,
 	})
 	logger.Info("loaded automations", "count", len(engine.List()))
 	entities.Subscribe(engine.HandleEntity)
@@ -180,6 +193,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		if ev.Kind == node.EventMessage {
 			table.HandleMessage(ev.Message)
 			entities.HandleMessage(ev.Message)
+			trains.HandleMessage(ev.Message)
 			engine.HandleMessage(ev.Message)
 		}
 	})
@@ -259,6 +273,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			EventNames:  table,
 			Profiles:    profiles,
 			Automations: engine,
+			Trains:      trains,
+			Programmer:  prog,
 			SerialPorts: transport.SerialPorts,
 			Logger:      logger,
 		}),

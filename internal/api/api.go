@@ -13,6 +13,7 @@ import (
 
 	"github.com/mikesmitty/interlock/internal/monitor"
 	"github.com/mikesmitty/interlock/internal/registry"
+	"github.com/mikesmitty/interlock/internal/train"
 	"github.com/mikesmitty/interlock/internal/version"
 	"github.com/mikesmitty/interlock/openlcb"
 	"github.com/mikesmitty/interlock/openlcb/can"
@@ -70,6 +71,10 @@ type Deps struct {
 	Profiles Profiles
 	// Automations is the automation engine; nil disables the endpoints.
 	Automations Automations
+	// Trains is the train manager; nil disables the train endpoints.
+	Trains Trains
+	// Programmer reads and writes CVs; nil disables the programming endpoints.
+	Programmer Programmer
 	// SerialPorts lists serial devices for the settings page; may be nil.
 	SerialPorts func() ([]string, error)
 	Logger      *slog.Logger
@@ -122,6 +127,25 @@ func New(deps Deps) *API {
 	a.mux.HandleFunc("POST /api/v1/automations/{id}/stop", a.stopAutomation)
 	a.mux.HandleFunc("GET /api/v1/automations/{id}/traces", a.listTraces)
 	a.mux.HandleFunc("GET /api/v1/automations/{id}/traces/{trace}", a.getTrace)
+	a.mux.HandleFunc("GET /api/v1/trains", a.listTrains)
+	a.mux.HandleFunc("POST /api/v1/trains", a.createTrain)
+	a.mux.HandleFunc("POST /api/v1/trains/search", a.searchTrains)
+	a.mux.HandleFunc("GET /api/v1/trains/layout", a.getLayout)
+	a.mux.HandleFunc("POST /api/v1/trains/layout", a.setLayout)
+	a.mux.HandleFunc("GET /api/v1/trains/{id}", a.getTrain)
+	a.mux.HandleFunc("PATCH /api/v1/trains/{id}", a.updateTrain)
+	a.mux.HandleFunc("DELETE /api/v1/trains/{id}", a.deleteTrain)
+	a.mux.HandleFunc("POST /api/v1/trains/{id}/acquire", a.trainAction(http.StatusOK, func(ctx context.Context, id string) (train.Train, error) { return a.deps.Trains.Acquire(ctx, id) }))
+	a.mux.HandleFunc("POST /api/v1/trains/{id}/release", a.trainAction(http.StatusOK, func(ctx context.Context, id string) (train.Train, error) { return a.deps.Trains.Release(ctx, id) }))
+	a.mux.HandleFunc("POST /api/v1/trains/{id}/speed", a.trainSpeed)
+	a.mux.HandleFunc("POST /api/v1/trains/{id}/estop", a.trainAction(http.StatusAccepted, func(ctx context.Context, id string) (train.Train, error) { return a.deps.Trains.EmergencyStop(ctx, id) }))
+	a.mux.HandleFunc("POST /api/v1/trains/{id}/function", a.trainFunction)
+	a.mux.HandleFunc("POST /api/v1/trains/{id}/refresh", a.trainAction(http.StatusOK, func(ctx context.Context, id string) (train.Train, error) { return a.deps.Trains.Refresh(ctx, id) }))
+	a.mux.HandleFunc("POST /api/v1/trains/{id}/cv", a.writePOM)
+	a.mux.HandleFunc("GET /api/v1/programming", a.programming)
+	a.mux.HandleFunc("POST /api/v1/programming/find", a.findProgrammingTrack)
+	a.mux.HandleFunc("POST /api/v1/programming/read", a.readCV)
+	a.mux.HandleFunc("POST /api/v1/programming/write", a.writeCV)
 	a.mux.HandleFunc("GET /api/v1/links", a.links)
 	a.mux.HandleFunc("GET /api/v1/monitor", a.monitorEntries)
 	a.mux.HandleFunc("POST /api/v1/monitor/send", a.monitorSend)

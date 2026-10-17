@@ -14,6 +14,7 @@ import (
 	"github.com/mikesmitty/interlock/internal/entity"
 	"github.com/mikesmitty/interlock/internal/registry"
 	"github.com/mikesmitty/interlock/internal/store"
+	"github.com/mikesmitty/interlock/internal/train"
 	"github.com/mikesmitty/interlock/openlcb"
 )
 
@@ -27,6 +28,12 @@ type Entities interface {
 // Bus sends events from Interlock's node.
 type Bus interface {
 	SendEvent(ctx context.Context, id openlcb.EventID) error
+}
+
+// Trains drives locomotives for train actions; it may be nil.
+type Trains interface {
+	Command(ctx context.Context, cmd train.Command) (train.Train, error)
+	Name(address uint16, long bool) string
 }
 
 // Nodes is the registry; it may be nil.
@@ -50,6 +57,7 @@ type Options struct {
 	Entities Entities
 	Bus      Bus
 	Nodes    Nodes
+	Trains   Trains
 	Store    Store
 	// File is automations.yaml; nil keeps automations in memory.
 	File   *File
@@ -740,6 +748,10 @@ func (e *Engine) problemsLocked(doc Automation) []string {
 			if ent, ok := lookup(c.Entity); ok {
 				checkState(ent, c.State)
 			}
+		case a != nil && a.Type == ActionTrain:
+			if e.opts.Trains == nil {
+				note("Trains are not available, so train actions cannot run")
+			}
 		case a != nil && a.Entity != "":
 			if ent, ok := lookup(a.Entity); ok && !slices.Contains(ent.Commands, a.Command) {
 				if len(ent.Commands) == 0 {
@@ -952,6 +964,12 @@ func (e *Engine) names() names {
 				return info.Name()
 			}
 			return ""
+		},
+		train: func(address uint16, long bool) string {
+			if e.opts.Trains == nil {
+				return ""
+			}
+			return e.opts.Trains.Name(address, long)
 		},
 	}
 }

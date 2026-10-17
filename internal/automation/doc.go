@@ -19,7 +19,10 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/mikesmitty/interlock/internal/entity"
+	"github.com/mikesmitty/interlock/internal/train"
+	"github.com/mikesmitty/interlock/internal/yamlstrict"
 	"github.com/mikesmitty/interlock/openlcb"
+	"github.com/mikesmitty/interlock/openlcb/traction"
 )
 
 // Modes say what a new trigger does while the automation is already
@@ -63,6 +66,7 @@ const (
 // Action types.
 const (
 	ActionCommand = "command"
+	ActionTrain   = "train"
 	ActionEvent   = "event"
 	ActionDelay   = "delay"
 	ActionWait    = "wait"
@@ -170,6 +174,14 @@ type Action struct {
 	// Entity and Command for a command action.
 	Entity  string `json:"entity,omitempty" yaml:"entity,omitempty"`
 	Command string `json:"command,omitempty" yaml:"command,omitempty"`
+	// Address, AddressType, Speed, Direction, Function and State for a
+	// train action, whose Command is speed, stop, estop or function.
+	Address     uint16  `json:"address,omitempty" yaml:"address,omitempty"`
+	AddressType string  `json:"address_type,omitempty" yaml:"address_type,omitempty"`
+	Speed       float32 `json:"speed,omitempty" yaml:"speed,omitempty"`
+	Direction   string  `json:"direction,omitempty" yaml:"direction,omitempty"`
+	Function    int     `json:"function,omitempty" yaml:"function,omitempty"`
+	State       string  `json:"state,omitempty" yaml:"state,omitempty"`
 	// Event for an event action.
 	Event openlcb.EventID `json:"event,omitempty" yaml:"event,omitempty"`
 	// For is how long a delay waits.
@@ -199,6 +211,19 @@ type Action struct {
 	Message string `json:"message,omitempty" yaml:"message,omitempty"`
 }
 
+// trainCommand is the train action as the train manager takes it.
+func (a Action) trainCommand() train.Command {
+	return train.Command{
+		Address:   a.Address,
+		Long:      a.AddressType == "long" || a.Address > traction.ShortAddressMax,
+		Kind:      a.Command,
+		Speed:     a.Speed,
+		Direction: a.Direction,
+		Function:  a.Function,
+		On:        a.State == "on",
+	}
+}
+
 // Choice is one branch of a choose action.
 type Choice struct {
 	Name       string      `json:"name,omitempty" yaml:"name,omitempty"`
@@ -221,7 +246,7 @@ func (a *Automation) UnmarshalJSON(data []byte) error {
 func (a *Automation) UnmarshalYAML(node *yaml.Node) error {
 	type plain Automation
 	p := plain{Enabled: true}
-	if err := unknownFields(node, reflect.TypeOf(p)); err != nil {
+	if err := yamlstrict.Check(node, reflect.TypeOf(p)); err != nil {
 		return err
 	}
 	if err := node.Decode(&p); err != nil {
@@ -258,7 +283,7 @@ var (
 	modes          = []string{ModeSingle, ModeRestart, ModeQueued, ModeParallel}
 	triggerTypes   = []string{TriggerState, TriggerEvent, TriggerLocomotive, TriggerNode, TriggerTime, TriggerInterval, TriggerStart}
 	conditionTypes = []string{ConditionState, ConditionTime, ConditionTrigger, ConditionAnd, ConditionOr, ConditionNot}
-	actionTypes    = []string{ActionCommand, ActionEvent, ActionDelay, ActionWait, ActionIf, ActionChoose, ActionRepeat, ActionStop, ActionLog}
+	actionTypes    = []string{ActionCommand, ActionTrain, ActionEvent, ActionDelay, ActionWait, ActionIf, ActionChoose, ActionRepeat, ActionStop, ActionLog}
 	weekdayNames   = []string{"mon", "tue", "wed", "thu", "fri", "sat", "sun"}
 	addressTypes   = []string{"", "long", "short", "consist"}
 )
@@ -473,6 +498,35 @@ func (a Action) validate(path string, depth int) error {
 		}
 		if a.Command == "" {
 			return invalid(path+".command", "say which command to send")
+		}
+	case ActionTrain:
+		if a.Address < 1 || a.Address > train.MaxAddress {
+			return invalid(path+".address", "say which locomotive, by DCC address 1 to %d", train.MaxAddress)
+		}
+		if a.AddressType != "" && a.AddressType != "long" && a.AddressType != "short" {
+			return invalid(path+".address_type", "%q must be long or short", a.AddressType)
+		}
+		if a.AddressType == "short" && a.Address > traction.ShortAddressMax {
+			return invalid(path+".address_type", "a short address is 127 or less")
+		}
+		switch a.Command {
+		case train.CommandSpeed:
+			if a.Speed < 0 || a.Speed > train.MaxSpeed {
+				return invalid(path+".speed", "the speed runs from 0 to %d", train.MaxSpeed)
+			}
+			if a.Direction != "" && a.Direction != train.Forward && a.Direction != train.Reverse {
+				return invalid(path+".direction", "%q must be forward or reverse", a.Direction)
+			}
+		case train.CommandStop, train.CommandEStop:
+		case train.CommandFunction:
+			if a.Function < 0 || a.Function > train.MaxFunction {
+				return invalid(path+".function", "functions run from F0 to F%d", train.MaxFunction)
+			}
+			if a.State != "on" && a.State != "off" {
+				return invalid(path+".state", "say whether the function goes on or off")
+			}
+		default:
+			return invalid(path+".command", "%q is not a train command; use speed, stop, estop or function", a.Command)
 		}
 	case ActionEvent:
 		if a.Event == 0 {

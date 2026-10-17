@@ -8,12 +8,12 @@ import { plural, relativeTime, useNow } from "../format";
 import { useBus } from "../store";
 
 export function Automations() {
-  const { automations, entities, nodes, loaded } = useBus();
+  const { automations, entities, nodes, trains, loaded } = useBus();
   const now = useNow();
   const navigate = useNavigate();
   const [message, setMessage] = useState<string>();
   const [busy, setBusy] = useState<string>();
-  const names = namesFrom(entities, nodes);
+  const names = namesFrom(entities, nodes, trains);
 
   const list = Object.values(automations).sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
   const on = list.filter((a) => a.enabled).length;

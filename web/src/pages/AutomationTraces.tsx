@@ -9,7 +9,7 @@ import { useBus } from "../store";
 
 export function AutomationTraces() {
   const { id = "" } = useParams();
-  const { automations, entities, nodes, liveTraces, loaded } = useBus();
+  const { automations, entities, nodes, trains, liveTraces, loaded } = useBus();
   const now = useNow();
   const auto = automations[id];
   const [fetched, setFetched] = useState<Trace[]>();
@@ -37,7 +37,7 @@ export function AutomationTraces() {
   }, [fetched, liveTraces, id]);
 
   const current = (follow ? traces[0] : traces.find((t) => t.id === selected)) ?? traces[0];
-  const names = namesFrom(entities, nodes);
+  const names = namesFrom(entities, nodes, trains);
 
   async function run() {
     setBusy(true);

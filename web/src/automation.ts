@@ -1,6 +1,18 @@
 // Words for automations: what a trigger, condition or action means, what a
 // result is called, which lamp it lights, and blank rows for the editor.
-import { nodeName, type Action, type AutomationStatus, type Condition, type Entity, type EntityKind, type NodeInfo, type StepResult, type TraceResult, type Trigger } from "./api";
+import {
+  nodeName,
+  type Action,
+  type AutomationStatus,
+  type Condition,
+  type Entity,
+  type EntityKind,
+  type NodeInfo,
+  type StepResult,
+  type TraceResult,
+  type Train,
+  type Trigger,
+} from "./api";
 import type { LampColor } from "./components/Lamp";
 
 export const KIND_STATES: Record<EntityKind, string[]> = {
@@ -22,22 +34,57 @@ export const WEEKDAYS: [string, string][] = [
   ["sun", "Sun"],
 ];
 
-export const MODES: { value: NonNullable<AutomationStatus["mode"]>; label: string; hint: string }[] = [
-  { value: "single", label: "Single", hint: "Ignore new triggers while it is running." },
-  { value: "restart", label: "Restart", hint: "Stop the run in progress and start over." },
-  { value: "queued", label: "Queued", hint: "Run again after the current run finishes." },
-  { value: "parallel", label: "Parallel", hint: "Run each trigger alongside the others." },
+export const MODES: {
+  value: NonNullable<AutomationStatus["mode"]>;
+  label: string;
+  hint: string;
+}[] = [
+  {
+    value: "single",
+    label: "Single",
+    hint: "Ignore new triggers while it is running.",
+  },
+  {
+    value: "restart",
+    label: "Restart",
+    hint: "Stop the run in progress and start over.",
+  },
+  {
+    value: "queued",
+    label: "Queued",
+    hint: "Run again after the current run finishes.",
+  },
+  {
+    value: "parallel",
+    label: "Parallel",
+    hint: "Run each trigger alongside the others.",
+  },
 ];
 
 export interface Names {
   entity: (id: string) => string;
   node: (id: string) => string;
+  train: (address: number, long: boolean) => string;
 }
 
-export function namesFrom(entities: Record<string, Entity>, nodes: Record<string, NodeInfo>): Names {
+/** The roster name for an address, else "locomotive 1234". */
+export function trainName(trains: Record<string, Train>, address: number, long: boolean): string {
+  const id = long && address <= 127 ? `${address}l` : String(address);
+  const t = trains[id];
+  if (t?.roster) return t.name;
+  if (address > 127) return `locomotive ${address}`;
+  return `locomotive ${address} (${long ? "long" : "short"})`;
+}
+
+export function namesFrom(
+  entities: Record<string, Entity>,
+  nodes: Record<string, NodeInfo>,
+  trains: Record<string, Train> = {},
+): Names {
   return {
     entity: (id) => entities[id]?.name ?? id,
     node: (id) => (nodes[id] ? nodeName(nodes[id]) : id),
+    train: (address, long) => trainName(trains, address, long),
   };
 }
 
@@ -74,7 +121,8 @@ export function describeTrigger(t: Trigger, n: Names): string {
     }
     case "node": {
       const who = t.node ? n.node(t.node) : "any node";
-      const verb = t.to === "online" ? "comes online" : t.to === "offline" ? "goes offline" : "comes online or goes offline";
+      const verb =
+        t.to === "online" ? "comes online" : t.to === "offline" ? "goes offline" : "comes online or goes offline";
       return `When ${who} ${verb}`;
     }
     case "time":
@@ -116,6 +164,23 @@ export function describeAction(a: Action, n: Names): string {
       const cmd = a.command ? a.command[0].toUpperCase() + a.command.slice(1) : "Command";
       return `${cmd} ${n.entity(a.entity ?? "")}`;
     }
+    case "train": {
+      const address = a.address ?? 0;
+      const long = a.address_type === "long" || address > 127;
+      const who = address ? n.train(address, long) : "a locomotive";
+      switch (a.command) {
+        case "speed":
+          return `Set ${who} to speed ${a.speed ?? 0}${a.direction ? ` ${a.direction}` : ""}`;
+        case "stop":
+          return `Stop ${who}`;
+        case "estop":
+          return `Emergency stop ${who}`;
+        case "function":
+          return `Turn ${a.state === "off" ? "off" : "on"} F${a.function ?? 0} of ${who}`;
+        default:
+          return `Drive ${who}`;
+      }
+    }
     case "event":
       return `Send event ${a.event ?? "…"}`;
     case "delay":
@@ -148,7 +213,16 @@ function count(n: number, one: string): string {
 export function summarize(a: AutomationStatus, n: Names): string {
   const parts = a.triggers.map((t) => describeTrigger(t, n));
   if (parts.length === 0) return "";
-  return parts.map((p, i) => (i === 0 ? p : p.replace(/^When /, "when ").replace(/^At /, "at ").replace(/^Every /, "every "))).join(", or ");
+  return parts
+    .map((p, i) =>
+      i === 0
+        ? p
+        : p
+            .replace(/^When /, "when ")
+            .replace(/^At /, "at ")
+            .replace(/^Every /, "every "),
+    )
+    .join(", or ");
 }
 
 export interface LampWord {
@@ -158,7 +232,12 @@ export interface LampWord {
 }
 
 export function automationLamp(a: AutomationStatus): LampWord {
-  if (a.running > 0) return { color: "amber", pulse: true, word: a.running > 1 ? `Running ×${a.running}` : "Running" };
+  if (a.running > 0)
+    return {
+      color: "amber",
+      pulse: true,
+      word: a.running > 1 ? `Running ×${a.running}` : "Running",
+    };
   if (!a.enabled) return { color: "off", word: "Off" };
   if (a.problems?.length) return { color: "amber", word: "Needs attention" };
   if (a.last_result === "error") return { color: "red", word: "Last run failed" };
@@ -234,14 +313,28 @@ export function newCondition(type: Condition["type"] = "state"): Condition {
 
 export function newAction(type: Action["type"] = "command"): Action {
   switch (type) {
+    case "train":
+      return { type, command: "speed", speed: 0, direction: "forward" };
     case "delay":
       return { type, for: "3s" };
     case "wait":
       return { type, triggers: [newTrigger("state")], timeout: "30s" };
     case "if":
-      return { type, conditions: [newCondition("state")], then: [newAction("command")] };
+      return {
+        type,
+        conditions: [newCondition("state")],
+        then: [newAction("command")],
+      };
     case "choose":
-      return { type, choices: [{ conditions: [newCondition("state")], actions: [newAction("command")] }] };
+      return {
+        type,
+        choices: [
+          {
+            conditions: [newCondition("state")],
+            actions: [newAction("command")],
+          },
+        ],
+      };
     case "repeat":
       return { type, count: 2, actions: [newAction("command")] };
     case "log":

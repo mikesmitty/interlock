@@ -13,6 +13,7 @@ import (
 	"github.com/mikesmitty/interlock/internal/entity"
 	"github.com/mikesmitty/interlock/internal/registry"
 	"github.com/mikesmitty/interlock/internal/store"
+	"github.com/mikesmitty/interlock/internal/train"
 	"github.com/mikesmitty/interlock/openlcb"
 	"github.com/mikesmitty/interlock/openlcb/detector"
 )
@@ -239,13 +240,42 @@ func (m *memStore) count(automationID string) int {
 // --- harness -----------------------------------------------------------------
 
 type harness struct {
-	t     *testing.T
-	e     *Engine
-	ents  *fakeEntities
-	bus   *fakeBus
-	nodes *fakeNodes
-	store *memStore
-	done  chan Trace
+	t      *testing.T
+	e      *Engine
+	ents   *fakeEntities
+	bus    *fakeBus
+	nodes  *fakeNodes
+	trains *fakeTrains
+	store  *memStore
+	done   chan Trace
+}
+
+// fakeTrains records train commands.
+type fakeTrains struct {
+	mu       sync.Mutex
+	commands []train.Command
+	err      error
+}
+
+func (f *fakeTrains) Command(_ context.Context, cmd train.Command) (train.Train, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.commands = append(f.commands, cmd)
+	if f.err != nil {
+		return train.Train{}, f.err
+	}
+	tr := train.Train{Speed: cmd.Speed, Direction: cmd.Direction, EStop: cmd.Kind == train.CommandEStop}
+	if tr.Direction == "" {
+		tr.Direction = train.Forward
+	}
+	return tr, nil
+}
+
+func (f *fakeTrains) Name(address uint16, _ bool) string {
+	if address == 1234 {
+		return "Challenger"
+	}
+	return ""
 }
 
 const peer = openlcb.NodeID(0x050101012200)
@@ -253,10 +283,10 @@ const peer = openlcb.NodeID(0x050101012200)
 func newHarness(t *testing.T, docs ...Automation) *harness {
 	t.Helper()
 	h := &harness{
-		t: t, ents: newFakeEntities(), bus: &fakeBus{}, store: newMemStore(), done: make(chan Trace, 64),
+		t: t, ents: newFakeEntities(), bus: &fakeBus{}, trains: &fakeTrains{}, store: newMemStore(), done: make(chan Trace, 64),
 		nodes: &fakeNodes{nodes: map[openlcb.NodeID]registry.Info{peer: {ID: peer, Online: false, SNIP: &openlcb.SNIP{UserName: "Yard"}}}},
 	}
-	h.e = New(Options{Entities: h.ents, Bus: h.bus, Nodes: h.nodes, Store: h.store, KeepTraces: 5})
+	h.e = New(Options{Entities: h.ents, Bus: h.bus, Nodes: h.nodes, Trains: h.trains, Store: h.store, KeepTraces: 5})
 	h.ents.onChange = h.e.HandleEntity
 	h.e.SubscribeTraces(func(tr Trace) {
 		if tr.Done() {
@@ -787,5 +817,58 @@ func TestTracesPrunedAndRestored(t *testing.T) {
 	s, _ := e2.Get("quick")
 	if s.LastResult != ResultFinished || s.LastTrace == "" || s.LastTriggered.IsZero() {
 		t.Errorf("restored status = %+v", s)
+	}
+}
+
+func TestTrainAction(t *testing.T) {
+	h := newHarness(t, Automation{
+		Name:     "Stop the Challenger",
+		Enabled:  true,
+		Triggers: []Trigger{{Type: TriggerLocomotive, Entity: "reporter.t2", Address: 1234, Direction: "entered"}},
+		Actions: []Action{
+			{Type: ActionTrain, Address: 1234, Command: train.CommandSpeed, Speed: 30, Direction: train.Reverse},
+			{Type: ActionTrain, Address: 1234, Command: train.CommandFunction, Function: 2, State: "on"},
+			{Type: ActionTrain, Address: 3, AddressType: "short", Command: train.CommandStop},
+			{Type: ActionTrain, Address: 1234, Command: train.CommandEStop},
+		},
+	})
+	h.ents.locomotives(entity.Locomotive{Address: detector.Address{Type: detector.Long, Number: 1234}, Name: "1234"})
+	tr := h.finished()
+	if tr.Result != ResultFinished {
+		t.Fatalf("result = %s (%s)", tr.Result, tr.Error)
+	}
+	if len(tr.Steps) != 4 || tr.Steps[0].Description != "Set Challenger to speed 30 reverse" || tr.Steps[0].Detail != "speed 30 reverse" ||
+		tr.Steps[1].Description != "Turn on F2 of Challenger" || tr.Steps[2].Description != "Stop locomotive 3 (short)" ||
+		tr.Steps[3].Description != "Emergency stop Challenger" || tr.Steps[3].Detail != "emergency stopped" {
+		for _, s := range tr.Steps {
+			t.Logf("%s: %q %q", s.Path, s.Description, s.Detail)
+		}
+		t.Fatal("unexpected steps")
+	}
+	h.trains.mu.Lock()
+	cmds := h.trains.commands
+	h.trains.mu.Unlock()
+	if len(cmds) != 4 || cmds[0] != (train.Command{Address: 1234, Long: true, Kind: train.CommandSpeed, Speed: 30, Direction: train.Reverse}) ||
+		cmds[1] != (train.Command{Address: 1234, Long: true, Kind: train.CommandFunction, Function: 2, On: true}) ||
+		cmds[2] != (train.Command{Address: 3, Kind: train.CommandStop}) || cmds[3].Kind != train.CommandEStop {
+		t.Errorf("commands = %+v", cmds)
+	}
+
+	// A failing command fails the run.
+	h.trains.mu.Lock()
+	h.trains.err = errors.New("no command station answered")
+	h.trains.mu.Unlock()
+	if _, err := h.e.Trigger("stop_the_challenger", false); err != nil {
+		t.Fatal(err)
+	}
+	if tr = h.finished(); tr.Result != ResultError || !strings.Contains(tr.Error, "no command station") {
+		t.Errorf("result = %s (%s)", tr.Result, tr.Error)
+	}
+
+	// Without a train manager the action is reported as a problem.
+	e := New(Options{Entities: h.ents, Bus: h.bus, Nodes: h.nodes, Store: newMemStore()})
+	s, err := e.Create(Automation{Name: "x", Triggers: []Trigger{{Type: TriggerStart}}, Actions: []Action{{Type: ActionTrain, Address: 5, Command: train.CommandStop}}})
+	if err != nil || len(s.Problems) != 1 {
+		t.Errorf("status = %+v, %v", s, err)
 	}
 }

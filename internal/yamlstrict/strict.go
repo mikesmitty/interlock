@@ -1,4 +1,7 @@
-package automation
+// Package yamlstrict checks a YAML document against the struct it will be
+// decoded into, reporting fields the struct does not have, since yaml.v3
+// cannot enforce KnownFields inside a custom UnmarshalYAML.
+package yamlstrict
 
 import (
 	"fmt"
@@ -8,11 +11,11 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// unknownFields reports the first mapping key in node that the struct
+// Check reports the first mapping key in node that the struct
 // type t (or the structs nested in it) has no yaml tag for. The decoder's
 // own KnownFields check does not reach inside custom unmarshalers, so the
 // document types check themselves.
-func unknownFields(node *yaml.Node, t reflect.Type) error {
+func Check(node *yaml.Node, t reflect.Type) error {
 	if node.Kind == yaml.DocumentNode && len(node.Content) == 1 {
 		node = node.Content[0]
 	}
@@ -22,7 +25,7 @@ func unknownFields(node *yaml.Node, t reflect.Type) error {
 	switch {
 	case t.Kind() == reflect.Slice && node.Kind == yaml.SequenceNode:
 		for _, item := range node.Content {
-			if err := unknownFields(item, t.Elem()); err != nil {
+			if err := Check(item, t.Elem()); err != nil {
 				return err
 			}
 		}
@@ -44,7 +47,7 @@ func unknownFields(node *yaml.Node, t reflect.Type) error {
 			if !ok {
 				return fmt.Errorf("line %d: unknown field %q", key.Line, key.Value)
 			}
-			if err := unknownFields(value, ft); err != nil {
+			if err := Check(value, ft); err != nil {
 				return err
 			}
 		}

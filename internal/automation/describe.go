@@ -6,12 +6,24 @@ import (
 	"strings"
 
 	"github.com/mikesmitty/interlock/openlcb"
+	"github.com/mikesmitty/interlock/openlcb/traction"
 )
 
 // names turns IDs into the words a person uses for them.
 type names struct {
 	entity func(id string) string
 	node   func(id openlcb.NodeID) string
+	train  func(address uint16, long bool) string
+}
+
+func (n names) loco(address uint16, kind string) string {
+	long := kind == "long" || address > traction.ShortAddressMax
+	if n.train != nil {
+		if s := n.train(address, long); s != "" {
+			return s
+		}
+	}
+	return "locomotive " + traction.AddressName(address, long)
 }
 
 func (n names) ent(id string) string {
@@ -159,6 +171,8 @@ func describeAction(a Action, n names) string {
 			cmd = strings.ToUpper(cmd[:1]) + cmd[1:]
 		}
 		return cmd + " " + n.ent(a.Entity)
+	case ActionTrain:
+		return a.trainCommand().Describe(n.loco(a.Address, a.AddressType))
 	case ActionEvent:
 		return "Send event " + a.Event.String()
 	case ActionDelay:

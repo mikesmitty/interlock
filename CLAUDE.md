@@ -24,7 +24,7 @@ make dev        # Vite dev server on :5173, proxying /api to :8080
 
 Run `bin/interlock -data <dir>`; the data directory holds `interlock.yaml`
 (created with defaults on first start), `interlock.db`, `entities.yaml`,
-`automations.yaml` and user `profiles/`. Default: `$INTERLOCK_DATA`, else `interlock` under the user
+`automations.yaml`, `trains.yaml` and user `profiles/`. Default: `$INTERLOCK_DATA`, else `interlock` under the user
 config directory.
 
 ## Layout
@@ -52,10 +52,14 @@ config directory.
     translate them
   - `openlcb/detector` the DCC detector event protocol: a 16-bit range
     per detector whose low bytes report locomotives entering and leaving
+  - `openlcb/traction` Train Control: command and reply encoding, the
+    Train Search event, DCC train node IDs; pure functions
   - `openlcb/sim` simulated nodes built from the embedded copies of the
     canbus-outpost and simple-dcc CDI files (keep them in sync with the
     firmware repos); `Outpost` adds the firmware's behavior (servos,
-    detectors, Identify replies) over the plain node
+    detectors, Identify replies) over the plain node; `Station` behaves
+    like simple-dcc (train search and train nodes, a programming track
+    with a decoder on it, the emergency events)
 - `internal/config` — `interlock.yaml` loading and validation.
 - `internal/store` — sqlite (modernc, no cgo). Schema changes are new files
   in `internal/store/migrations/NNNN_name.sql`; never edit a released one.
@@ -84,6 +88,14 @@ config directory.
   stored in sqlite. `docs/automations.md` lists the fields. The engine's
   handlers never block; the entity manager calls them from the node's
   goroutine.
+- `internal/train` — the throttle side: the roster in `<data>/trains.yaml`,
+  finding train nodes by Train Search, controller assign, speed and
+  function commands, the layout's emergency events. Trains are keyed by
+  DCC address, not node ID.
+- `internal/programmer` — CV reads and writes: service mode through space
+  0xF8 of the programming track's node, POM through a train node's.
+- `internal/yamlstrict` — unknown-field check for YAML documents with
+  custom unmarshalers.
 - `internal/monitor` — rolling log of frames with decoding for display.
 - `internal/api` — HTTP API under `/api/v1`; JSON errors for 404 and 405;
   server-sent events at `/api/v1/events`.
