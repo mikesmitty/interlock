@@ -582,8 +582,20 @@ train reservation protocol, function description information (space 0xFA).
   other path; both boards use datagrams), following an external clock,
   fragmented OpenLCB TCP messages, SocketCAN on a machine to test it,
   and the documentation site's screenshots.
-- Next: Phase 7 (decoder programming), and hardware verification
-  against canbus-outpost and simple-dcc.
+- Phase 7 begun (2026-10-17): `internal/decoder` reads JMRI's
+  definitions from GitHub, the archive or a folder; Identify with each
+  manufacturer's product ID rules and ranked matches; a model's
+  definition resolved for the browser; CVs read and written by
+  definition name with index writes planned and repeated ones skipped.
+  The browser does the value math (`web/src/decoder/values.ts`, tested
+  with Node's runner) and lays out the panes. The simulated command
+  station can hold an ESU LokSound 5 with paged CVs (`-decoder esu`).
+  Verified against the simulator: identified, the LokSound 5 definition
+  fetched from GitHub, acceleration changed by name and read back.
+- Still to do in Phase 7: values kept per locomotive in the roster, JMRI
+  roster import, ESU's own function map, reading on the main (RailCom).
+- Next: the rest of Phase 7, and hardware verification against
+  canbus-outpost and simple-dcc.
 
 ## References
 

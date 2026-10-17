@@ -23,7 +23,8 @@ a trace you can read step by step (`docs/automations.md`). A Throttle
 page drives locomotives by DCC address through the command station's
 train nodes, with a roster in `trains.yaml`, and a Programming page reads
 and writes CVs on the programming track and on the main
-(`docs/trains.md`). A node's page installs new firmware on it and
+(`docs/trains.md`), or a decoder's settings by name from the JMRI
+project's decoder definitions, fetched on demand (`docs/decoders.md`). A node's page installs new firmware on it and
 follows the board through its restart. Interlock runs the layout's fast
 clock, which automations can use. Settings backs everything up to one
 file and restores it. Links can be serial or TCP GridConnect, OpenLCB

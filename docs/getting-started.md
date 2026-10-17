@@ -111,6 +111,7 @@ upgrades and configuration writes like the real boards.
 - [Entities](./entities.md): turnouts, blocks, reporters and sensors.
 - [Automations](./automations.md): when, only if, then.
 - [Trains](./trains.md): the roster, the throttle, CV programming.
+- [Decoder settings](./decoders.md): a decoder's settings by name.
 - [The fast clock](./clock.md) and [Backup and restore](./backup.md).
 
 ## Running it as a service

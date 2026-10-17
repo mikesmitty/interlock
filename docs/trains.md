@@ -107,6 +107,9 @@ Programming on the main writes a CV through space 0xF8 of the train's
 node, which the command station turns into a POM packet for that address.
 Reading on the main needs RailCom and waits for the firmware.
 
+[Decoder settings](./decoders.md) covers changing settings by name from
+the decoder's definition rather than by CV number.
+
 ## Without hardware
 
 `go run ./cmd/simnode -cdi cs -id 0A.00.00.00.00.43` simulates a command

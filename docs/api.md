@@ -134,6 +134,23 @@ POST   /api/v1/programming/write             {cv, value}
 CV operations answer 200 with `ok` and, when it failed, `error` in plain
 words; 400 is for bad input. See [Trains](./trains.md).
 
+## Decoder definitions
+
+```
+GET    /api/v1/decoders                      where the definitions come from {source, ref, path, archive}
+GET    /api/v1/decoders/index                every manufacturer, family and model
+GET    /api/v1/decoders/definition           ?file=&model= one model's settings and pages
+POST   /api/v1/programming/identify          {identity, manufacturer, candidates}
+POST   /api/v1/programming/decoder-cv        {file, model, cv, write, value, train} -> {cv, value, ok, error}
+```
+
+The index and definitions are large and sent gzipped when the client
+accepts it. `decoder-cv` takes a CV by the name the definition uses
+(`29`, `16.0.259`, `T2CV.1.05`) and does the index writes it needs; with
+`train` it writes on the main. It refuses CVs the definition marks
+read-only, write-only or for information only. See
+[Decoder settings](./decoders.md).
+
 ## Clock
 
 ```

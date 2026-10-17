@@ -13,7 +13,7 @@ Go (version in `go.mod`; the toolchain downloads it if needed) and Node 22.22+ (
 make build      # web interface, then Go binary -> bin/interlock
 make go         # Go binary only (embeds whatever is in web/dist)
 make web        # build the web interface into web/dist
-make test       # go test -race ./...
+make test       # go test -race ./... and the web tests (node --test)
 make lint       # golangci-lint + TypeScript type check
 make fmt        # golangci-lint fmt (gofmt + goimports)
 make run        # run the server from source
@@ -105,6 +105,14 @@ applied at the next start; the replaced files go to `before-restore-*/`.
   DCC address, not node ID.
 - `internal/programmer` — CV reads and writes: service mode through space
   0xF8 of the programming track's node, POM through a train node's.
+- `internal/decoder` — JMRI's DCC decoder definitions (GPL-2.0-only, so
+  fetched, never bundled): sources (GitHub file by file, the repository
+  archive, a folder or zip), the index, Identify and matching, the
+  definition of one model (variables walked as JMRI walks them, value
+  types reduced to CV parts and masks, panes merged and pruned), CV name
+  plans (index CVs, TCS four-CV access) and a session that skips repeated
+  index writes. `docs/decoders.md` is the user guide; the browser does
+  the value math in `web/src/decoder/values.ts`.
 - `internal/firmware` — firmware upgrades by the Firmware Upgrade
   standard: Freeze, 64 byte writes to space 0xEF with retries, Unfreeze,
   then a watch for the restart and for a board that goes back to its old
@@ -125,7 +133,9 @@ applied at the next start; the replaced files go to `before-restore-*/`.
 - `web/` — React + TypeScript + Vite frontend; `web/embed.go` embeds
   `web/dist` (only `.gitkeep` is committed; an unbuilt UI serves a notice).
   Visual language is in `docs/design-language.md`; follow it for new pages.
-  Fonts are bundled so the UI works offline.
+  Fonts are bundled so the UI works offline. Pure logic gets
+  `*.test.ts` tests run by Node's own runner (`npm test`); such modules
+  use only type imports so Node can run them without a build.
 - `docs/` — the documentation, also built into a site with VitePress
   (`docs/.vitepress/config.mts` holds the sidebar; add new pages there)
   and published to GitHub Pages by `.github/workflows/docs.yml`.

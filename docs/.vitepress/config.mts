@@ -25,6 +25,7 @@ export default defineConfig({
           { text: "Entities", link: "/entities" },
           { text: "Automations", link: "/automations" },
           { text: "Trains", link: "/trains" },
+          { text: "Decoder settings", link: "/decoders" },
           { text: "The fast clock", link: "/clock" },
           { text: "Backup and restore", link: "/backup" },
         ],
