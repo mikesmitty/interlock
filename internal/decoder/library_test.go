@@ -181,7 +181,7 @@ func TestGitHubSource(t *testing.T) {
 }
 
 func TestGitHubSourceServerError(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "busy", http.StatusServiceUnavailable)
 	}))
 	defer srv.Close()
@@ -257,7 +257,7 @@ func TestArchiveSource(t *testing.T) {
 }
 
 func TestArchiveSourceFailure(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write(tarball(t, map[string]string{"JMRI-5.16/README.md": "nothing here"}))
 	}))
 	defer srv.Close()

@@ -405,7 +405,7 @@ func (b *builder) walkVariables(e *element, include, exclude []string, quals []*
 		b.variable(v, include, exclude, quals)
 	}
 	for _, c := range e.all("constant") {
-		b.constant(c, include, exclude, quals)
+		b.constant(c, include, exclude)
 	}
 	for _, nested := range e.all("variables") {
 		b.walkVariables(nested, include, exclude, quals)
@@ -490,7 +490,7 @@ func (b *builder) variable(e *element, include, exclude []string, quals []*eleme
 	b.def.Variables = append(b.def.Variables, v)
 }
 
-func (b *builder) constant(e *element, include, exclude []string, quals []*element) {
+func (b *builder) constant(e *element, include, exclude []string) {
 	if !b.keep(e, include, exclude) {
 		return
 	}

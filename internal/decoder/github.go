@@ -85,7 +85,7 @@ func (g *githubFS) fetch(name, local string) error {
 func (g *githubFS) download(name, local string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), fetchTimeout)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, g.base+name, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, g.base+name, http.NoBody)
 	if err != nil {
 		return err
 	}

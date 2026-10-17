@@ -77,7 +77,7 @@ func newDecoderAPI(t *testing.T) (*testAPI, *fakeDecoders, *cvProgrammer) {
 		def: &decoder.Definition{
 			File: "ESU_LokSound5.xml", Model: "LokSound 5",
 			Programming: decoder.Programming{Index: &decoder.Indexing{PI: 31, SI: 32, Cache: true}},
-			CVs: []decoder.CV{{Name: "29"}, {Name: "16.0.259"}, {Name: "16.0.260"}, {Name: "8", ReadOnly: true}, {Name: "64", WriteOnly: true}, {Name: "99", InfoOnly: true}},
+			CVs:         []decoder.CV{{Name: "29"}, {Name: "16.0.259"}, {Name: "16.0.260"}, {Name: "8", ReadOnly: true}, {Name: "64", WriteOnly: true}, {Name: "99", InfoOnly: true}},
 		},
 	}
 	prog := &cvProgrammer{cvs: map[int]int{8: 151, 7: 255, 261: 0x96, 262: 0, 263: 0, 264: 2, 29: 6, 259: 40, 260: 41}}
@@ -97,7 +97,7 @@ func TestDecoderIndexEndpoints(t *testing.T) {
 		t.Fatalf("GET index: %d %v", rec.Code, body)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/decoders/index", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/decoders/index", http.NoBody)
 	req.Header.Set("Accept-Encoding", "gzip, br")
 	zrec := httptest.NewRecorder()
 	ta.mux.ServeHTTP(zrec, req)

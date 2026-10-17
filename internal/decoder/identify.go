@@ -110,10 +110,10 @@ func Identify(ctx context.Context, bus CVBus) (Identity, error) {
 		if id.Version != 255 {
 			break
 		}
-		if err = write(31, 0); err != nil {
+		if err := write(31, 0); err != nil {
 			return id, err
 		}
-		if err = write(32, 255); err != nil {
+		if err := write(32, 255); err != nil {
 			return id, err
 		}
 		if v, ok, err = reads(261, 262, 263, 264); ok {
@@ -140,27 +140,27 @@ func Identify(ctx context.Context, bus CVBus) (Identity, error) {
 			}
 		}
 	case mfgPIKO:
-		if err = write(31, 0); err != nil {
+		if err := write(31, 0); err != nil {
 			return id, err
 		}
-		if err = write(32, 255); err != nil {
+		if err := write(32, 255); err != nil {
 			return id, err
 		}
 		if v, ok, err = reads(315, 316, 317); ok {
 			set(uint32((v[0]*100+v[1])*100 + v[2]))
 		}
 	case mfgQSI:
-		if err = write(49, 254); err != nil {
+		if err := write(49, 254); err != nil {
 			return id, err
 		}
-		if err = write(50, 4); err != nil {
+		if err := write(50, 4); err != nil {
 			return id, err
 		}
 		var hi []int
 		if hi, ok, err = reads(56); !ok {
 			break
 		}
-		if err = write(50, 5); err != nil {
+		if err := write(50, 5); err != nil {
 			return id, err
 		}
 		if v, ok, err = reads(56); ok {

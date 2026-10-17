@@ -50,7 +50,7 @@ func (l *Library) Download(ctx context.Context) error {
 }
 
 func (l *Library) download(ctx context.Context, got *atomic.Int64) (int, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, l.opts.ArchiveURL+"/"+l.opts.Ref, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, l.opts.ArchiveURL+"/"+l.opts.Ref, http.NoBody)
 	if err != nil {
 		return 0, err
 	}
