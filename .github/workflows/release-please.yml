@@ -9,6 +9,12 @@ permissions:
   contents: write
   pull-requests: write
 
+# Merging several pull requests in a row starts overlapping runs that race
+# to update the release branch; run them one at a time.
+concurrency:
+  group: release-please
+  cancel-in-progress: false
+
 jobs:
   release-please:
     runs-on: ubuntu-latest
