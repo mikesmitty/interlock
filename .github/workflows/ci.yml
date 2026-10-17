@@ -103,7 +103,7 @@ jobs:
       - name: Smoke test
         run: ./bin/interlock -version
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: interlock-${{ github.sha }}
           path: bin/interlock
