@@ -23,8 +23,8 @@ make dev        # Vite dev server on :5173, proxying /api to :8080
 `golangci-lint` v2 is expected on PATH (`go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest`).
 
 Run `bin/interlock -data <dir>`; the data directory holds `interlock.yaml`
-(created with defaults on first start), `interlock.db` and later automations
-and profiles. Default: `$INTERLOCK_DATA`, else `interlock` under the user
+(created with defaults on first start), `interlock.db`, `entities.yaml`,
+`automations.yaml` and user `profiles/`. Default: `$INTERLOCK_DATA`, else `interlock` under the user
 config directory.
 
 ## Layout
@@ -78,6 +78,12 @@ config directory.
   button), the manager that builds entities from profiles over the event
   table, follows Event Reports and Identified replies, sends commands,
   and keeps overrides and hand-built entities in `<data>/entities.yaml`.
+- `internal/automation` — automations as declarative documents (JSON in
+  the API, `<data>/automations.yaml` on disk): triggers, conditions and
+  actions with Home Assistant semantics, run modes, and a trace per run
+  stored in sqlite. `docs/automations.md` lists the fields. The engine's
+  handlers never block; the entity manager calls them from the node's
+  goroutine.
 - `internal/monitor` — rolling log of frames with decoding for display.
 - `internal/api` — HTTP API under `/api/v1`; JSON errors for 404 and 405;
   server-sent events at `/api/v1/events`.

@@ -16,7 +16,10 @@ with replicated groups as tabs and only changed values written. It turns
 the events a node's configuration names into entities (turnouts, blocks,
 RailCom reporters, sensors, switches) through YAML profiles, shipped for
 canbus-outpost and simple-dcc and guessed for other nodes, and shows them
-on an Entities page with live state and levers. Automations, throttles
+on an Entities page with live state and levers. Automations with Home
+Assistant style triggers, conditions and actions are built in a when /
+only if / then editor, kept in `automations.yaml`, and every run leaves
+a trace you can read step by step (`docs/automations.md`). Throttles
 and firmware upgrades are still to come; see `docs/design.md` for the
 plan.
 

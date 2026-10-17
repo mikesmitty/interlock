@@ -17,6 +17,7 @@ import (
 	"syscall"
 
 	"github.com/mikesmitty/interlock/internal/api"
+	"github.com/mikesmitty/interlock/internal/automation"
 	"github.com/mikesmitty/interlock/internal/config"
 	"github.com/mikesmitty/interlock/internal/entity"
 	"github.com/mikesmitty/interlock/internal/eventtable"
@@ -163,10 +164,23 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	reg.Subscribe(table.HandleNode)
 	reg.Subscribe(entities.HandleNode)
 	table.Subscribe(entities.Rebuild)
+
+	// The automations over the entities.
+	autoFile, err := automation.OpenFile(filepath.Join(*dataDir, automation.FileName))
+	if err != nil {
+		return err
+	}
+	engine := automation.New(automation.Options{
+		Entities: entities, Bus: local, Nodes: reg, Store: st, File: autoFile, Logger: logger,
+	})
+	logger.Info("loaded automations", "count", len(engine.List()))
+	entities.Subscribe(engine.HandleEntity)
+	reg.Subscribe(engine.HandleNode)
 	local.Observe(func(ev node.Event) {
 		if ev.Kind == node.EventMessage {
 			table.HandleMessage(ev.Message)
 			entities.HandleMessage(ev.Message)
+			engine.HandleMessage(ev.Message)
 		}
 	})
 
@@ -200,7 +214,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	}
 
 	var wg sync.WaitGroup
-	wg.Add(4)
+	wg.Add(5)
 	go func() {
 		defer wg.Done()
 		if err := local.Run(ctx); err != nil {
@@ -225,6 +239,12 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			logger.Error("entities stopped", "error", err)
 		}
 	}()
+	go func() {
+		defer wg.Done()
+		if err := engine.Run(ctx); err != nil {
+			logger.Error("automations stopped", "error", err)
+		}
+	}()
 
 	srv := server.New(server.Options{
 		Listen: cfg.Listen,
@@ -238,6 +258,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			Entities:    entities,
 			EventNames:  table,
 			Profiles:    profiles,
+			Automations: engine,
 			SerialPorts: transport.SerialPorts,
 			Logger:      logger,
 		}),

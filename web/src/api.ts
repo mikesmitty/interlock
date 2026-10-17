@@ -198,6 +198,135 @@ export interface Profile {
   entities: { kind: EntityKind; group?: string }[];
 }
 
+// Automations: when / only if / then documents and the traces of their runs.
+
+export type AutomationMode = "single" | "restart" | "queued" | "parallel";
+export type TriggerType = "state" | "event" | "locomotive" | "node" | "time" | "interval" | "start";
+export type ConditionType = "state" | "time" | "trigger" | "and" | "or" | "not";
+export type ActionType = "command" | "event" | "delay" | "wait" | "if" | "choose" | "repeat" | "stop" | "log";
+
+export interface Trigger {
+  id?: string;
+  type: TriggerType;
+  entity?: string;
+  from?: string;
+  to?: string;
+  for?: string;
+  event?: string;
+  address?: number;
+  address_type?: "long" | "short" | "consist";
+  direction?: "entered" | "left";
+  node?: string;
+  at?: string;
+  weekdays?: string[];
+  every?: string;
+}
+
+export interface Condition {
+  type: ConditionType;
+  entity?: string;
+  state?: string;
+  after?: string;
+  before?: string;
+  weekdays?: string[];
+  trigger?: string;
+  conditions?: Condition[];
+}
+
+export interface Choice {
+  name?: string;
+  conditions: Condition[];
+  actions: Action[];
+}
+
+export interface Action {
+  type: ActionType;
+  disabled?: boolean;
+  entity?: string;
+  command?: string;
+  event?: string;
+  for?: string;
+  triggers?: Trigger[];
+  timeout?: string;
+  stop_on_timeout?: boolean;
+  conditions?: Condition[];
+  then?: Action[];
+  else?: Action[];
+  choices?: Choice[];
+  default?: Action[];
+  count?: number;
+  while?: Condition[];
+  until?: Condition[];
+  actions?: Action[];
+  reason?: string;
+  error?: boolean;
+  message?: string;
+}
+
+export interface Automation {
+  id: string;
+  name: string;
+  description?: string;
+  enabled: boolean;
+  mode?: AutomationMode;
+  max?: number;
+  triggers: Trigger[];
+  conditions?: Condition[];
+  actions: Action[];
+}
+
+export type TraceResult = "running" | "finished" | "not_run" | "stopped" | "error" | "canceled" | "skipped";
+export type StepResult = "running" | "ok" | "false" | "skipped" | "error" | "timeout" | "canceled";
+
+export interface AutomationStatus extends Automation {
+  running: number;
+  queued?: number;
+  last_triggered?: string;
+  last_result?: TraceResult;
+  last_trace?: string;
+  problems?: string[];
+  removed?: boolean;
+}
+
+export interface TriggerInfo {
+  index: number;
+  id?: string;
+  type: string;
+  description: string;
+  entity?: string;
+  entity_name?: string;
+  from?: string;
+  to?: string;
+  event?: string;
+  locomotive?: string;
+  node?: string;
+  node_name?: string;
+  at: string;
+}
+
+export interface TraceStep {
+  path: string;
+  type: string;
+  description: string;
+  started: string;
+  finished?: string;
+  result: StepResult;
+  detail?: string;
+  error?: string;
+}
+
+export interface Trace {
+  id: string;
+  automation: string;
+  name: string;
+  started: string;
+  finished?: string;
+  result: TraceResult;
+  error?: string;
+  trigger: TriggerInfo;
+  steps: TraceStep[];
+}
+
 export interface LinkStatus {
   name: string;
   kind: string;
@@ -298,6 +427,7 @@ async function requestText(path: string): Promise<string> {
 }
 
 const nodePath = (id: string) => `/api/v1/nodes/${encodeURIComponent(id)}`;
+const automationPath = (id: string) => `/api/v1/automations/${encodeURIComponent(id)}`;
 
 export const api = {
   health: () => request<Health>("/api/v1/health"),
@@ -341,6 +471,20 @@ export const api = {
     request<{ events: EventName[] }>(node ? `/api/v1/event-names?node=${encodeURIComponent(node)}` : "/api/v1/event-names").then((r) => r.events),
   refreshEventNames: (node: string) => request<{ status: string }>(`${nodePath(node)}/event-names/refresh`, { method: "POST" }),
   profiles: () => request<{ profiles: Profile[] }>("/api/v1/profiles").then((r) => r.profiles),
+  automations: () => request<{ automations: AutomationStatus[] }>("/api/v1/automations").then((r) => r.automations),
+  automation: (id: string) => request<AutomationStatus>(automationPath(id)),
+  createAutomation: (doc: Automation) => request<AutomationStatus>("/api/v1/automations", { method: "POST", body: JSON.stringify(doc) }),
+  updateAutomation: (id: string, doc: Automation) => request<AutomationStatus>(automationPath(id), { method: "PUT", body: JSON.stringify(doc) }),
+  setAutomationEnabled: (id: string, enabled: boolean) =>
+    request<AutomationStatus>(automationPath(id), { method: "PATCH", body: JSON.stringify({ enabled }) }),
+  deleteAutomation: (id: string) => request<void>(automationPath(id), { method: "DELETE" }),
+  automationYAML: (id: string) => requestText(`${automationPath(id)}/yaml`),
+  runAutomation: (id: string, checkConditions = false) =>
+    request<Trace>(`${automationPath(id)}/run`, { method: "POST", body: JSON.stringify({ check_conditions: checkConditions }) }),
+  stopAutomation: (id: string) => request<{ status: string }>(`${automationPath(id)}/stop`, { method: "POST" }),
+  traces: (id: string, limit?: number) =>
+    request<{ traces: Trace[] }>(`${automationPath(id)}/traces${limit ? `?limit=${limit}` : ""}`).then((r) => r.traces),
+  trace: (id: string, traceId: string) => request<Trace>(`${automationPath(id)}/traces/${encodeURIComponent(traceId)}`),
 };
 
 /** A short label for an event ID: the entity or named event it belongs to. */

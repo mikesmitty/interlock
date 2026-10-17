@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/mikesmitty/interlock/internal/automation"
 	"github.com/mikesmitty/interlock/internal/entity"
 	"github.com/mikesmitty/interlock/internal/monitor"
 	"github.com/mikesmitty/interlock/internal/registry"
@@ -24,10 +25,13 @@ import (
 //	frame        monitor.Entry      bus traffic (topic "monitor")
 //	entity       entity.Entity      an entity changed, appeared or was removed
 //	event_names  {"node": id}       a node's named events changed
+//	automation   automation.Status  an automation changed, ran or was removed (topic "automations")
+//	trace        automation.Trace   a run started, took a step or ended (topic "automations")
 //	lagged       {}                 the client fell behind and entries were skipped
 //
 // The topics query parameter selects a comma separated subset of
-// nodes, links, monitor and entities; the default is all of them.
+// nodes, links, monitor, entities and automations; the default is all
+// of them.
 
 const (
 	sseQueue     = 1024
@@ -45,7 +49,7 @@ func (a *API) events(w http.ResponseWriter, r *http.Request) {
 	flush := func() bool {
 		return rc.Flush() == nil
 	}
-	topics := map[string]bool{"nodes": true, "links": true, "monitor": true, "entities": true}
+	topics := map[string]bool{"nodes": true, "links": true, "monitor": true, "entities": true, "automations": true}
 	if s := r.URL.Query().Get("topics"); s != "" {
 		topics = map[string]bool{}
 		for _, t := range strings.Split(s, ",") {
@@ -73,6 +77,12 @@ func (a *API) events(w http.ResponseWriter, r *http.Request) {
 	if topics["entities"] && a.deps.Entities != nil {
 		unsubscribe := a.deps.Entities.Subscribe(func(e entity.Entity) { push(sseEvent{"entity", e}) })
 		defer unsubscribe()
+	}
+	if topics["automations"] && a.deps.Automations != nil {
+		unsubscribe := a.deps.Automations.Subscribe(func(s automation.Status) { push(sseEvent{"automation", s}) })
+		defer unsubscribe()
+		unsubscribeTraces := a.deps.Automations.SubscribeTraces(func(tr automation.Trace) { push(sseEvent{"trace", tr}) })
+		defer unsubscribeTraces()
 	}
 	if topics["entities"] && a.deps.EventNames != nil {
 		unsubscribe := a.deps.EventNames.Subscribe(func(id openlcb.NodeID) {

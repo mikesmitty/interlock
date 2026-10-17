@@ -68,6 +68,8 @@ type Deps struct {
 	EventNames EventNames
 	// Profiles lists node profiles; may be nil.
 	Profiles Profiles
+	// Automations is the automation engine; nil disables the endpoints.
+	Automations Automations
 	// SerialPorts lists serial devices for the settings page; may be nil.
 	SerialPorts func() ([]string, error)
 	Logger      *slog.Logger
@@ -109,6 +111,17 @@ func New(deps Deps) *API {
 	a.mux.HandleFunc("POST /api/v1/entities/{id}/command", a.commandEntity)
 	a.mux.HandleFunc("GET /api/v1/event-names", a.eventNames)
 	a.mux.HandleFunc("GET /api/v1/profiles", a.listProfiles)
+	a.mux.HandleFunc("GET /api/v1/automations", a.listAutomations)
+	a.mux.HandleFunc("POST /api/v1/automations", a.createAutomation)
+	a.mux.HandleFunc("GET /api/v1/automations/{id}", a.getAutomation)
+	a.mux.HandleFunc("PUT /api/v1/automations/{id}", a.updateAutomation)
+	a.mux.HandleFunc("PATCH /api/v1/automations/{id}", a.patchAutomation)
+	a.mux.HandleFunc("DELETE /api/v1/automations/{id}", a.deleteAutomation)
+	a.mux.HandleFunc("GET /api/v1/automations/{id}/yaml", a.automationYAML)
+	a.mux.HandleFunc("POST /api/v1/automations/{id}/run", a.runAutomation)
+	a.mux.HandleFunc("POST /api/v1/automations/{id}/stop", a.stopAutomation)
+	a.mux.HandleFunc("GET /api/v1/automations/{id}/traces", a.listTraces)
+	a.mux.HandleFunc("GET /api/v1/automations/{id}/traces/{trace}", a.getTrace)
 	a.mux.HandleFunc("GET /api/v1/links", a.links)
 	a.mux.HandleFunc("GET /api/v1/monitor", a.monitorEntries)
 	a.mux.HandleFunc("POST /api/v1/monitor/send", a.monitorSend)

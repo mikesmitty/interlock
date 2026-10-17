@@ -75,7 +75,7 @@ func TestNodesAndCDI(t *testing.T) {
 	if nodes, _ := s.Nodes(ctx); len(nodes) != 0 {
 		t.Error("node not deleted")
 	}
-	if v, _ := s.SchemaVersion(ctx); v != 3 {
-		t.Errorf("schema version = %d, want 3", v)
+	if v, _ := s.SchemaVersion(ctx); v != 4 {
+		t.Errorf("schema version = %d, want 4", v)
 	}
 }

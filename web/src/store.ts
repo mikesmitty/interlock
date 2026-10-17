@@ -1,7 +1,17 @@
 // One live connection to the server feeds every page: nodes, links and
 // bus traffic arrive over server-sent events and land in this store.
 import { useSyncExternalStore } from "react";
-import { api, type Entity, type EventName, type Health, type LinkStatus, type MonitorEntry, type NodeInfo } from "./api";
+import {
+  api,
+  type AutomationStatus,
+  type Entity,
+  type EventName,
+  type Health,
+  type LinkStatus,
+  type MonitorEntry,
+  type NodeInfo,
+  type Trace,
+} from "./api";
 
 export type Connection = "connecting" | "live" | "reconnecting";
 
@@ -18,7 +28,13 @@ export interface BusState {
   entities: Record<string, Entity>;
   /** The named event table, every node's events by name. */
   eventNames: EventName[];
+  automations: Record<string, AutomationStatus>;
+  /** Traces that moved since the page loaded, newest last; a trace page
+   * merges these over what it fetched. */
+  liveTraces: Trace[];
 }
+
+const MAX_LIVE_TRACES = 50;
 
 const MAX_ENTRIES = 2000;
 
@@ -44,6 +60,8 @@ class BusStore {
     lagged: false,
     entities: {},
     eventNames: [],
+    automations: {},
+    liveTraces: [],
   };
   private listeners = new Set<Listener>();
   private source?: EventSource;
@@ -108,6 +126,18 @@ class BusStore {
         void this.refreshEventNames();
       }, 300);
     });
+    es.addEventListener("automation", (ev) => {
+      const status = JSON.parse((ev as MessageEvent<string>).data) as AutomationStatus;
+      const automations = { ...this.state.automations };
+      if (status.removed) delete automations[status.id];
+      else automations[status.id] = status;
+      this.set({ automations });
+    });
+    es.addEventListener("trace", (ev) => {
+      const trace = JSON.parse((ev as MessageEvent<string>).data) as Trace;
+      const liveTraces = this.state.liveTraces.filter((t) => t.id !== trace.id).concat(trace);
+      this.set({ liveTraces: liveTraces.length > MAX_LIVE_TRACES ? liveTraces.slice(liveTraces.length - MAX_LIVE_TRACES) : liveTraces });
+    });
     es.addEventListener("lagged", () => this.set({ lagged: true }));
     es.onerror = () => {
       if (this.state.connection !== "reconnecting") this.set({ connection: "reconnecting" });
@@ -129,13 +159,16 @@ class BusStore {
   private async load(serverSeq: number) {
     this.set({ connection: "live" });
     try {
-      const [nodes, links, health, entityList, eventNames] = await Promise.all([
+      const [nodes, links, health, entityList, eventNames, automationList] = await Promise.all([
         api.nodes(),
         api.links(),
         api.health(),
         api.entities(),
         api.eventNames(),
+        api.automations(),
       ]);
+      const automations: Record<string, AutomationStatus> = {};
+      for (const a of automationList) automations[a.id] = a;
       const map: Record<string, NodeInfo> = {};
       for (const n of nodes) map[n.id] = n;
       const entities: Record<string, Entity> = {};
@@ -151,6 +184,7 @@ class BusStore {
         health,
         entities,
         eventNames,
+        automations,
         entries,
         lastSeq: Math.max(this.state.lastSeq, backlog.last_seq),
         lagged: false,

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Link } from "react-router";
 import { api, type Entity, type EntityKind, type EventName, type KindDef } from "../api";
 import { EntityRows } from "../components/EntityRows";
+import { EventNameList } from "../components/EventNameList";
 import { Empty, Page } from "../components/Page";
 import { plural } from "../format";
 import { useBus } from "../store";
@@ -228,19 +229,6 @@ function EventList({ events }: { events?: Record<string, string> }) {
         </span>
       ))}
     </span>
-  );
-}
-
-/** A datalist of every named event, for the event inputs. */
-function EventNameList({ names }: { names: EventName[] }) {
-  return (
-    <datalist id="event-names">
-      {names.map((n) => (
-        <option key={`${n.node}-${n.key}`} value={n.event}>
-          {n.node_name} / {n.path.slice(1).join(" / ")}
-        </option>
-      ))}
-    </datalist>
   );
 }
 

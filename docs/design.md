@@ -140,7 +140,7 @@ internal/profile/         YAML profiles that turn CDI groups into entities;
                           shipped ones embedded, user ones in the data dir
 internal/entity/          entity kinds and the manager: state from the bus,
                           commands, overrides and manual entities
-internal/automation/      automation engine
+internal/automation/      automation engine: documents, triggers, runs, traces
 internal/store/           sqlite access, migrations
 internal/config/          yaml config dir loading and writing
 internal/api/             HTTP handlers, WebSocket event stream
@@ -460,7 +460,29 @@ train reservation protocol, function description information (space 0xFA).
   entity state history and RailCom sightings are not yet stored; the
   generic guesser only tries pairs that name a turnout, block, reporter
   or sensor.
-- Next: Phase 4, automations.
+- Phase 4 done (2026-10-16): `internal/automation` (the document model
+  with JSON and YAML forms and validation that names the field at fault;
+  triggers for entity state with from, to and for, locomotive entry and
+  exit by address, event, node online and offline, time of day with
+  weekdays, interval and start; conditions for state, time window,
+  trigger, and, or, not; actions for command, event, delay, wait with
+  timeout, if, choose, repeat by count, while or until, stop and log;
+  single, restart, queued and parallel modes; traces of every run with a
+  step per condition and action kept in sqlite; `automations.yaml`
+  written by the API), automation endpoints with `automation` and `trace`
+  SSE events, the Automations page (list with on and off levers, run and
+  stop), the when / only if / then editor with nested blocks and a YAML
+  readout, and the trace viewer that follows a run live.
+  `docs/automations.md` documents the fields. Milestone met against the
+  simulator: the milestone automation built in the editor closed the
+  turnout three seconds after the block went occupied, with the trace
+  showing each step. Not yet against real hardware.
+- Deferred from Phase 4: fast clock triggers and conditions (no clock
+  yet), numeric comparisons and variables (nothing has numbers or reads
+  variables yet), templates and the expression language, event triggers
+  by name rather than ID, and the Interlock node answering Identify
+  Events for the events its automations send.
+- Next: Phase 5, trains.
 
 ## References
 
