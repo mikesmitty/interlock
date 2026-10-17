@@ -5,13 +5,16 @@
 // run the tests without a build.
 import type { Choice, DecoderDefinition, DecoderVariable, Part, Qualifier } from "./types";
 
-/** Where a CV's value came from: "saved" is the roster's copy. */
-export type CVState = "unknown" | "fromfile" | "edited" | "read" | "stored" | "saved";
+/**
+ * Where a CV's value came from: "saved" is the roster's copy of what was
+ * read or written, "imported" another roster's copy, not read since.
+ */
+export type CVState = "unknown" | "fromfile" | "imported" | "edited" | "read" | "stored" | "saved";
 
 export interface CVCell {
   value: number;
   state: CVState;
-  /** Set once the value came from the decoder (or a saved roster entry). */
+  /** Set once the value came from the decoder (or the roster's copy of it); an imported value is not known. */
   known: boolean;
   /** Bits changed since the value was last known. */
   edited: number;
@@ -382,6 +385,22 @@ export function withSaved(t: CVTable, cvs: Record<string, number>): CVTable {
   const out = { ...t };
   for (const [cv, value] of Object.entries(cvs)) out[cv] = { value, state: "saved", known: true, edited: 0 };
   return out;
+}
+
+/**
+ * A copy of the table with values imported from another roster. They are
+ * not known: they show as not read, and an edit to part of one reads the
+ * decoder before writing.
+ */
+export function withImported(t: CVTable, cvs: Record<string, number>): CVTable {
+  const out = { ...t };
+  for (const [cv, value] of Object.entries(cvs)) out[cv] = { value, state: "imported", known: false, edited: 0 };
+  return out;
+}
+
+/** Whether a CV's value, or its value before edits, was imported and not read since. */
+export function isImported(cell: CVCell | undefined): boolean {
+  return cell?.state === "imported" || (cell?.state === "edited" && cell.prior?.state === "imported");
 }
 
 /** The values the decoder is known to hold, for saving to the roster: an edited CV's value from before the edits. */

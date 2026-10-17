@@ -363,6 +363,7 @@ function cellFormat(v: DecoderVariable): string {
 const STATE_WORDS: Record<string, string> = {
   unknown: "Not read",
   fromfile: "Default",
+  imported: "Imported",
   edited: "Changed",
   read: "Read",
   stored: "Written",

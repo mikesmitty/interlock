@@ -38,7 +38,9 @@ function MapRow({ map, row, ctx, open, onToggle }: { map: ESUMap; row: number; c
   const t = ctx.table;
   const known = esuRowKnown(map, t, row);
   const edited = esuRowEdited(map, t, row);
-  const neverRead = !edited && esuRowCVs(map, row).every((cv) => !t[cv]?.known);
+  // A row with no value from anywhere: not read, imported or a default.
+  const neverRead = !edited && esuRowCVs(map, row).every((cv) => (t[cv]?.state ?? "unknown") === "unknown");
+  const someKnown = esuRowCVs(map, row).some((cv) => t[cv]?.known);
   const s = esuSummary(map, t, row);
   const unused = s.conditions.length === 0 && s.switches.length === 0;
   const cls = ["dec-esumap__row", edited ? "is-dirty" : "", !known ? "is-unread" : "", unused && !neverRead ? "is-unused" : ""].filter(Boolean).join(" ");
@@ -66,7 +68,7 @@ function MapRow({ map, row, ctx, open, onToggle }: { map: ESUMap; row: number; c
         <td>
           {switches}
           {edited && <span className="field__dirty"> changed</span>}
-          {!known && !neverRead && <span className="faint"> not all read</span>}
+          {!known && !neverRead && <span className="faint">{someKnown ? " not all read" : " not read"}</span>}
         </td>
       </tr>
       {open && (

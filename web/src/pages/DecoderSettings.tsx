@@ -26,7 +26,9 @@ import {
   settle,
   variableMap,
   withChanges,
+  withImported,
   withSaved,
+  isImported,
   type CVChange,
   type CVTable,
   type CVUpdate,
@@ -126,12 +128,12 @@ export function DecoderSettings() {
     const saved = loco && decoderID ? api.savedCVs(loco, decoderID) : Promise.resolve(undefined);
     Promise.all([api.decoderDefinition(file, model), saved])
       .then(([d, values]) => {
-        const t = values ? withChanges(withSaved(initialTable(d), values.cvs), values.changes ?? {}) : initialTable(d);
+        const t = values ? withChanges(withImported(withSaved(initialTable(d), values.cvs), values.imported ?? {}), values.changes ?? {}) : initialTable(d);
         sentRef.current = JSON.stringify(pendingChanges(t));
         setDef(d);
         setTable(t);
         setRestored(Object.keys(values?.changes ?? {}).length);
-        setSavedAt(values && Object.keys(values.cvs).length > 0 ? values.updated : undefined);
+        setSavedAt(values && Object.keys(values.cvs).length + Object.keys(values.imported ?? {}).length > 0 ? values.updated : undefined);
         setTab(0);
       })
       .catch((err) => setLoadError(describe(err)));
@@ -389,10 +391,17 @@ export function DecoderSettings() {
     .sort((a, b) => a.name.localeCompare(b.name));
 
   const decoderTitle = rosterDecoder?.name || def.model;
+  const imported = Object.values(table).filter(isImported).length;
+  const importedOnly = imported > 0 && !Object.values(table).some((c) => c.known);
+  const saved = !savedAt
+    ? "No values saved yet; read a page to start."
+    : importedOnly
+      ? `Imported values from ${relativeTime(savedAt, now)}, not read from the decoder yet; reading a page replaces them.`
+      : `Saved values from ${relativeTime(savedAt, now)}${
+          imported > 0 ? `, with ${imported.toLocaleString()} imported CV${imported === 1 ? "" : "s"} not read from the decoder yet` : ""
+        }; reading a page replaces them.`;
   const lead = entry
-    ? `${decoderTitle === def.model ? def.model : `${decoderTitle}: ${def.model}`}, ${def.family}. ${
-        savedAt ? `Saved values from ${relativeTime(savedAt, now)}; reading a page replaces them.` : "No values saved yet; read a page to start."
-      }`
+    ? `${decoderTitle === def.model ? def.model : `${decoderTitle}: ${def.model}`}, ${def.family}. ${saved}`
     : `${def.family}, ${def.manufacturer}. Settings come from the JMRI project's decoder definitions.`;
 
   return (

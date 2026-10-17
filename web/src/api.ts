@@ -433,9 +433,14 @@ export interface RosterDecoder {
   momentary?: number[];
 }
 
-/** A decoder's saved CV values by the names its definition uses, and the changes not written to it yet. */
+/**
+ * A decoder's saved CV values by the names its definition uses, those
+ * imported from another roster and not read since, and the changes not
+ * written to it yet.
+ */
 export interface SavedCVs {
   cvs: Record<string, number>;
+  imported?: Record<string, number>;
   updated?: string;
   changes?: Record<string, { value: number; bits: number }>;
 }

@@ -235,7 +235,8 @@ function DecoderRow({ train: t, decoder: d, onMessage }: { train: Train; decoder
     }
   }
 
-  const count = saved ? Object.keys(saved.cvs).length : 0;
+  const imported = saved ? Object.keys(saved.imported ?? {}).length : 0;
+  const count = (saved ? Object.keys(saved.cvs).length : 0) + imported;
   const id = d.identity;
   return (
     <li className="ros-decoder">
@@ -262,7 +263,11 @@ function DecoderRow({ train: t, decoder: d, onMessage }: { train: Train; decoder
       <div className="cell-sub">
         {d.file ? (d.model === d.family || !d.family ? d.model : `${d.model}, ${d.family}`) : <span className="ros-warn">No definition chosen</span>}
         {id && `; maker ${id.manufacturer}${id.product_id !== undefined ? `, product ${id.product_id}` : ""}`}
-        {count > 0 && saved?.updated ? `; ${count.toLocaleString()} saved value${count === 1 ? "" : "s"}, ${relativeTime(saved.updated, now)}` : "; no values saved"}
+        {count > 0 && saved?.updated
+          ? `; ${count.toLocaleString()} saved value${count === 1 ? "" : "s"}${
+              imported === count ? ", imported and not read yet" : imported > 0 ? ` (${imported.toLocaleString()} imported, not read yet)` : ""
+            }, ${relativeTime(saved.updated, now)}`
+          : "; no values saved"}
       </div>
       <div className="ros-decoder__actions">
         {d.file && (

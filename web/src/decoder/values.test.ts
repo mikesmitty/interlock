@@ -24,7 +24,9 @@ import {
   withChanges,
   variableMap,
   withField,
+  withImported,
   withSaved,
+  isImported,
   type CVTable,
 } from "./values.ts";
 
@@ -245,6 +247,26 @@ test("saved values count as known and are saved back", () => {
   assert.deepEqual(addressOf(addressItems(vars), t, vars), { address: 6641, long: true });
   t = applyUpdates(t, [{ cv: "1", value: 5, bits: 0x7f }], "edited");
   assert.deepEqual(knownValues(t), { "1": 3, "29": 0x26, "17": 0xd9, "18": 0xf1 }, "an edited CV saves what the decoder holds");
+});
+
+test("imported values show but are not known until read", () => {
+  let t: CVTable = withImported(withSaved({}, { "1": 3 }), { "29": 0x06, "3": 10 });
+  assert.deepEqual(t["29"], { value: 0x06, state: "imported", known: false, edited: 0 });
+  assert.equal(isImported(t["29"]), true);
+  assert.equal(isImported(t["1"]), false);
+  assert.deepEqual(knownValues(t), { "1": 3 }, "only values from the decoder are saved back");
+
+  // An edit to one bit stays unknown, so writing it reads the decoder first.
+  t = applyUpdates(t, [{ cv: "29", value: 0x26, bits: 0x20 }], "edited");
+  assert.deepEqual(t["29"], { value: 0x26, state: "edited", known: false, edited: 0x20, prior: { value: 0x06, state: "imported" } });
+  assert.equal(isImported(t["29"]), true);
+  assert.equal(merge(t["29"], 0x0e), 0x2e, "the decoder's other bits win over the imported ones");
+  assert.deepEqual(discard(t, ["29"])["29"], { value: 0x06, state: "imported", known: false, edited: 0 });
+
+  // A read replaces the imported value.
+  t = settle(t, "3", 12, "read");
+  assert.deepEqual(t["3"], { value: 12, state: "read", known: true, edited: 0 });
+  assert.equal(isImported(t["3"]), false);
 });
 
 test("changes not written yet are kept, survive a read and can be undone", () => {
