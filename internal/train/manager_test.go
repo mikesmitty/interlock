@@ -565,7 +565,8 @@ func TestLayoutAndNotices(t *testing.T) {
 
 func TestImport(t *testing.T) {
 	b := newBench(t)
-	store := train.OpenCVStore(filepath.Join(t.TempDir(), train.CVDirName), nil)
+	cvDir := filepath.Join(t.TempDir(), train.CVDirName)
+	store := train.OpenCVStore(cvDir, nil)
 	m := train.New(train.Options{Bus: b.local, Logger: slog.New(slog.DiscardHandler), CVs: store})
 	if _, err := m.Create(train.Entry{Name: "Old timer", Address: 9}); err != nil {
 		t.Fatal(err)
@@ -612,7 +613,30 @@ func TestImport(t *testing.T) {
 	if d, _ := p42.Decoder("digitrax"); d.Address != 150 || !d.Long || d.Identity == nil {
 		t.Errorf("Digitrax decoder = %+v", d)
 	}
-	if got, _ := m.CVs("kato-p42", "digitrax"); got.CVs["8"] != 129 || !got.Updated.Equal(day(1)) {
+	// Imported values wait for a read of the decoder.
+	if got, _ := m.CVs("kato-p42", "digitrax"); len(got.CVs) != 0 || got.Imported["8"] != 129 || len(got.Imported) != 2 || !got.Updated.Equal(day(1)) {
 		t.Errorf("Digitrax CVs = %+v", got)
+	}
+	if err := m.SetCVs("kato-p42", "digitrax", map[string]int{"8": 129}, false); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := m.CVs("kato-p42", "digitrax"); got.CVs["8"] != 129 || len(got.Imported) != 1 || got.Imported["1"] != 3 || got.Updated.Equal(day(1)) {
+		t.Errorf("after a read, Digitrax CVs = %+v", got)
+	}
+	if err := store.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(cvDir, "digitrax.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "imported:\n  \"1\": 3\n") {
+		t.Errorf("file:\n%s", data)
+	}
+	if err := m.SetCVs("kato-p42", "digitrax", map[string]int{"1": 4}, true); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := m.CVs("kato-p42", "digitrax"); got.Imported != nil || got.CVs["1"] != 4 {
+		t.Errorf("after replacing, Digitrax CVs = %+v", got)
 	}
 }

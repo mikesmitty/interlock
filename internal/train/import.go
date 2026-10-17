@@ -234,7 +234,7 @@ func (m *Manager) ApplyImport(ctx context.Context, items []Import, plan []Import
 			// The values are as old as the roster that kept them.
 			err := m.checkCVs(id, added.ID, it.CVs)
 			if err == nil {
-				err = m.opts.CVs.ReplaceAt(added.ID, it.CVs, it.Updated)
+				err = m.opts.CVs.Import(added.ID, it.CVs, it.Updated)
 			}
 			if err != nil {
 				return fmt.Errorf("%s: %w", it.Entry.Name, err)

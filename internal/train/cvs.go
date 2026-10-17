@@ -26,24 +26,28 @@ const CVDirName = "cvs"
 const cvSaveDelay = time.Second
 
 const cvHeader = `# CV values of one decoder, as Interlock last read them from it or wrote
-# them to it, and changes made on its settings page that are not written
-# yet. Interlock rewrites this file; trains.yaml says which locomotive the
-# decoder belongs to.
+# them to it; values imported from another roster that the decoder has not
+# been read for yet; and changes made on its settings page that are not
+# written yet. Interlock rewrites this file; trains.yaml says which
+# locomotive the decoder belongs to.
 `
 
 type cvDoc struct {
-	Updated time.Time           `yaml:"updated"`
-	CVs     map[string]int      `yaml:"cvs"`
-	Changes map[string]CVChange `yaml:"changes,omitempty"`
+	Updated  time.Time           `yaml:"updated"`
+	CVs      map[string]int      `yaml:"cvs"`
+	Imported map[string]int      `yaml:"imported,omitempty"`
+	Changes  map[string]CVChange `yaml:"changes,omitempty"`
 }
 
 // CVValues are a decoder's saved CV values by the names its definition
 // uses for them ("29", "16.0.259"), and the changes not written to it
-// yet.
+// yet. CVs were read from the decoder or written to it; Imported came
+// from another roster and wait for a read to confirm them.
 type CVValues struct {
-	CVs     map[string]int      `json:"cvs"`
-	Updated time.Time           `json:"updated,omitzero"`
-	Changes map[string]CVChange `json:"changes,omitempty"`
+	CVs      map[string]int      `json:"cvs"`
+	Imported map[string]int      `json:"imported,omitempty"`
+	Updated  time.Time           `json:"updated,omitzero"`
+	Changes  map[string]CVChange `json:"changes,omitempty"`
 }
 
 // CVChange is a change to a CV that is not written yet: the bits it
@@ -125,29 +129,21 @@ func (s *CVStore) Get(decoder string) (CVValues, error) {
 	if err != nil {
 		return CVValues{}, err
 	}
-	return CVValues{CVs: maps.Clone(d.CVs), Updated: d.Updated, Changes: maps.Clone(d.Changes)}, nil
+	return CVValues{CVs: maps.Clone(d.CVs), Imported: maps.Clone(d.Imported), Updated: d.Updated, Changes: maps.Clone(d.Changes)}, nil
 }
 
-// Set records values for a decoder, keeping the others it has.
+// Set records values read from or written to a decoder, keeping the
+// others it has.
 func (s *CVStore) Set(decoder string, values map[string]int) error {
-	return s.change(decoder, values, false, time.Now())
+	return s.change(decoder, values, false)
 }
 
-// Replace makes values all the decoder has.
+// Replace makes values, read from or written to the decoder, all it has.
 func (s *CVStore) Replace(decoder string, values map[string]int) error {
-	return s.change(decoder, values, true, time.Now())
+	return s.change(decoder, values, true)
 }
 
-// ReplaceAt makes values all the decoder has, as of when they were last
-// read or written: an imported roster's date, say.
-func (s *CVStore) ReplaceAt(decoder string, values map[string]int, at time.Time) error {
-	if at.IsZero() {
-		at = time.Now()
-	}
-	return s.change(decoder, values, true, at)
-}
-
-func (s *CVStore) change(decoder string, values map[string]int, replace bool, at time.Time) error {
+func (s *CVStore) change(decoder string, values map[string]int, replace bool) error {
 	if s == nil {
 		return nil
 	}
@@ -159,13 +155,45 @@ func (s *CVStore) change(decoder string, values map[string]int, replace bool, at
 	}
 	if replace {
 		d.CVs = make(map[string]int, len(values))
+		d.Imported = nil
 	}
 	maps.Copy(d.CVs, values)
-	// A change the decoder now holds is no longer waiting to be written.
 	for cv, v := range values {
+		// The decoder has confirmed or replaced an imported value.
+		delete(d.Imported, cv)
+		// A change the decoder now holds is no longer waiting to be written.
 		if c, ok := d.Changes[cv]; ok && c.heldBy(v) {
 			delete(d.Changes, cv)
 		}
+	}
+	if len(d.Imported) == 0 {
+		d.Imported = nil
+	}
+	d.Updated = time.Now().UTC().Truncate(time.Second)
+	s.markLocked(decoder)
+	return nil
+}
+
+// Import makes values from another roster all the decoder has, as of
+// when that roster saved them. They count as not read until the decoder
+// is.
+func (s *CVStore) Import(decoder string, values map[string]int, at time.Time) error {
+	if s == nil {
+		return nil
+	}
+	if at.IsZero() {
+		at = time.Now()
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	d, err := s.loadLocked(decoder)
+	if err != nil {
+		return err
+	}
+	d.CVs = make(map[string]int)
+	d.Imported = maps.Clone(values)
+	if len(d.Imported) == 0 {
+		d.Imported = nil
 	}
 	d.Updated = at.UTC().Truncate(time.Second)
 	s.markLocked(decoder)

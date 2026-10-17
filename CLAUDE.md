@@ -106,8 +106,9 @@ applied at the next start; the replaced files go to `before-restore-*/`.
   on the bus belongs to the address (`train` in the manager) and every
   entry there shows it. Each entry has decoders, one fitted, whose
   address and labels swap with it; `CVStore` keeps each decoder's CV
-  values, and the settings page's changes not written yet, in
-  `<data>/cvs/`. The JMRI import is planned and applied here.
+  values (imported ones apart until a read confirms them) and the
+  settings page's changes not written yet in `<data>/cvs/`. The JMRI
+  import is planned and applied here.
 - `internal/jmri` — reads JMRI roster files (roster.xml, the locomotive
   files, zips of them) into imports for the roster.
 - `internal/programmer` — CV reads and writes: service mode through space
