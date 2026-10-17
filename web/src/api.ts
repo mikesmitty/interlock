@@ -35,6 +35,48 @@ export interface NodeInfo {
   forgotten?: boolean;
 }
 
+// The fast clock.
+
+export interface ClockState {
+  clock: string;
+  running: boolean;
+  rate: number;
+  time: string;
+  date: string;
+  weekday: string;
+  hour: number;
+  minute: number;
+  second: number;
+  updated: string;
+}
+
+export interface ClockChange {
+  running?: boolean;
+  rate?: number;
+  time?: string;
+  date?: string;
+}
+
+// A firmware upgrade in progress or finished.
+
+export type FirmwarePhase = "checking" | "freezing" | "writing" | "unfreezing" | "restarting" | "verifying" | "done" | "failed";
+
+export interface FirmwareJob {
+  id: string;
+  node: string;
+  node_name: string;
+  file: string;
+  size: number;
+  written: number;
+  phase: FirmwarePhase;
+  message: string;
+  from?: string;
+  to?: string;
+  started: string;
+  updated: string;
+  finished?: string;
+}
+
 // Configuration description, expanded so every value has an address.
 
 export interface Relation {
@@ -206,8 +248,8 @@ export interface Profile {
 // Automations: when / only if / then documents and the traces of their runs.
 
 export type AutomationMode = "single" | "restart" | "queued" | "parallel";
-export type TriggerType = "state" | "event" | "locomotive" | "node" | "time" | "interval" | "start";
-export type ConditionType = "state" | "time" | "trigger" | "and" | "or" | "not";
+export type TriggerType = "state" | "event" | "locomotive" | "node" | "time" | "clock" | "interval" | "start";
+export type ConditionType = "state" | "time" | "clock" | "trigger" | "and" | "or" | "not";
 export type ActionType = "command" | "train" | "event" | "delay" | "wait" | "if" | "choose" | "repeat" | "stop" | "log";
 
 export interface Trigger {
@@ -485,6 +527,25 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return data as T;
 }
 
+/** Sends a file as a multipart form; the server answers with JSON. */
+async function upload<T>(path: string, field: string, file: File): Promise<T> {
+  const form = new FormData();
+  form.append(field, file, file.name);
+  const res = await fetch(path, { method: "POST", body: form, headers: { Accept: "application/json" } });
+  const text = await res.text();
+  let data: unknown;
+  try {
+    data = text ? JSON.parse(text) : undefined;
+  } catch {
+    data = undefined;
+  }
+  if (!res.ok) {
+    const body = data as { error?: string } | undefined;
+    throw new ApiError(res.status, body?.error ?? `HTTP ${res.status}`);
+  }
+  return data as T;
+}
+
 async function requestText(path: string): Promise<string> {
   const res = await fetch(path);
   const text = await res.text();
@@ -525,6 +586,14 @@ export const api = {
     }),
   serialPorts: () => request<{ ports: string[] }>("/api/v1/serial-ports").then((r) => r.ports),
   forgetNode: (id: string) => request<void>(nodePath(id), { method: "DELETE" }),
+  restore: (file: File) => upload<{ restarting: boolean }>("/api/v1/restore", "file", file),
+  restart: () => request<{ restarting: boolean }>("/api/v1/restart", { method: "POST" }),
+  clock: () => request<ClockState>("/api/v1/clock"),
+  setClock: (change: ClockChange) => request<ClockState>("/api/v1/clock", { method: "POST", body: JSON.stringify(change) }),
+  firmwareJobs: () => request<{ jobs: FirmwareJob[] }>("/api/v1/firmware").then((r) => r.jobs),
+  firmwareJob: (id: string) => request<FirmwareJob>(`${nodePath(id)}/firmware`),
+  installFirmware: (id: string, file: File) => upload<FirmwareJob>(`${nodePath(id)}/firmware`, "file", file),
+  cancelFirmware: (id: string) => request<FirmwareJob>(`${nodePath(id)}/firmware`, { method: "DELETE" }),
   cdi: (id: string) => request<{ status: CdiStatus; layout: Layout }>(`${nodePath(id)}/cdi`),
   cdiXML: (id: string) => requestText(`${nodePath(id)}/cdi?format=xml`),
   refreshCdi: (id: string) =>

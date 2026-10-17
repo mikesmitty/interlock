@@ -37,6 +37,24 @@ type Deferred interface {
 	TimeoutExp() uint8
 }
 
+// Firmware receives a new firmware image through space 0xEF, following
+// the Firmware Upgrade standard: Freeze starts the upgrade, writes arrive
+// in order from address 0, and Unfreeze ends it. Methods return nil to
+// acknowledge or an *openlcb.Error whose code goes in the rejection; the
+// standard's codes are ErrCodeFirmwareIncompatible,
+// ErrCodeFirmwareCorrupted and ErrCodeFirmwareChecksum (temporary, so the
+// sender retries the write). Methods run on the node goroutine and must
+// not block.
+type Firmware interface {
+	// Freeze enters the upgrade state.
+	Freeze() error
+	// WriteFirmware stores the next piece of the image.
+	WriteFirmware(address uint32, data []byte) error
+	// Unfreeze leaves the upgrade state. nil means the image is complete
+	// and valid; the node is expected to restart into it.
+	Unfreeze() error
+}
+
 // Memory is a Space backed by a byte slice.
 type Memory struct {
 	mu       sync.RWMutex
@@ -105,10 +123,18 @@ type Server struct {
 
 	// Name is reported in the options reply.
 	Name string
+	// Firmware, when set, accepts firmware upgrades through space 0xEF.
+	Firmware Firmware
+	frozen   bool
 	// Hooks, called on their own goroutine after the acknowledgment.
 	OnUpdateComplete func()
 	OnReboot         func()
 	OnFactoryReset   func()
+	// OnFrozen runs after a Freeze is acknowledged; the standard has the
+	// node announce itself with Initialization Complete then. OnUnfrozen
+	// runs after Unfreeze with whether the image was accepted.
+	OnFrozen   func()
+	OnUnfrozen func(accepted bool)
 }
 
 // NewServer returns an empty server.
@@ -129,6 +155,13 @@ func (s *Server) Space(number uint8) (Space, bool) {
 	defer s.mu.RUnlock()
 	sp, ok := s.spaces[number]
 	return sp, ok
+}
+
+// Frozen reports whether a firmware upgrade is in progress.
+func (s *Server) Frozen() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.frozen
 }
 
 func (s *Server) bind(dg Datagrams, log *slog.Logger) {
@@ -159,6 +192,9 @@ func (s *Server) handle(msg *openlcb.Message) (node.DatagramFlags, error) {
 		rw, err := ParseReadWrite(p)
 		if err != nil || len(rw.Data) == 0 {
 			return node.DatagramFlags{}, &openlcb.Error{Code: openlcb.ErrCodeInvalidArguments}
+		}
+		if rw.Space == SpaceFirmware {
+			return node.DatagramFlags{}, s.writeFirmware(rw)
 		}
 		sp, ok := s.Space(rw.Space)
 		if !ok {
@@ -207,6 +243,11 @@ func (s *Server) handle(msg *openlcb.Message) (node.DatagramFlags, error) {
 			go s.OnReboot()
 		}
 		return node.DatagramFlags{}, nil
+	case cmd == CmdFreeze, cmd == CmdUnfreeze:
+		if len(p) < 3 {
+			return node.DatagramFlags{}, &openlcb.Error{Code: openlcb.ErrCodeInvalidArguments}
+		}
+		return node.DatagramFlags{}, s.freeze(cmd == CmdFreeze, p[2])
 	case cmd == CmdFactoryReset:
 		if len(p) < 8 || openlcb.NodeIDFromBytes([6]byte(p[2:8])) != s.dg.ID() {
 			return node.DatagramFlags{}, &openlcb.Error{Code: openlcb.ErrCodeInvalidArguments}
@@ -251,6 +292,51 @@ func (s *Server) write(sp Space, rw ReadWrite) []byte {
 	return WriteReply(rw.Space, rw.Address)
 }
 
+// freeze handles Freeze and Unfreeze, which only the firmware space
+// supports.
+func (s *Server) freeze(freeze bool, space uint8) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.Firmware == nil || space != SpaceFirmware {
+		return &openlcb.Error{Code: ErrCodeSpaceUnknown}
+	}
+	if freeze {
+		if s.frozen {
+			return nil
+		}
+		if err := s.Firmware.Freeze(); err != nil {
+			return err
+		}
+		s.frozen = true
+		if s.OnFrozen != nil {
+			go s.OnFrozen()
+		}
+		return nil
+	}
+	if !s.frozen {
+		return nil
+	}
+	// Senders unfreeze after a failed transfer too, to end the upgrade.
+	s.frozen = false
+	err := s.Firmware.Unfreeze()
+	if s.OnUnfrozen != nil {
+		go s.OnUnfrozen(err == nil)
+	}
+	return err
+}
+
+// writeFirmware hands a piece of the image to the Firmware; the space
+// exists only while frozen.
+func (s *Server) writeFirmware(rw ReadWrite) error {
+	s.mu.RLock()
+	fw, frozen := s.Firmware, s.frozen
+	s.mu.RUnlock()
+	if fw == nil || !frozen {
+		return &openlcb.Error{Code: ErrCodeSpaceUnknown}
+	}
+	return fw.WriteFirmware(rw.Address, rw.Data)
+}
+
 func (s *Server) options() Options {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -268,6 +354,12 @@ func (s *Server) options() Options {
 			o.LowestSpace = num
 		}
 		first = false
+	}
+	if s.Firmware != nil && (first || SpaceFirmware < o.LowestSpace) {
+		o.LowestSpace = SpaceFirmware
+		if first {
+			o.HighestSpace = SpaceFirmware
+		}
 	}
 	return o
 }

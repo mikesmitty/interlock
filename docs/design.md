@@ -511,7 +511,42 @@ train reservation protocol, function description information (space 0xFA).
   firmware does not forward to listeners on other nodes yet), reading CVs
   on the main (needs RailCom), function descriptions from space 0xFA,
   decoder definitions, and train entities for state triggers.
-- Next: Phase 6, firmware upgrade and polish.
+- Phase 6 done (2026-10-17): firmware upgrade (`internal/firmware`:
+  Freeze, the image in 64 byte writes with retries, Unfreeze, a watch for
+  the restart and for a board that tries new firmware going back; UF2
+  files unpacked; the memconfig server's firmware space; `sim.Outpost`
+  takes upgrades and runs new images on trial as the board does; a
+  Firmware section on the node page with progress and plain results),
+  the fast clock (`openlcb/clock` codec, `internal/clock` server
+  broadcasting time, date, year and rate and taking set, start, stop and
+  query from the bus, kept in the store; clock triggers and conditions
+  in automations; the Clock page and a readout in the status strip),
+  backup and restore (`internal/backup`: a zip of the data directory
+  with a database snapshot, restores staged and applied at the next
+  start with the old files kept; a Restart button; the server restarts
+  in place), the OpenLCB TCP link and server
+  (`openlcb/transport/olcbtcp`: framing, a gateway allocating and
+  defending aliases for TCP nodes on the CAN side, reconnecting client
+  link and listener), the SocketCAN link (`openlcb/transport/socketcan`,
+  Linux only, through a codec on the shared stream link), and the
+  documentation site (VitePress over `docs/`, published to GitHub Pages
+  by `.github/workflows/docs.yml`). Verified against the simulator: a
+  firmware upgrade installed and one rolled back from the browser, the
+  clock run at 12x, a backup downloaded and restored. Not yet against
+  real hardware.
+- Decided in Phase 6: the node resends a rejected datagram on its own
+  only for the transport's temporary codes (0x2000, buffer unavailable,
+  out of order); other temporary codes such as the firmware checksum
+  go back to the protocol above, which knows what to resend. A restore
+  is applied at start rather than live, so nothing is replaced while
+  open. The fast clock is Interlock's own default fast clock; following
+  another node's clock instead is a later option.
+- Deferred from Phase 6: firmware upgrade over streams (the standard's
+  other path; both boards use datagrams), following an external clock,
+  fragmented OpenLCB TCP messages, SocketCAN on a machine to test it,
+  and the documentation site's screenshots.
+- Next: hardware verification against canbus-outpost and simple-dcc,
+  then the "Later" list.
 
 ## References
 

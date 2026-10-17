@@ -4,7 +4,9 @@
 // outpost's real CDI with a configuration space behind it that can be
 // read and written, moves its servos when their throw and close events
 // arrive and reports the feedback, and walks a locomotive around its
-// four tracks so the blocks and reporters have something to show. As a
+// four tracks so the blocks and reporters have something to show, and it
+// takes firmware upgrades (images made with -make-firmware), running a
+// new image on trial the way the board does. As a
 // command station (-cdi cs) it behaves like simple-dcc instead: it
 // creates train nodes when a throttle searches for them, drives them
 // with Train Control, and owns a programming track with a decoder on it
@@ -14,6 +16,7 @@
 //	go run ./cmd/simnode -hub host:port
 //	go run ./cmd/simnode -pace 0         # no locomotive
 //	go run ./cmd/simnode -cdi cs -id 0A.00.00.00.00.43   # the command station
+//	go run ./cmd/simnode -make-firmware outpost-2.0.0.bin -firmware-version 2.0.0
 package main
 
 import (
@@ -48,7 +51,19 @@ func main() {
 	pace := flag.Duration("pace", 6*time.Second, "how often the locomotive moves to the next track; 0 for never")
 	address := flag.Int("address", 1234, "DCC address of the locomotive (outpost: the one detected; cs: the one on the programming track)")
 	verbose := flag.Bool("v", false, "log every frame")
+	makeFirmware := flag.String("make-firmware", "", "write a firmware image the simulated outpost accepts to this file and exit")
+	firmwareVersion := flag.String("firmware-version", "1.2.3", "software version the image made with -make-firmware reports")
+	firmwareFails := flag.Bool("firmware-fails", false, "make an image that does not confirm itself, so the outpost goes back")
 	flag.Parse()
+
+	if *makeFirmware != "" {
+		if err := os.WriteFile(*makeFirmware, sim.FirmwareImage(*firmwareVersion, *firmwareFails), 0o644); err != nil {
+			fmt.Fprintln(os.Stderr, "simnode:", err)
+			os.Exit(1)
+		}
+		fmt.Printf("wrote %s: simulated outpost firmware version %s\n", *makeFirmware, *firmwareVersion)
+		return
+	}
 
 	id, err := openlcb.ParseNodeID(*idText)
 	if err != nil {

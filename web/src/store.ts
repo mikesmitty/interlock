@@ -4,8 +4,10 @@ import { useSyncExternalStore } from "react";
 import {
   api,
   type AutomationStatus,
+  type ClockState,
   type Entity,
   type EventName,
+  type FirmwareJob,
   type Health,
   type LayoutState,
   type LinkStatus,
@@ -36,6 +38,10 @@ export interface BusState {
   liveTraces: Trace[];
   trains: Record<string, Train>;
   layout: LayoutState;
+  /** The latest firmware upgrade of each node, by node ID. */
+  firmware: Record<string, FirmwareJob>;
+  /** The fast clock, as of its last change or minute. */
+  clock?: ClockState;
 }
 
 const MAX_LIVE_TRACES = 50;
@@ -68,6 +74,7 @@ class BusStore {
     liveTraces: [],
     trains: {},
     layout: { power_off: false, emergency_stop: false },
+    firmware: {},
   };
   private listeners = new Set<Listener>();
   private source?: EventSource;
@@ -108,6 +115,13 @@ class BusStore {
         return;
       }
       this.set({ nodes: { ...this.state.nodes, [info.id]: info } });
+    });
+    es.addEventListener("clock", (ev) => {
+      this.set({ clock: JSON.parse((ev as MessageEvent<string>).data) as ClockState });
+    });
+    es.addEventListener("firmware", (ev) => {
+      const job = JSON.parse((ev as MessageEvent<string>).data) as FirmwareJob;
+      this.set({ firmware: { ...this.state.firmware, [job.node]: job } });
     });
     es.addEventListener("links", (ev) => {
       const { links } = JSON.parse((ev as MessageEvent<string>).data) as {
@@ -184,7 +198,7 @@ class BusStore {
   private async load(serverSeq: number) {
     this.set({ connection: "live" });
     try {
-      const [nodes, links, health, entityList, eventNames, automationList, trainsResponse] = await Promise.all([
+      const [nodes, links, health, entityList, eventNames, automationList, trainsResponse, firmwareJobs] = await Promise.all([
         api.nodes(),
         api.links(),
         api.health(),
@@ -192,7 +206,11 @@ class BusStore {
         api.eventNames(),
         api.automations(),
         api.trains(),
+        api.firmwareJobs().catch(() => [] as FirmwareJob[]),
       ]);
+      const clock = await api.clock().catch(() => undefined);
+      const firmware: Record<string, FirmwareJob> = {};
+      for (const j of firmwareJobs) firmware[j.node] = j;
       const trains: Record<string, Train> = {};
       for (const t of trainsResponse.trains) trains[t.id] = t;
       const automations: Record<string, AutomationStatus> = {};
@@ -215,6 +233,8 @@ class BusStore {
         automations,
         trains,
         layout: trainsResponse.layout,
+        firmware,
+        clock,
         entries,
         lastSeq: Math.max(this.state.lastSeq, backlog.last_seq),
         lagged: false,

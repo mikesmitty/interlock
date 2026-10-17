@@ -47,3 +47,8 @@ interlock-data/
 *.db-shm
 
 .DS_Store
+
+# Documentation site: dependencies and build output
+docs/node_modules/
+docs/.vitepress/dist/
+docs/.vitepress/cache/

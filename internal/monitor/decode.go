@@ -7,6 +7,7 @@ import (
 
 	"github.com/mikesmitty/interlock/openlcb"
 	"github.com/mikesmitty/interlock/openlcb/can"
+	"github.com/mikesmitty/interlock/openlcb/clock"
 	"github.com/mikesmitty/interlock/openlcb/memconfig"
 )
 
@@ -181,6 +182,8 @@ func summarize(msg *openlcb.Message) string {
 		if id, ok := msg.EventID(); ok {
 			s := id.String()
 			if name := openlcb.WellKnownName(id); name != "" {
+				s += " (" + name + ")"
+			} else if name := clockName(id); name != "" {
 				s += " (" + name + ")"
 			}
 			return s
@@ -383,4 +386,27 @@ func summarizeTraction(p []byte, reply bool) string {
 		name += " (forwarded to listener)"
 	}
 	return name
+}
+
+// clockName describes a Broadcast Time event of one of the well-known
+// clocks, such as "fast clock reports time 06:42".
+func clockName(id openlcb.EventID) string {
+	var which string
+	switch id.Node() {
+	case clock.DefaultFastClock:
+		which = "fast clock"
+	case clock.DefaultRealTimeClock:
+		which = "real time clock"
+	case clock.AlternateClock1:
+		which = "alternate clock 1"
+	case clock.AlternateClock2:
+		which = "alternate clock 2"
+	default:
+		return ""
+	}
+	ev, ok := clock.Parse(id)
+	if !ok {
+		return which
+	}
+	return which + " " + strings.TrimPrefix(ev.String(), "clock ")
 }

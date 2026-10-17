@@ -75,6 +75,14 @@ type Deps struct {
 	Trains Trains
 	// Programmer reads and writes CVs; nil disables the programming endpoints.
 	Programmer Programmer
+	// Firmware upgrades nodes; nil disables the firmware endpoints.
+	Firmware Firmware
+	// Clock is the fast clock; nil disables the clock endpoints.
+	Clock Clock
+	// Backups writes and restores backups; nil disables those endpoints.
+	Backups Backups
+	// Restart restarts the server; nil means it cannot.
+	Restart func()
 	// SerialPorts lists serial devices for the settings page; may be nil.
 	SerialPorts func() ([]string, error)
 	Logger      *slog.Logger
@@ -146,6 +154,21 @@ func New(deps Deps) *API {
 	a.mux.HandleFunc("POST /api/v1/programming/find", a.findProgrammingTrack)
 	a.mux.HandleFunc("POST /api/v1/programming/read", a.readCV)
 	a.mux.HandleFunc("POST /api/v1/programming/write", a.writeCV)
+	if deps.Firmware != nil {
+		a.mux.HandleFunc("GET /api/v1/firmware", a.listFirmware)
+		a.mux.HandleFunc("GET /api/v1/nodes/{id}/firmware", a.getFirmware)
+		a.mux.HandleFunc("POST /api/v1/nodes/{id}/firmware", a.startFirmware)
+		a.mux.HandleFunc("DELETE /api/v1/nodes/{id}/firmware", a.cancelFirmware)
+	}
+	if deps.Clock != nil {
+		a.mux.HandleFunc("GET /api/v1/clock", a.getClock)
+		a.mux.HandleFunc("POST /api/v1/clock", a.setClock)
+	}
+	if deps.Backups != nil {
+		a.mux.HandleFunc("GET /api/v1/backup", a.downloadBackup)
+		a.mux.HandleFunc("POST /api/v1/restore", a.restore)
+	}
+	a.mux.HandleFunc("POST /api/v1/restart", a.restart)
 	a.mux.HandleFunc("GET /api/v1/links", a.links)
 	a.mux.HandleFunc("GET /api/v1/monitor", a.monitorEntries)
 	a.mux.HandleFunc("POST /api/v1/monitor/send", a.monitorSend)

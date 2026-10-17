@@ -10,7 +10,9 @@ import (
 	"time"
 
 	"github.com/mikesmitty/interlock/internal/automation"
+	"github.com/mikesmitty/interlock/internal/clock"
 	"github.com/mikesmitty/interlock/internal/entity"
+	"github.com/mikesmitty/interlock/internal/firmware"
 	"github.com/mikesmitty/interlock/internal/monitor"
 	"github.com/mikesmitty/interlock/internal/programmer"
 	"github.com/mikesmitty/interlock/internal/registry"
@@ -23,6 +25,7 @@ import (
 //
 //	ready        {"seq": N}         sent first; N is the monitor's newest sequence
 //	node         registry.Info      a node appeared, changed or went offline
+//	firmware     firmware.Job       a firmware upgrade moved on (topic "nodes")
 //	links        {"links": [...]}   link status changed
 //	frame        monitor.Entry      bus traffic (topic "monitor")
 //	entity       entity.Entity      an entity changed, appeared or was removed
@@ -32,11 +35,12 @@ import (
 //	train        train.Train        a train changed, was added or removed (topic "trains")
 //	layout       train.Layout       track power or emergency stop changed (topic "trains")
 //	cv           programmer.Op      a CV operation finished (topic "trains")
+//	clock        clock.State        the fast clock changed or reached a minute (topic "clock")
 //	lagged       {}                 the client fell behind and entries were skipped
 //
 // The topics query parameter selects a comma separated subset of
-// nodes, links, monitor, entities, automations and trains; the default is
-// all of them.
+// nodes, links, monitor, entities, automations, trains and clock; the
+// default is all of them.
 
 const (
 	sseQueue     = 1024
@@ -54,7 +58,7 @@ func (a *API) events(w http.ResponseWriter, r *http.Request) {
 	flush := func() bool {
 		return rc.Flush() == nil
 	}
-	topics := map[string]bool{"nodes": true, "links": true, "monitor": true, "entities": true, "automations": true, "trains": true}
+	topics := map[string]bool{"nodes": true, "links": true, "monitor": true, "entities": true, "automations": true, "trains": true, "clock": true}
 	if s := r.URL.Query().Get("topics"); s != "" {
 		topics = map[string]bool{}
 		for _, t := range strings.Split(s, ",") {
@@ -73,6 +77,10 @@ func (a *API) events(w http.ResponseWriter, r *http.Request) {
 	}
 	if topics["nodes"] && a.deps.Registry != nil {
 		unsubscribe := a.deps.Registry.Subscribe(func(info registry.Info) { push(sseEvent{"node", info}) })
+		defer unsubscribe()
+	}
+	if topics["nodes"] && a.deps.Firmware != nil {
+		unsubscribe := a.deps.Firmware.Subscribe(func(j firmware.Job) { push(sseEvent{"firmware", j}) })
 		defer unsubscribe()
 	}
 	if topics["monitor"] && a.deps.Monitor != nil {
@@ -97,6 +105,10 @@ func (a *API) events(w http.ResponseWriter, r *http.Request) {
 	}
 	if topics["trains"] && a.deps.Programmer != nil {
 		unsubscribe := a.deps.Programmer.Subscribe(func(op programmer.Op) { push(sseEvent{"cv", op}) })
+		defer unsubscribe()
+	}
+	if topics["clock"] && a.deps.Clock != nil {
+		unsubscribe := a.deps.Clock.Subscribe(func(st clock.State) { push(sseEvent{"clock", st}) })
 		defer unsubscribe()
 	}
 	if topics["entities"] && a.deps.EventNames != nil {

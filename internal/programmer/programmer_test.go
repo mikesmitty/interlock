@@ -78,7 +78,7 @@ func TestProgrammer(t *testing.T) {
 	if op, err = p.WritePOM(ctx, "1234", 5, 200); err != nil || !op.OK || op.Train != "1234" {
 		t.Fatalf("WritePOM = %+v, %v", op, err)
 	}
-	if got := station.Decoder(1234, true).CVs[5]; got != 200 {
+	if got := station.DecoderState(1234, true).CVs[5]; got != 200 {
 		t.Errorf("CV 5 after POM = %d", got)
 	}
 

@@ -165,8 +165,28 @@ func (s *Station) schedule(fn func()) {
 	}
 }
 
+// DecoderState returns a copy of a decoder's state, safe to read while the
+// station drives it. The decoder is created when the layout has none.
+func (s *Station) DecoderState(address uint16, long bool) Decoder {
+	d := s.Decoder(address, long)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	snapshot := *d
+	snapshot.CVs = make(map[uint16]byte, len(d.CVs))
+	for k, v := range d.CVs {
+		snapshot.CVs[k] = v
+	}
+	snapshot.Functions = make(map[uint32]bool, len(d.Functions))
+	for k, v := range d.Functions {
+		snapshot.Functions[k] = v
+	}
+	return snapshot
+}
+
 // Decoder returns the decoder at address, creating one when the layout
 // has none, as a real locomotive would answer whatever address it has.
+// The station writes its fields under its own lock; read them through
+// DecoderState.
 func (s *Station) Decoder(address uint16, long bool) *Decoder {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -2,7 +2,7 @@ BIN     := interlock
 GO      ?= go
 GOFLAGS ?= -trimpath
 
-.PHONY: all build go web test lint fmt run dev clean
+.PHONY: all build go web test lint fmt run dev docs docs-dev clean
 
 ## all: build the binary with the web interface embedded
 all: build
@@ -43,9 +43,21 @@ run:
 dev: web/node_modules
 	cd web && npm run dev
 
+## docs: build the documentation site into docs/.vitepress/dist
+docs: docs/node_modules
+	cd docs && npm run build
+
+## docs-dev: serve the documentation site with live reload
+docs-dev: docs/node_modules
+	cd docs && npm run dev
+
+docs/node_modules: docs/package.json docs/package-lock.json
+	cd docs && npm ci
+	@touch docs/node_modules
+
 ## clean: remove build output
 clean:
-	rm -rf bin web/dist/*
+	rm -rf bin web/dist/* docs/.vitepress/dist docs/.vitepress/cache
 	@touch web/dist/.gitkeep
 
 help:

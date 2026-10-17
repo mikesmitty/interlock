@@ -45,6 +45,15 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
+// Snapshot writes a consistent copy of the database to a new file at
+// path, for backups, without blocking other readers for long.
+func (s *Store) Snapshot(ctx context.Context, path string) error {
+	if _, err := s.db.ExecContext(ctx, `VACUUM INTO ?`, path); err != nil {
+		return fmt.Errorf("snapshot database: %w", err)
+	}
+	return nil
+}
+
 // Setting returns the stored value for key and whether one exists.
 func (s *Store) Setting(ctx context.Context, key string) (string, bool, error) {
 	var value string

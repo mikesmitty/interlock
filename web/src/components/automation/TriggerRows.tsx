@@ -8,6 +8,7 @@ const TRIGGER_TYPES: [TriggerType, string][] = [
   ["event", "An event is received"],
   ["node", "A node comes or goes"],
   ["time", "A time of day"],
+  ["clock", "The fast clock reads"],
   ["interval", "Every so often"],
   ["start", "Interlock starts"],
 ];
@@ -101,9 +102,10 @@ function TriggerFields({ t, onChange }: { t: Trigger; onChange: (t: Trigger) => 
         </>
       );
     case "time":
+    case "clock":
       return (
         <>
-          <ClockField value={t.at} onChange={(at) => set({ at })} label="At" />
+          <ClockField value={t.at} onChange={(at) => set({ at })} label={t.type === "clock" ? "Fast time" : "At"} />
           <WeekdayPicker value={t.weekdays} onChange={(weekdays) => set({ weekdays })} />
         </>
       );

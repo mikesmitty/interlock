@@ -16,6 +16,7 @@ import "./styles/config.css";
 import "./styles/entities.css";
 import "./styles/automations.css";
 import "./styles/throttle.css";
+import "./styles/clock.css";
 import App from "./App";
 
 createRoot(document.getElementById("root")!).render(

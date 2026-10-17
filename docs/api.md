@@ -1,0 +1,151 @@
+# HTTP API
+
+The web interface is the API's only built-in client, so everything it
+does, you can do with `curl`. Requests and responses are JSON unless
+noted; errors are `{"error": "..."}` with a 4xx or 5xx status. Node IDs
+are dotted hex (`05.01.01.01.22.00`), event IDs likewise with eight
+bytes, entity IDs read like `turnout.0a0000000042.servo_1`, train IDs are
+DCC addresses (`1234`, `3` short, `3l` long).
+
+## Live updates
+
+```
+GET /api/v1/events?topics=nodes,links,monitor,entities,automations,trains,clock
+```
+
+is a server-sent event stream; the default is every topic. Events:
+
+| Event | Topic | Carries |
+|---|---|---|
+| `ready` | | `{"seq": N}`, the monitor's newest sequence number |
+| `node` | nodes | a node that appeared, changed or went offline |
+| `firmware` | nodes | a firmware upgrade's progress |
+| `links` | links | every link's status |
+| `frame` | monitor | one decoded frame |
+| `entity` | entities | an entity that changed |
+| `event_names` | entities | `{"node": id}` when a node's named events changed |
+| `automation`, `trace` | automations | an automation's status; a run's trace as it moves |
+| `train`, `layout`, `cv` | trains | a train; track power and emergency stop; a finished CV operation |
+| `clock` | clock | the fast clock, on every change and fast minute |
+| `lagged` | | the client fell behind and missed events |
+
+## Controller
+
+```
+GET  /api/v1/health          version, node ID, alias, uptime, counts
+GET  /api/v1/links           every link's status
+GET  /api/v1/serial-ports    serial devices on this machine
+GET  /api/v1/backup          a zip of the data directory (application/zip)
+POST /api/v1/restore         multipart form, field "file": stage a backup and restart
+POST /api/v1/restart         restart Interlock, rereading interlock.yaml
+```
+
+## Nodes
+
+```
+GET    /api/v1/nodes                         every node seen
+POST   /api/v1/nodes/refresh                 ask every node to check in
+GET    /api/v1/nodes/{id}
+POST   /api/v1/nodes/{id}/refresh            identify the node again
+DELETE /api/v1/nodes/{id}                    forget an offline node
+GET    /api/v1/nodes/{id}/cdi                the configuration description, expanded; ?format=xml for the source
+POST   /api/v1/nodes/{id}/cdi/refresh        read it from the node again
+POST   /api/v1/nodes/{id}/config/read        {space, address, size} -> {values}
+POST   /api/v1/nodes/{id}/config/write       {values} -> {written}
+POST   /api/v1/nodes/{id}/config/reboot
+POST   /api/v1/nodes/{id}/config/factory-reset   {confirm: node id}
+POST   /api/v1/nodes/{id}/event-names/refresh
+GET    /api/v1/event-names                   the named event table
+GET    /api/v1/profiles                      node profiles, shipped and yours
+```
+
+Configuration values are keyed `space:address` and carried as strings in
+the form the CDI gives them.
+
+## Firmware
+
+```
+GET    /api/v1/firmware                      the latest upgrade of every node
+GET    /api/v1/nodes/{id}/firmware           the node's latest upgrade
+POST   /api/v1/nodes/{id}/firmware           multipart form, field "file" -> 202, the job
+DELETE /api/v1/nodes/{id}/firmware           cancel the upgrade in progress
+```
+
+A job has a `phase` (checking, freezing, writing, unfreezing, restarting,
+verifying, done, failed), `written` and `size` in bytes, a `message` in
+plain words, and `from` and `to` software versions. See
+[Nodes and firmware](./nodes.md).
+
+## Entities
+
+```
+GET    /api/v1/entities                      every entity with its state
+POST   /api/v1/entities                      make one by hand {kind, name, events}
+POST   /api/v1/entities/refresh              ask the nodes for current states
+GET    /api/v1/entities/kinds                kinds, their roles and states
+GET    /api/v1/entities/{id}
+PATCH  /api/v1/entities/{id}                 rename, confirm, hide, change events
+DELETE /api/v1/entities/{id}
+POST   /api/v1/entities/{id}/command         {command}
+```
+
+## Automations
+
+```
+GET    /api/v1/automations                   every automation with its status
+POST   /api/v1/automations                   create from a document
+GET    /api/v1/automations/{id}
+PUT    /api/v1/automations/{id}              replace the document
+PATCH  /api/v1/automations/{id}              {enabled}
+DELETE /api/v1/automations/{id}
+GET    /api/v1/automations/{id}/yaml         the document as YAML (text/yaml)
+POST   /api/v1/automations/{id}/run          run it by hand; ?conditions=true to check them
+POST   /api/v1/automations/{id}/stop         cancel its runs
+GET    /api/v1/automations/{id}/traces
+GET    /api/v1/automations/{id}/traces/{trace}
+```
+
+The document's fields are in [Automations](./automations.md).
+
+## Trains
+
+```
+GET    /api/v1/trains                        {trains, layout}
+POST   /api/v1/trains                        add to the roster {name, address, long, functions, momentary}
+POST   /api/v1/trains/search                 {address, long} -> what answered on the bus
+GET    /api/v1/trains/layout                 {power_off, emergency_stop}
+POST   /api/v1/trains/layout                 {power} or {emergency_stop}
+GET    /api/v1/trains/{id}
+PATCH  /api/v1/trains/{id}
+DELETE /api/v1/trains/{id}
+POST   /api/v1/trains/{id}/acquire           take control
+POST   /api/v1/trains/{id}/release
+POST   /api/v1/trains/{id}/speed             {speed, direction}
+POST   /api/v1/trains/{id}/estop
+POST   /api/v1/trains/{id}/function          {function, on}
+POST   /api/v1/trains/{id}/refresh           read speed and functions back
+POST   /api/v1/trains/{id}/cv                write a CV on the main {cv, value}
+GET    /api/v1/programming                   {track, history}
+POST   /api/v1/programming/find              look for the programming track
+POST   /api/v1/programming/read              {cv}
+POST   /api/v1/programming/write             {cv, value}
+```
+
+CV operations answer 200 with `ok` and, when it failed, `error` in plain
+words; 400 is for bad input. See [Trains](./trains.md).
+
+## Clock
+
+```
+GET    /api/v1/clock                         time, date, weekday, rate, running, updated
+POST   /api/v1/clock                         {running, rate, time, date}, any subset
+```
+
+See [The fast clock](./clock.md).
+
+## Monitor
+
+```
+GET    /api/v1/monitor?since=N&limit=M       decoded frames after sequence N (limit 0 for all)
+POST   /api/v1/monitor/send                  {frame: ":X195B4123N0102030405060708;"} send a raw frame
+```

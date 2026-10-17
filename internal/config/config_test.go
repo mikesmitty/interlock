@@ -103,6 +103,11 @@ func TestValidate(t *testing.T) {
 		{name: "bad node id", mutate: func(c *Config) { c.NodeID = "nope" }, wantErr: "node_id"},
 		{name: "zero node id", mutate: func(c *Config) { c.NodeID = "00.00.00.00.00.00" }, wantErr: "node_id"},
 		{name: "link without name", mutate: func(c *Config) { c.Links = []LinkConfig{{Type: "serial", Device: "/dev/x"}} }, wantErr: "name"},
+		{name: "olcbtcp without address", mutate: func(c *Config) { c.Links = []LinkConfig{{Name: "h", Type: "olcbtcp"}} }, wantErr: "address"},
+		{name: "socketcan without interface", mutate: func(c *Config) { c.Links = []LinkConfig{{Name: "c", Type: "socketcan"}} }, wantErr: "interface"},
+		{name: "new link types", mutate: func(c *Config) {
+			c.Links = []LinkConfig{{Name: "h", Type: "olcbtcp", Address: "h:1"}, {Name: "c", Type: "socketcan", Interface: "can0"}}
+		}},
 		{name: "link bad type", mutate: func(c *Config) { c.Links = []LinkConfig{{Name: "a", Type: "usb"}} }, wantErr: "type"},
 		{name: "serial without device", mutate: func(c *Config) { c.Links = []LinkConfig{{Name: "a", Type: "serial"}} }, wantErr: "device"},
 		{name: "tcp without address", mutate: func(c *Config) { c.Links = []LinkConfig{{Name: "a", Type: "tcp"}} }, wantErr: "address"},

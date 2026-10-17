@@ -18,9 +18,12 @@ import (
 
 	"github.com/mikesmitty/interlock/internal/api"
 	"github.com/mikesmitty/interlock/internal/automation"
+	"github.com/mikesmitty/interlock/internal/backup"
+	"github.com/mikesmitty/interlock/internal/clock"
 	"github.com/mikesmitty/interlock/internal/config"
 	"github.com/mikesmitty/interlock/internal/entity"
 	"github.com/mikesmitty/interlock/internal/eventtable"
+	"github.com/mikesmitty/interlock/internal/firmware"
 	"github.com/mikesmitty/interlock/internal/identity"
 	"github.com/mikesmitty/interlock/internal/monitor"
 	"github.com/mikesmitty/interlock/internal/nodeconfig"
@@ -36,16 +39,29 @@ import (
 	"github.com/mikesmitty/interlock/openlcb/memconfig"
 	"github.com/mikesmitty/interlock/openlcb/node"
 	"github.com/mikesmitty/interlock/openlcb/transport"
+	"github.com/mikesmitty/interlock/openlcb/transport/olcbtcp"
+	"github.com/mikesmitty/interlock/openlcb/transport/socketcan"
 	"github.com/mikesmitty/interlock/web"
 )
 
 // monitorCapacity is how many bus entries the monitor keeps.
 const monitorCapacity = 5000
 
+// errRestart ends a run that should start over: after a restore, or when
+// asked to reload its configuration.
+var errRestart = errors.New("restart requested")
+
 func main() {
-	if err := run(context.Background(), os.Args[1:], os.Stdout, os.Stderr); err != nil {
-		fmt.Fprintln(os.Stderr, "interlock:", err)
-		os.Exit(1)
+	for {
+		err := run(context.Background(), os.Args[1:], os.Stdout, os.Stderr)
+		if errors.Is(err, errRestart) {
+			continue
+		}
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "interlock:", err)
+			os.Exit(1)
+		}
+		return
 	}
 }
 
@@ -68,6 +84,15 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	if err := os.MkdirAll(*dataDir, 0o755); err != nil {
 		return fmt.Errorf("create data directory: %w", err)
 	}
+	// A restore staged by the previous run goes in place before anything
+	// is opened.
+	kept, err := backup.Apply(*dataDir)
+	if err != nil {
+		return err
+	}
+	if kept != "" {
+		slog.Info("restored a backup", "previous_files", filepath.Join(*dataDir, kept))
+	}
 	cfg, err := config.Load(*dataDir)
 	if err != nil {
 		return err
@@ -87,6 +112,12 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	ctx, end := context.WithCancelCause(ctx)
+	defer end(nil)
+	restart := func() {
+		logger.Info("restarting")
+		end(errRestart)
+	}
 
 	st, err := store.Open(ctx, config.DBPath(*dataDir))
 	if err != nil {
@@ -177,38 +208,49 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	reg.Subscribe(trains.HandleNode)
 	prog := programmer.New(programmer.Options{Bus: local, Memory: mem, Nodes: reg, Trains: trains, Logger: logger})
 	reg.Subscribe(prog.HandleNode)
+	upgrader := firmware.New(firmware.Options{Bus: local, Memory: mem, Nodes: reg, Logger: logger})
 
-	// The automations over the entities and trains.
+	// The fast clock, broadcast on the bus.
+	fast := clock.New(ctx, clock.Options{Bus: local, Store: st, Logger: logger})
+
+	// The automations over the entities, trains and clock.
 	autoFile, err := automation.OpenFile(filepath.Join(*dataDir, automation.FileName))
 	if err != nil {
 		return err
 	}
 	engine := automation.New(automation.Options{
-		Entities: entities, Bus: local, Nodes: reg, Trains: trains, Store: st, File: autoFile, Logger: logger,
+		Entities: entities, Bus: local, Nodes: reg, Trains: trains, Clock: fast, Store: st, File: autoFile, Logger: logger,
 	})
 	logger.Info("loaded automations", "count", len(engine.List()))
 	entities.Subscribe(engine.HandleEntity)
 	reg.Subscribe(engine.HandleNode)
+	fast.OnMinute(engine.HandleClock)
 	local.Observe(func(ev node.Event) {
 		if ev.Kind == node.EventMessage {
 			table.HandleMessage(ev.Message)
 			entities.HandleMessage(ev.Message)
 			trains.HandleMessage(ev.Message)
+			fast.HandleMessage(ev.Message)
 			engine.HandleMessage(ev.Message)
 		}
 	})
 
 	for _, lc := range cfg.Links {
-		var dialer transport.Dialer
 		switch lc.Type {
-		case "serial":
-			dialer = transport.SerialDialer{Device: lc.Device, Baud: lc.Baud}
-		case "tcp":
-			dialer = transport.TCPDialer{Address: lc.Address}
-		default:
-			continue
+		case config.LinkSerial:
+			h.AddLink(busCtx, transport.NewGridConnect(lc.Name, transport.SerialDialer{Device: lc.Device, Baud: lc.Baud}, logger))
+		case config.LinkTCP:
+			h.AddLink(busCtx, transport.NewGridConnect(lc.Name, transport.TCPDialer{Address: lc.Address}, logger))
+		case config.LinkOpenLCB:
+			h.AddLink(busCtx, olcbtcp.NewLink(lc.Name, nodeID, transport.TCPDialer{Address: lc.Address}, logger))
+		case config.LinkSocketCAN:
+			link, err := socketcan.New(lc.Name, lc.Interface, logger)
+			if err != nil {
+				logger.Error("socketcan link not started", "link", lc.Name, "error", err)
+				continue
+			}
+			h.AddLink(busCtx, link)
 		}
-		h.AddLink(busCtx, transport.NewGridConnect(lc.Name, dialer, logger))
 	}
 	if cfg.Hub.Listen != "" {
 		listener := &transport.Listener{
@@ -226,14 +268,41 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			}()
 		}
 	}
+	if cfg.Hub.OpenLCBTCP != "" {
+		listener := &olcbtcp.Listener{
+			Address: cfg.Hub.OpenLCBTCP,
+			ID:      nodeID,
+			Logger:  logger,
+			Accept:  func(link transport.Link) { h.AddLink(busCtx, link) },
+		}
+		if err := listener.Listen(); err != nil {
+			logger.Error("OpenLCB TCP port unavailable", "error", err)
+		} else {
+			go func() {
+				if err := listener.Run(busCtx); err != nil {
+					logger.Error("OpenLCB TCP listener stopped", "error", err)
+				}
+			}()
+		}
+	}
 
 	var wg sync.WaitGroup
-	wg.Add(5)
+	wg.Add(7)
+	go func() {
+		defer wg.Done()
+		if err := fast.Run(ctx); err != nil {
+			logger.Error("clock stopped", "error", err)
+		}
+	}()
 	go func() {
 		defer wg.Done()
 		if err := local.Run(ctx); err != nil {
 			logger.Error("node stopped", "error", err)
 		}
+	}()
+	go func() {
+		defer wg.Done()
+		_ = upgrader.Run(ctx)
 	}()
 	go func() {
 		defer wg.Done()
@@ -275,6 +344,10 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			Automations: engine,
 			Trains:      trains,
 			Programmer:  prog,
+			Firmware:    upgrader,
+			Clock:       fast,
+			Backups:     &backup.Manager{Dir: *dataDir, DB: st, Version: version.Version},
+			Restart:     restart,
 			SerialPorts: transport.SerialPorts,
 			Logger:      logger,
 		}),
@@ -283,6 +356,9 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	err = srv.Run(ctx)
 	stop()
 	wg.Wait() // the node has sent its AMR by now; the hub can close
+	if errors.Is(context.Cause(ctx), errRestart) {
+		return errRestart
+	}
 	return err
 }
 

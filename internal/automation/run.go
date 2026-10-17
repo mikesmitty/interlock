@@ -198,6 +198,12 @@ func (r *run) evalCondition(c Condition, path string, n names) (ok bool, detail 
 			return true, "it was " + now.Format("15:04:05 Mon"), nil
 		}
 		return false, "it was " + now.Format("15:04:05 Mon"), nil
+	case ConditionClock:
+		if r.e.opts.Clock == nil {
+			return false, "", errors.New("there is no fast clock")
+		}
+		fast := r.e.opts.Clock.Now()
+		return inWindow(fast, c.After, c.Before, c.Weekdays), "the fast clock read " + fast.Format("15:04 Mon"), nil
 	case ConditionTrigger:
 		r.mu.Lock()
 		id := r.trace.Trigger.ID

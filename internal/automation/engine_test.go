@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	fastclock "github.com/mikesmitty/interlock/internal/clock"
 	"github.com/mikesmitty/interlock/internal/entity"
 	"github.com/mikesmitty/interlock/internal/registry"
 	"github.com/mikesmitty/interlock/internal/store"
@@ -246,8 +247,29 @@ type harness struct {
 	bus    *fakeBus
 	nodes  *fakeNodes
 	trains *fakeTrains
+	clock  *fakeClock
 	store  *memStore
 	done   chan Trace
+}
+
+// fakeClock is a fast clock the test sets by hand.
+type fakeClock struct {
+	mu   sync.Mutex
+	fast time.Time
+}
+
+func (c *fakeClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.fast
+}
+
+// set moves the fast clock and tells the engine, as the real one does.
+func (c *fakeClock) set(e *Engine, fast time.Time) {
+	c.mu.Lock()
+	c.fast = fast
+	c.mu.Unlock()
+	e.HandleClock(fastclock.State{Time: fast.Format("15:04"), Date: fast.Format("2006-01-02"), Hour: fast.Hour(), Minute: fast.Minute(), Second: fast.Second()})
 }
 
 // fakeTrains records train commands.
@@ -283,10 +305,10 @@ const peer = openlcb.NodeID(0x050101012200)
 func newHarness(t *testing.T, docs ...Automation) *harness {
 	t.Helper()
 	h := &harness{
-		t: t, ents: newFakeEntities(), bus: &fakeBus{}, trains: &fakeTrains{}, store: newMemStore(), done: make(chan Trace, 64),
+		t: t, ents: newFakeEntities(), bus: &fakeBus{}, trains: &fakeTrains{}, clock: &fakeClock{}, store: newMemStore(), done: make(chan Trace, 64),
 		nodes: &fakeNodes{nodes: map[openlcb.NodeID]registry.Info{peer: {ID: peer, Online: false, SNIP: &openlcb.SNIP{UserName: "Yard"}}}},
 	}
-	h.e = New(Options{Entities: h.ents, Bus: h.bus, Nodes: h.nodes, Trains: h.trains, Store: h.store, KeepTraces: 5})
+	h.e = New(Options{Entities: h.ents, Bus: h.bus, Nodes: h.nodes, Trains: h.trains, Clock: h.clock, Store: h.store, KeepTraces: 5})
 	h.ents.onChange = h.e.HandleEntity
 	h.e.SubscribeTraces(func(tr Trace) {
 		if tr.Done() {
@@ -870,5 +892,45 @@ func TestTrainAction(t *testing.T) {
 	s, err := e.Create(Automation{Name: "x", Triggers: []Trigger{{Type: TriggerStart}}, Actions: []Action{{Type: ActionTrain, Address: 5, Command: train.CommandStop}}})
 	if err != nil || len(s.Problems) != 1 {
 		t.Errorf("status = %+v, %v", s, err)
+	}
+}
+
+func TestClockTriggerAndCondition(t *testing.T) {
+	h := newHarness(t, Automation{
+		Name: "Morning freight", Enabled: true,
+		Triggers:   []Trigger{{Type: TriggerClock, At: "06:42", Weekdays: []string{"fri"}}},
+		Conditions: []Condition{{Type: ConditionClock, After: "06:00", Before: "07:00"}},
+		Actions:    []Action{{Type: ActionLog, Message: "go"}},
+	}, Automation{
+		Name: "Night freight", Enabled: true,
+		Triggers:   []Trigger{{Type: TriggerClock, At: "22:00"}},
+		Conditions: []Condition{{Type: ConditionClock, After: "06:00", Before: "07:00"}},
+		Actions:    []Action{{Type: ActionLog, Message: "go"}},
+	})
+	// 1957-06-21 was a Friday.
+	h.clock.set(h.e, time.Date(1957, 6, 21, 6, 41, 0, 0, time.UTC))
+	h.quiet(100 * time.Millisecond)
+	h.clock.set(h.e, time.Date(1957, 6, 21, 6, 42, 0, 0, time.UTC))
+	tr := h.finished()
+	if tr.Result != ResultFinished || tr.Trigger.Description != "The fast clock read 06:42" {
+		t.Fatalf("trace = %s %q trigger %q", tr.Result, tr.Error, tr.Trigger.Description)
+	}
+	if len(tr.Steps) < 1 || tr.Steps[0].Detail != "the fast clock read 06:42 Fri" {
+		t.Errorf("condition step = %+v", tr.Steps[0])
+	}
+	// The next day is a Saturday: the trigger stays quiet.
+	h.clock.set(h.e, time.Date(1957, 6, 22, 6, 42, 0, 0, time.UTC))
+	h.quiet(100 * time.Millisecond)
+	// At night the other automation fires, and its window condition fails.
+	h.clock.set(h.e, time.Date(1957, 6, 22, 22, 0, 0, 0, time.UTC))
+	tr = h.finished()
+	if tr.Automation != "night_freight" || tr.Result != ResultNotRun {
+		t.Errorf("night trace = %s %s", tr.Automation, tr.Result)
+	}
+	// Without a clock, the automation shows a problem.
+	e := New(Options{Entities: h.ents, Bus: h.bus, Nodes: h.nodes, Store: newMemStore()})
+	st, err := e.Create(Automation{Name: "No clock", Enabled: true, Triggers: []Trigger{{Type: TriggerClock, At: "07:00"}}, Actions: []Action{{Type: ActionLog, Message: "x"}}})
+	if err != nil || len(st.Problems) != 1 || !strings.Contains(st.Problems[0], "no fast clock") {
+		t.Errorf("problems without a clock = %v, %v", st.Problems, err)
 	}
 }

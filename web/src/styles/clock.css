@@ -1,0 +1,101 @@
+/* --- the fast clock page -------------------------------------------------- */
+
+.clk-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.clk-face {
+  padding: 1.5rem 1.75rem;
+}
+
+.clk-face__time {
+  font-family: var(--font-condensed);
+  font-size: 4.5rem;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.clk-face__time small {
+  font-size: 0.45em;
+  color: var(--ivory-dim);
+  margin-left: 0.2em;
+  font-weight: 400;
+}
+
+.clk-face__date {
+  margin-top: 0.5rem;
+  font-size: var(--fs-lg);
+}
+
+.clk-face__state {
+  margin-top: 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+  align-items: center;
+}
+
+.clk-rates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.clk-rates .btn[aria-pressed="true"] {
+  background: var(--brass);
+  color: var(--enamel-deep);
+  border-color: var(--brass);
+}
+
+.clk-set {
+  padding: 1rem 1.25rem;
+}
+
+.clk-set h2 {
+  margin-bottom: 0.75rem;
+}
+
+.clk-set__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.75rem;
+}
+
+.clk-set__row + .clk-set__row {
+  margin-top: 1rem;
+}
+
+.clk-set__field {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.clk-set__field span {
+  font-size: var(--fs-sm);
+  color: var(--ivory-dim);
+}
+
+.clk-note {
+  margin-top: 1rem;
+  max-width: 60ch;
+}
+
+.strip__clock {
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 720px) {
+  .clk-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .clk-face__time {
+    font-size: 3.5rem;
+  }
+}

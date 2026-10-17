@@ -411,3 +411,51 @@ select.input:focus-visible {
     width: 100%;
   }
 }
+
+/* --- firmware upgrade ---------------------------------------------------- */
+
+.fw {
+  padding: 1rem 1.25rem;
+}
+
+.fw__pick {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.fw__file {
+  font-family: var(--font-condensed);
+  font-size: var(--fs-md);
+}
+
+.fw__hint {
+  margin-top: 0.75rem;
+  font-size: var(--fs-sm);
+  max-width: 60ch;
+}
+
+.fw__phase {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.fw__message {
+  margin-top: 0.5rem;
+  max-width: 60ch;
+}
+
+.fw__progress .btn {
+  margin-top: 0.75rem;
+}
+
+.fw__outcome {
+  margin-bottom: 0.75rem;
+  max-width: 70ch;
+}
+
+.fw__outcome .status {
+  margin-right: 0.25rem;
+}

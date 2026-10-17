@@ -111,6 +111,22 @@ func (n *Node) request(ctx context.Context, key pendingKey, send func() error) (
 	}
 }
 
+// Restart makes the node leave the bus and join it again the way a
+// device does when it reboots: no alias withdrawal, the alias allocation
+// run again from the start (so the node usually keeps its alias) and
+// Initialization Complete at the end. Requests in flight fail with
+// ErrRestarting.
+func (n *Node) Restart(ctx context.Context) error {
+	return n.do(ctx, func() {
+		n.cidTimer.Stop()
+		n.failPending(ErrRestarting)
+		n.setState(StateInhibited)
+		n.gen = can.NewAliasGenerator(n.cfg.ID)
+		n.log.Info("node restarting")
+		n.startChecking()
+	})
+}
+
 // Send transmits a message from this node. Dest may carry only a node ID;
 // its alias is looked up or discovered first.
 func (n *Node) Send(ctx context.Context, msg openlcb.Message) error {
@@ -244,12 +260,25 @@ func (n *Node) Protocols(ctx context.Context, id openlcb.NodeID) (openlcb.Protoc
 }
 
 // datagramRetries is how many times a datagram is resent after a
-// temporary rejection.
+// rejection that asks for it again.
 const datagramRetries = 3
 
+// resendOK says whether a rejection asks for the same datagram again: the
+// receiver had no buffer or lost the order of the frames, or said only
+// "temporary". The other temporary codes (transfer errors, a firmware
+// checksum) belong to the protocol above, which decides what to resend.
+func resendOK(code openlcb.ErrorCode) bool {
+	switch code {
+	case openlcb.ErrCodeTemporary, openlcb.ErrCodeBufferUnavailable, openlcb.ErrCodeOutOfOrder,
+		openlcb.ErrCodeOutOfOrderMiddleWithStart, openlcb.ErrCodeOutOfOrderStartBeforeEnd:
+		return true
+	}
+	return false
+}
+
 // SendDatagram sends a datagram and waits for the receiver's Datagram OK,
-// retrying after temporary rejections. A permanent rejection comes back as
-// an *openlcb.Error.
+// sending it again after a rejection that asks for that. Any other
+// rejection comes back as an *openlcb.Error.
 func (n *Node) SendDatagram(ctx context.Context, id openlcb.NodeID, payload []byte) (DatagramResult, error) {
 	if len(payload) > can.MaxDatagram {
 		return DatagramResult{}, fmt.Errorf("node: datagram of %d bytes exceeds %d", len(payload), can.MaxDatagram)
@@ -283,7 +312,7 @@ func (n *Node) SendDatagram(ctx context.Context, id openlcb.NodeID, payload []by
 			code = openlcb.ErrorCode(uint16(r.msg.Payload[0])<<8 | uint16(r.msg.Payload[1]))
 		}
 		rejection := &openlcb.Error{Code: code, Op: op}
-		if !code.Temporary() || attempt >= datagramRetries {
+		if !resendOK(code) || attempt >= datagramRetries {
 			return DatagramResult{}, rejection
 		}
 		n.log.Debug("datagram rejected, retrying", "error", rejection, "attempt", attempt+1)

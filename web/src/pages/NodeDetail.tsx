@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router";
 import { api, aliasHex, nodeModel, nodeName, type CdiStatus, type MonitorEntry, type NodeInfo } from "../api";
 import { ConfigForm } from "../components/ConfigForm";
 import { EntityRows } from "../components/EntityRows";
+import { FirmwarePanel } from "../components/FirmwarePanel";
 import { Status } from "../components/Lamp";
 import { Empty, Page } from "../components/Page";
 import { clockTime, relativeTime, useNow } from "../format";
@@ -11,7 +12,7 @@ import { describeEndpoint } from "./Monitor";
 
 export function NodeDetail() {
   const { id = "" } = useParams();
-  const { nodes, entries, entities, loaded } = useBus();
+  const { nodes, entries, entities, loaded, firmware } = useBus();
   const now = useNow();
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
@@ -68,6 +69,7 @@ export function NodeDetail() {
 
   const snip = node.snip;
   const configurable = !node.local && node.protocols?.includes("CDI") && node.protocols.includes("Memory Configuration");
+  const upgradable = !node.local && (node.protocols?.includes("Firmware Upgrade") || firmware[node.id] !== undefined);
   return (
     <Page
       title={nodeName(node)}
@@ -143,6 +145,8 @@ export function NodeDetail() {
       {!node.local && <NodeEntities nodeId={node.id} entities={Object.values(entities)} />}
 
       {configurable && <Configuration node={node} />}
+
+      {upgradable && <FirmwarePanel node={node} job={firmware[node.id]} />}
 
       <h2 style={{ marginTop: "1.5rem" }}>Recent traffic</h2>
       {traffic.length === 0 ? (

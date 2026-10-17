@@ -57,6 +57,7 @@ condition can tell which one fired; the id also shows in traces.
 | `event` | `event` | That event ID is reported on the bus. |
 | `node` | `node` (empty for any), `to` (`online`, `offline`, or either) | A node comes online or goes offline. |
 | `time` | `at`, `weekdays` | That time of day. |
+| `clock` | `at`, `weekdays` | The fast clock reaches that time (`HH:MM`), on those days of its own calendar. Also fires when the clock is set to that time. See `docs/clock.md`. |
 | `interval` | `every` | Every so often, counted from when Interlock started or the automation was saved. |
 | `start` | | Interlock starts. |
 
@@ -74,6 +75,7 @@ All conditions must hold when a run starts; otherwise the trace ends with
 |---|---|---|
 | `state` | `entity`, `state` | The entity is in that state. |
 | `time` | `after`, `before`, `weekdays` | The time of day is in the window (which wraps past midnight when `after` is later than `before`) and the day is listed. |
+| `clock` | `after`, `before`, `weekdays` | The same window on the fast clock. |
 | `trigger` | `trigger` | The run was started by the trigger with that id. |
 | `and`, `or` | `conditions` | All, or any, of the nested conditions hold. |
 | `not` | `conditions` (one) | The nested condition does not hold. |
@@ -109,5 +111,5 @@ trigger in `restart` mode, or when Interlock shuts down.
 
 ## Not yet
 
-A fast clock, numeric comparisons, variables and templates. The document
-shape leaves room for an expression language in conditions later.
+Numeric comparisons, variables and templates. The document shape leaves
+room for an expression language in conditions later.

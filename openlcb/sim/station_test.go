@@ -140,7 +140,7 @@ func TestStationTrains(t *testing.T) {
 	if err := client.Write(ctx, want, traction.SpaceCV, 2, []byte{7}); err != nil {
 		t.Fatalf("POM write: %v", err)
 	}
-	if got := station.Decoder(1234, true).CVs[3]; got != 7 {
+	if got := station.DecoderState(1234, true).CVs[3]; got != 7 {
 		t.Errorf("CV 3 after POM = %d", got)
 	}
 	if _, err := client.Read(ctx, want, traction.SpaceCV, 2, 1); err == nil {

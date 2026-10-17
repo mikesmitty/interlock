@@ -47,33 +47,51 @@ type NodeConfig struct {
 	Description string `yaml:"description"`
 }
 
-// LinkConfig is one connection to a CAN segment.
+// LinkConfig is one connection to the layout.
 type LinkConfig struct {
-	// Name identifies the link in the UI and logs. Defaults to the device
-	// or address.
+	// Name identifies the link in the UI and logs. Defaults to the device,
+	// address or interface.
 	Name string `yaml:"name"`
-	// Type is "serial" or "tcp".
+	// Type is serial or tcp (GridConnect), olcbtcp (OpenLCB TCP) or
+	// socketcan (Linux).
 	Type string `yaml:"type"`
 	// Device is the serial port for type serial.
 	Device string `yaml:"device,omitempty"`
 	// Baud is the serial bit rate; USB CDC devices ignore it.
 	Baud int `yaml:"baud,omitempty"`
-	// Address is host:port for type tcp.
+	// Address is host:port for types tcp and olcbtcp.
 	Address string `yaml:"address,omitempty"`
+	// Interface is the CAN interface for type socketcan, such as can0.
+	Interface string `yaml:"interface,omitempty"`
 }
 
-// Target returns the device or address a link connects to.
+// Link types.
+const (
+	LinkSerial    = "serial"
+	LinkTCP       = "tcp"
+	LinkOpenLCB   = "olcbtcp"
+	LinkSocketCAN = "socketcan"
+)
+
+// Target returns the device, address or interface a link connects to.
 func (l LinkConfig) Target() string {
-	if l.Type == "serial" {
+	switch l.Type {
+	case LinkSerial:
 		return l.Device
+	case LinkSocketCAN:
+		return l.Interface
 	}
 	return l.Address
 }
 
-// HubConfig configures the GridConnect TCP server.
+// HubConfig configures the servers other tools connect to.
 type HubConfig struct {
-	// Listen is the address to serve on; empty turns the server off.
+	// Listen is the address of the GridConnect TCP server; empty turns it
+	// off.
 	Listen string `yaml:"listen"`
+	// OpenLCBTCP is the address of the OpenLCB TCP server, for nodes and
+	// tools that speak that protocol; empty turns it off.
+	OpenLCBTCP string `yaml:"openlcb_tcp,omitempty"`
 }
 
 // DiscoveryConfig controls node discovery.
@@ -122,7 +140,9 @@ node:
   description: ""
 
 # Connections to the layout. Each CAN segment should reach Interlock through
-# exactly one link; the hub joins all links into one bus.
+# exactly one link; the hub joins all links into one bus. Types: serial and
+# tcp carry GridConnect, olcbtcp is OpenLCB TCP, socketcan is a Linux CAN
+# interface.
 links: []
 #  - name: outpost
 #    type: serial
@@ -130,11 +150,19 @@ links: []
 #  - name: jmri
 #    type: tcp
 #    address: 192.168.1.10:12021
+#  - name: tcp-hub
+#    type: olcbtcp
+#    address: 192.168.1.20:12022
+#  - name: can0
+#    type: socketcan
+#    interface: can0
 
-# GridConnect TCP server, so JMRI or another Interlock can join this hub.
-# Set to "" to turn it off.
+# Servers other tools connect to: GridConnect TCP for JMRI or another
+# Interlock, and OpenLCB TCP for nodes that speak it. Set an address to ""
+# to turn that server off.
 hub:
   listen: ":12021"
+  openlcb_tcp: ""
 
 discovery:
   # How often every node is asked to check in. 0 turns the periodic check
@@ -231,19 +259,23 @@ func (l LinkConfig) validate() error {
 		return errors.New("name must be set")
 	}
 	switch l.Type {
-	case "serial":
+	case LinkSerial:
 		if l.Device == "" {
 			return errors.New("serial link needs a device")
 		}
 		if l.Baud < 0 {
 			return errors.New("baud must not be negative")
 		}
-	case "tcp":
+	case LinkTCP, LinkOpenLCB:
 		if l.Address == "" {
-			return errors.New("tcp link needs an address")
+			return fmt.Errorf("%s link needs an address", l.Type)
+		}
+	case LinkSocketCAN:
+		if l.Interface == "" {
+			return errors.New("socketcan link needs an interface, such as can0")
 		}
 	default:
-		return fmt.Errorf("type %q must be serial or tcp", l.Type)
+		return fmt.Errorf("type %q must be serial, tcp, olcbtcp or socketcan", l.Type)
 	}
 	return nil
 }

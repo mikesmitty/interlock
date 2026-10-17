@@ -188,7 +188,7 @@ func TestDrive(t *testing.T) {
 		t.Fatalf("SetSpeed = %+v, %v", tr, err)
 	}
 	eventually(t, "decoder speed", func() bool {
-		d := b.station.Decoder(1234, true)
+		d := b.station.DecoderState(1234, true)
 		return d.Speed.Value == 30 && d.Speed.Reverse
 	})
 	tr, err = b.m.SetFunction(b.ctx, "1234", 2, true)

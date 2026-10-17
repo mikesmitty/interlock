@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	fastclock "github.com/mikesmitty/interlock/internal/clock"
 	"github.com/mikesmitty/interlock/internal/entity"
 	"github.com/mikesmitty/interlock/internal/registry"
 	"github.com/mikesmitty/interlock/internal/store"
@@ -52,13 +53,21 @@ type Store interface {
 	DeleteTraces(ctx context.Context, automationID string) error
 }
 
+// Clock is the fast clock, for clock triggers and conditions.
+type Clock interface {
+	// Now returns the fast time (in UTC; the fast clock has no zone).
+	Now() time.Time
+}
+
 // Options configure the engine.
 type Options struct {
 	Entities Entities
 	Bus      Bus
 	Nodes    Nodes
 	Trains   Trains
-	Store    Store
+	// Clock is the fast clock; nil leaves clock triggers idle.
+	Clock Clock
+	Store Store
 	// File is automations.yaml; nil keeps automations in memory.
 	File   *File
 	Logger *slog.Logger
@@ -124,6 +133,7 @@ type signal struct {
 	entity entity.Entity
 	event  openlcb.EventID
 	node   registry.Info
+	clock  fastclock.State
 }
 
 type signalKind int
@@ -132,6 +142,7 @@ const (
 	sigEntity signalKind = iota
 	sigEvent
 	sigNode
+	sigClock
 	sigStart
 	sigReload
 )
@@ -213,6 +224,12 @@ func (e *Engine) HandleNode(info registry.Info) {
 		return
 	}
 	e.push(signal{kind: sigNode, node: info})
+}
+
+// HandleClock follows the fast clock: every fast minute it reaches, and
+// every jump made by setting it.
+func (e *Engine) HandleClock(st fastclock.State) {
+	e.push(signal{kind: sigClock, clock: st})
 }
 
 func (e *Engine) push(sig signal) {
@@ -359,6 +376,17 @@ func (e *Engine) dispatch(sig signal) {
 		})
 	case sigNode:
 		fires = e.dispatchNode(sig.node, now)
+	case sigClock:
+		fast := sig.clock.Fast()
+		fires = e.matchAll(now, func(t Trigger) (TriggerInfo, bool) {
+			if t.Type != TriggerClock || !weekdayAllowed(t.Weekdays, fast) {
+				return TriggerInfo{}, false
+			}
+			if at, err := parseClock(t.At); err != nil || at/60 != clockOf(fast)/60 {
+				return TriggerInfo{}, false
+			}
+			return TriggerInfo{Type: t.Type, Description: "The fast clock read " + sig.clock.Time}, true
+		})
 	}
 	e.act(fires, now)
 }
@@ -748,6 +776,8 @@ func (e *Engine) problemsLocked(doc Automation) []string {
 			if ent, ok := lookup(c.Entity); ok {
 				checkState(ent, c.State)
 			}
+		case t != nil && t.Type == TriggerClock && e.opts.Clock == nil, c != nil && c.Type == ConditionClock && e.opts.Clock == nil:
+			note("There is no fast clock, so clock triggers and conditions cannot work")
 		case a != nil && a.Type == ActionTrain:
 			if e.opts.Trains == nil {
 				note("Trains are not available, so train actions cannot run")

@@ -49,6 +49,7 @@ const (
 	TriggerLocomotive = "locomotive" // a reporter saw a locomotive arrive or leave
 	TriggerNode       = "node"       // a node came online or went offline
 	TriggerTime       = "time"       // a time of day
+	TriggerClock      = "clock"      // a time on the fast clock
 	TriggerInterval   = "interval"   // every so often
 	TriggerStart      = "start"      // Interlock started
 )
@@ -57,6 +58,7 @@ const (
 const (
 	ConditionState   = "state"
 	ConditionTime    = "time"
+	ConditionClock   = "clock"   // the fast clock's time of day
 	ConditionTrigger = "trigger" // which trigger started the run
 	ConditionAnd     = "and"
 	ConditionOr      = "or"
@@ -141,9 +143,11 @@ type Trigger struct {
 	Direction string `json:"direction,omitempty" yaml:"direction,omitempty"`
 	// Node is the node a node trigger watches; zero means any node.
 	Node openlcb.NodeID `json:"node,omitempty" yaml:"node,omitempty"`
-	// At is the time of day for a time trigger, "HH:MM" or "HH:MM:SS".
+	// At is the time of day for a time trigger, "HH:MM" or "HH:MM:SS",
+	// or the fast clock time for a clock trigger, "HH:MM".
 	At string `json:"at,omitempty" yaml:"at,omitempty"`
-	// Weekdays limits a time trigger: mon, tue, wed, thu, fri, sat, sun.
+	// Weekdays limits a time or clock trigger: mon, tue, wed, thu, fri,
+	// sat, sun (the fast clock's own date for a clock trigger).
 	Weekdays []string `json:"weekdays,omitempty" yaml:"weekdays,omitempty"`
 	// Every is the period of an interval trigger.
 	Every Duration `json:"every,omitempty" yaml:"every,omitempty"`
@@ -155,8 +159,9 @@ type Condition struct {
 	// Entity and State for a state condition.
 	Entity string `json:"entity,omitempty" yaml:"entity,omitempty"`
 	State  string `json:"state,omitempty" yaml:"state,omitempty"`
-	// After, Before and Weekdays for a time condition. The window wraps
-	// past midnight when After is later than Before.
+	// After, Before and Weekdays for a time condition, or a clock
+	// condition on the fast clock. The window wraps past midnight when
+	// After is later than Before.
 	After    string   `json:"after,omitempty" yaml:"after,omitempty"`
 	Before   string   `json:"before,omitempty" yaml:"before,omitempty"`
 	Weekdays []string `json:"weekdays,omitempty" yaml:"weekdays,omitempty"`
@@ -281,8 +286,8 @@ func (a Automation) MaxRuns() int {
 
 var (
 	modes          = []string{ModeSingle, ModeRestart, ModeQueued, ModeParallel}
-	triggerTypes   = []string{TriggerState, TriggerEvent, TriggerLocomotive, TriggerNode, TriggerTime, TriggerInterval, TriggerStart}
-	conditionTypes = []string{ConditionState, ConditionTime, ConditionTrigger, ConditionAnd, ConditionOr, ConditionNot}
+	triggerTypes   = []string{TriggerState, TriggerEvent, TriggerLocomotive, TriggerNode, TriggerTime, TriggerClock, TriggerInterval, TriggerStart}
+	conditionTypes = []string{ConditionState, ConditionTime, ConditionClock, ConditionTrigger, ConditionAnd, ConditionOr, ConditionNot}
 	actionTypes    = []string{ActionCommand, ActionTrain, ActionEvent, ActionDelay, ActionWait, ActionIf, ActionChoose, ActionRepeat, ActionStop, ActionLog}
 	weekdayNames   = []string{"mon", "tue", "wed", "thu", "fri", "sat", "sun"}
 	addressTypes   = []string{"", "long", "short", "consist"}
@@ -344,6 +349,7 @@ func (t Trigger) validate(path string) error {
 		TriggerLocomotive: {"entity", "address", "address_type", "direction"},
 		TriggerNode:       {"node", "to"},
 		TriggerTime:       {"at", "weekdays"},
+		TriggerClock:      {"at", "weekdays"},
 		TriggerInterval:   {"every"},
 		TriggerStart:      {},
 	}[t.Type]
@@ -378,7 +384,7 @@ func (t Trigger) validate(path string) error {
 		if t.To != "" && t.To != "online" && t.To != "offline" {
 			return invalid(path+".to", "%q must be online or offline", t.To)
 		}
-	case TriggerTime:
+	case TriggerTime, TriggerClock:
 		if _, err := parseClock(t.At); err != nil {
 			return invalid(path+".at", "%v", err)
 		}
@@ -437,9 +443,9 @@ func (c Condition) validate(path string) error {
 		if c.State == "" {
 			return invalid(path+".state", "say which state it must be in")
 		}
-	case ConditionTime:
+	case ConditionTime, ConditionClock:
 		if c.After == "" && c.Before == "" && len(c.Weekdays) == 0 {
-			return invalid(path, "a time condition needs after, before or weekdays")
+			return invalid(path, "a %s condition needs after, before or weekdays", c.Type)
 		}
 		if c.After != "" {
 			if _, err := parseClock(c.After); err != nil {

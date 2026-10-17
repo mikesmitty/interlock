@@ -55,6 +55,7 @@ type Outpost struct {
 	mu     sync.Mutex
 	servos [OutpostServos]servoState
 	tracks [OutpostTracks]trackState
+	fw     firmwareState
 	work   chan func()
 	ctx    context.Context
 }
@@ -78,6 +79,11 @@ func NewOutpost(cfg node.Config) (*Outpost, error) {
 		reset()
 		o.seedDefaults()
 	}
+	// Firmware upgrades, as the board offers them when it has a partition
+	// table.
+	n.SetLocalProtocols(n.LocalProtocols() | openlcb.ProtocolFirmwareUpgrade)
+	n.Server.Firmware = o
+	n.Server.OnFrozen = o.announce
 	n.Observe(o.observe)
 	return o, nil
 }

@@ -93,6 +93,8 @@ func describeTrigger(t Trigger, n names) string {
 		}
 	case TriggerTime:
 		return "At " + t.At + onDays(t.Weekdays)
+	case TriggerClock:
+		return "When the fast clock reads " + t.At + onDays(t.Weekdays)
 	case TriggerInterval:
 		return "Every " + t.Every.String()
 	case TriggerStart:
@@ -134,7 +136,7 @@ func describeCondition(c Condition, n names) string {
 	switch c.Type {
 	case ConditionState:
 		return n.ent(c.Entity) + " is " + c.State
-	case ConditionTime:
+	case ConditionTime, ConditionClock:
 		var s string
 		switch {
 		case c.After != "" && c.Before != "":
@@ -145,6 +147,9 @@ func describeCondition(c Condition, n names) string {
 			s = "Before " + c.Before
 		default:
 			s = "Only"
+		}
+		if c.Type == ConditionClock {
+			s += " on the fast clock"
 		}
 		return s + onDays(c.Weekdays)
 	case ConditionTrigger:

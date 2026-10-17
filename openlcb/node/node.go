@@ -71,6 +71,7 @@ var (
 	ErrNotFound   = errors.New("node: no such node on the bus")
 	ErrTimeout    = errors.New("node: timed out waiting for a reply")
 	ErrBusy       = errors.New("node: a request of that kind to that node is already in progress")
+	ErrRestarting = errors.New("node: restarting")
 )
 
 // EventKind says what an Event reports.
@@ -232,6 +233,29 @@ func (n *Node) SetUserSNIP(name, description string) {
 	defer n.snap.Unlock()
 	n.cfg.SNIP.UserName = name
 	n.cfg.SNIP.UserDescription = description
+}
+
+// SetSNIP replaces everything the node reports about itself, for a
+// simulated device whose software version changes with an upgrade.
+func (n *Node) SetSNIP(snip openlcb.SNIP) {
+	n.snap.Lock()
+	defer n.snap.Unlock()
+	n.cfg.SNIP = snip
+}
+
+// LocalProtocols returns the protocols the node advertises.
+func (n *Node) LocalProtocols() openlcb.Protocols {
+	n.snap.RLock()
+	defer n.snap.RUnlock()
+	return n.cfg.Protocols
+}
+
+// SetLocalProtocols changes the protocols the node advertises, such as
+// Firmware Upgrade Active while an upgrade is in progress.
+func (n *Node) SetLocalProtocols(p openlcb.Protocols) {
+	n.snap.Lock()
+	defer n.snap.Unlock()
+	n.cfg.Protocols = p
 }
 
 // Dropped counts frames discarded because the input queue was full.
@@ -590,7 +614,7 @@ func (n *Node) handleAddressed(msg *openlcb.Message) {
 	case openlcb.MTIVerifyNodeIDAddressed:
 		n.sendGlobal(openlcb.MTIVerifiedNodeID, n.cfg.ID.AsSlice())
 	case openlcb.MTIProtocolSupportInquiry:
-		n.sendAddressed(openlcb.MTIProtocolSupportReply, msg.Source, n.cfg.Protocols.Bytes())
+		n.sendAddressed(openlcb.MTIProtocolSupportReply, msg.Source, n.LocalProtocols().Bytes())
 	case openlcb.MTISimpleNodeIdentInfoRequest:
 		n.sendAddressed(openlcb.MTISimpleNodeIdentInfoReply, msg.Source, n.SNIPInfo().Encode())
 	case openlcb.MTIIdentifyEventsAddressed:

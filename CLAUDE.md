@@ -18,6 +18,8 @@ make lint       # golangci-lint + TypeScript type check
 make fmt        # golangci-lint fmt (gofmt + goimports)
 make run        # run the server from source
 make dev        # Vite dev server on :5173, proxying /api to :8080
+make docs       # build the documentation site (VitePress) from docs/
+make docs-dev   # serve it with live reload
 ```
 
 `golangci-lint` v2 is expected on PATH (`go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest`).
@@ -25,7 +27,8 @@ make dev        # Vite dev server on :5173, proxying /api to :8080
 Run `bin/interlock -data <dir>`; the data directory holds `interlock.yaml`
 (created with defaults on first start), `interlock.db`, `entities.yaml`,
 `automations.yaml`, `trains.yaml` and user `profiles/`. Default: `$INTERLOCK_DATA`, else `interlock` under the user
-config directory.
+config directory. A staged restore waits in `restore.pending/` and is
+applied at the next start; the replaced files go to `before-restore-*/`.
 
 ## Layout
 
@@ -38,8 +41,12 @@ config directory.
   - `openlcb` core types (NodeID, EventID, MTI, Message, SNIP, PIP, errors)
   - `openlcb/can` identifiers, GridConnect, alias generator and cache,
     frame assembly; pure functions, no goroutines
-  - `openlcb/transport` Link interface, GridConnect over serial and TCP
-    with reconnection, the TCP listener
+  - `openlcb/transport` Link interface, a stream link with a pluggable
+    codec (GridConnect by default) over serial and TCP with reconnection,
+    the TCP listener; `transport/olcbtcp` the OpenLCB TCP framing, a
+    gateway that gives TCP nodes aliases on the CAN side, a reconnecting
+    link and a listener; `transport/socketcan` the Linux CAN interface
+    (frame codec everywhere, socket code behind a build tag)
   - `openlcb/hub` frame router between links and subscribers
   - `openlcb/node` the local node: one goroutine owns all protocol state;
     client operations are serialized onto it and observers run on it
@@ -54,12 +61,16 @@ config directory.
     per detector whose low bytes report locomotives entering and leaving
   - `openlcb/traction` Train Control: command and reply encoding, the
     Train Search event, DCC train node IDs; pure functions
+  - `openlcb/clock` Broadcast Time events: time, date, year, rate,
+    set, start, stop, query; pure functions
   - `openlcb/sim` simulated nodes built from the embedded copies of the
     canbus-outpost and simple-dcc CDI files (keep them in sync with the
     firmware repos); `Outpost` adds the firmware's behavior (servos,
     detectors, Identify replies) over the plain node; `Station` behaves
     like simple-dcc (train search and train nodes, a programming track
-    with a decoder on it, the emergency events)
+    with a decoder on it, the emergency events). The outpost also takes
+    firmware upgrades (`sim.FirmwareImage` makes an image; a new image
+    runs on trial and confirms itself or goes back)
 - `internal/config` — `interlock.yaml` loading and validation.
 - `internal/store` — sqlite (modernc, no cgo). Schema changes are new files
   in `internal/store/migrations/NNNN_name.sql`; never edit a released one.
@@ -94,6 +105,14 @@ config directory.
   DCC address, not node ID.
 - `internal/programmer` — CV reads and writes: service mode through space
   0xF8 of the programming track's node, POM through a train node's.
+- `internal/firmware` — firmware upgrades by the Firmware Upgrade
+  standard: Freeze, 64 byte writes to space 0xEF with retries, Unfreeze,
+  then a watch for the restart and for a board that goes back to its old
+  version. UF2 files are unpacked. One job at a time, progress published.
+- `internal/clock` — the fast clock: a Broadcast Time server on
+  Interlock's node, state in the store, minute callbacks for automations.
+- `internal/backup` — backups as one zip with a database snapshot;
+  restores staged in the data directory and applied at the next start.
 - `internal/yamlstrict` — unknown-field check for YAML documents with
   custom unmarshalers.
 - `internal/monitor` — rolling log of frames with decoding for display.
@@ -104,6 +123,9 @@ config directory.
   `web/dist` (only `.gitkeep` is committed; an unbuilt UI serves a notice).
   Visual language is in `docs/design-language.md`; follow it for new pages.
   Fonts are bundled so the UI works offline.
+- `docs/` — the documentation, also built into a site with VitePress
+  (`docs/.vitepress/config.mts` holds the sidebar; add new pages there)
+  and published to GitHub Pages by `.github/workflows/docs.yml`.
 
 ## Conventions
 

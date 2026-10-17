@@ -5,10 +5,12 @@
 package sim
 
 import (
+	"context"
 	_ "embed"
 	"fmt"
 	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/mikesmitty/interlock/openlcb"
 	"github.com/mikesmitty/interlock/openlcb/cdi"
@@ -84,7 +86,14 @@ func New(cfg node.Config, cdiXML []byte) (*Node, error) {
 		s.resets++
 		s.mu.Unlock()
 	}
-	s.Server.OnReboot = func() { cfg.Logger.Info("sim: reboot requested") }
+	s.Server.OnReboot = func() {
+		cfg.Logger.Info("sim: reboot requested")
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		if err := s.Restart(ctx); err != nil {
+			cfg.Logger.Debug("sim: restart failed", "error", err)
+		}
+	}
 	s.Server.OnUpdateComplete = func() { cfg.Logger.Info("sim: update complete") }
 	s.Client = memconfig.NewClient(s.Node, memconfig.WithServer(s.Server), memconfig.WithLogger(cfg.Logger))
 	s.syncSNIP()

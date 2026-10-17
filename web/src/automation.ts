@@ -127,6 +127,8 @@ export function describeTrigger(t: Trigger, n: Names): string {
     }
     case "time":
       return `At ${t.at ?? "…"}${onDays(t.weekdays)}`;
+    case "clock":
+      return `When the fast clock reads ${t.at ?? "…"}${onDays(t.weekdays)}`;
     case "interval":
       return `Every ${t.every ?? "…"}`;
     case "start":
@@ -139,11 +141,13 @@ export function describeCondition(c: Condition, n: Names): string {
   switch (c.type) {
     case "state":
       return `${n.entity(c.entity ?? "")} is ${c.state ?? "…"}`;
-    case "time": {
+    case "time":
+    case "clock": {
       let s = "Only";
       if (c.after && c.before) s = `Between ${c.after} and ${c.before}`;
       else if (c.after) s = `After ${c.after}`;
       else if (c.before) s = `Before ${c.before}`;
+      if (c.type === "clock") s += " on the fast clock";
       return s + onDays(c.weekdays);
     }
     case "trigger":
@@ -289,6 +293,7 @@ export function newTrigger(type: Trigger["type"] = "state"): Trigger {
     case "node":
       return { type, to: "online" };
     case "time":
+    case "clock":
       return { type, at: "07:00" };
     case "interval":
       return { type, every: "10m" };
@@ -305,6 +310,7 @@ export function newCondition(type: Condition["type"] = "state"): Condition {
     case "not":
       return { type, conditions: [newCondition("state")] };
     case "time":
+    case "clock":
       return { type, after: "06:00", before: "22:00" };
     default:
       return { type };

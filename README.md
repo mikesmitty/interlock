@@ -23,8 +23,13 @@ a trace you can read step by step (`docs/automations.md`). A Throttle
 page drives locomotives by DCC address through the command station's
 train nodes, with a roster in `trains.yaml`, and a Programming page reads
 and writes CVs on the programming track and on the main
-(`docs/trains.md`). Firmware upgrades are still to come; see
-`docs/design.md` for the plan.
+(`docs/trains.md`). A node's page installs new firmware on it and
+follows the board through its restart. Interlock runs the layout's fast
+clock, which automations can use. Settings backs everything up to one
+file and restores it. Links can be serial or TCP GridConnect, OpenLCB
+TCP or SocketCAN. The documentation site is built from `docs/`
+(`make docs`); nothing has been tried on real hardware yet, and
+`docs/design.md` has the plan.
 
 ## Trying it without hardware
 
@@ -33,6 +38,7 @@ make build
 bin/interlock -data ./data &      # web interface on :8080, hub port on :12021
 go run ./cmd/simnode              # a simulated canbus-outpost joins the hub
 go run ./cmd/simnode -cdi cs -id 0A.00.00.00.00.43   # and a simulated command station
+go run ./cmd/simnode -make-firmware outpost-2.0.0.bin -firmware-version 2.0.0   # an image to install on it
 ```
 
 Open http://localhost:8080 to see the node appear, then watch the monitor.
@@ -48,8 +54,8 @@ bin/interlock     # serves on :8080 using ~/.config/interlock (or $INTERLOCK_DAT
 
 `bin/interlock -data /path/to/dir` keeps everything in one directory:
 `interlock.yaml` (written with defaults on first start), the sqlite
-database and, later, automations and profiles. Links to the layout go in
-that file:
+database, the entities, automations, roster and your profiles. Links to
+the layout go in that file:
 
 ```yaml
 links:
@@ -59,10 +65,14 @@ links:
   - name: jmri
     type: tcp
     address: 192.168.1.10:12021    # any GridConnect TCP server
+  - name: can0
+    type: socketcan                # a Linux CAN interface
+    interface: can0
 ```
 
 Interlock also serves GridConnect on port 12021, so JMRI or a second
-Interlock can connect to it.
+Interlock can connect to it, and can serve OpenLCB TCP (`hub.openlcb_tcp`).
+`docs/connections.md` has the details.
 
 ## Developing
 
@@ -71,6 +81,7 @@ make test         # Go tests
 make lint         # golangci-lint and the TypeScript type check
 make run          # Go server from source on :8080
 make dev          # Vite dev server with hot reload, proxying /api to :8080
+make docs         # the documentation site, from docs/
 ```
 
 ## License

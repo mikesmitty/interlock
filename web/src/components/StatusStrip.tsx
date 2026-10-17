@@ -1,11 +1,14 @@
 import { Link } from "react-router";
 import { aliasHex } from "../api";
+import { fastHM, fastNow, rateLabel } from "../clock";
+import { useNow } from "../format";
 import { useBus } from "../store";
 import { Lamp } from "./Lamp";
 
-/** The strip across the top: one lamp per link, and the controller's own state. */
+/** The strip across the top: one lamp per link, the fast clock, and the controller's own state. */
 export function StatusStrip() {
-  const { connection, links, health, nodes } = useBus();
+  const { connection, links, health, nodes, clock } = useBus();
+  const now = useNow(1000);
   const local = Object.values(nodes).find((n) => n.local);
 
   const serverColor = connection === "live" ? "green" : connection === "reconnecting" ? "red" : "amber";
@@ -45,6 +48,15 @@ export function StatusStrip() {
         ))}
       </div>
       <span className="strip__spacer" />
+      {clock && (
+        <div className="strip__group">
+          <Link className="strip__item strip__clock" to="/clock" title={clock.running ? `Fast clock running at ${rateLabel(clock.rate)}` : "Fast clock stopped"}>
+            <Lamp color={clock.running ? "green" : "off"} label={clock.running ? "fast clock running" : "fast clock stopped"} />
+            <span>{fastHM(fastNow(clock, now))}</span>
+            <span className="strip__id">{clock.running ? rateLabel(clock.rate) : "stopped"}</span>
+          </Link>
+        </div>
+      )}
       <div className="strip__group">
         <span className="strip__item" title={nodeLabel}>
           <Lamp color={nodeColor} label={nodeLabel} />

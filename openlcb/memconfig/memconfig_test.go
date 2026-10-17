@@ -244,11 +244,12 @@ func TestInfoLockAndCommands(t *testing.T) {
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	// Freeze of a space without firmware support is rejected.
+	// Freeze on a node without firmware support is rejected: the firmware
+	// space does not exist there.
 	err = client.Freeze(ctx, peerID, memconfig.SpaceFirmware)
 	var oerr *openlcb.Error
-	if !errors.As(err, &oerr) || oerr.Code != openlcb.ErrCodeNotImplementedSubcommand {
-		t.Errorf("Freeze: %v, want subcommand not implemented", err)
+	if !errors.As(err, &oerr) || oerr.Code != memconfig.ErrCodeSpaceUnknown {
+		t.Errorf("Freeze: %v, want address space unknown", err)
 	}
 }
 

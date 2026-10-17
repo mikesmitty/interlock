@@ -5,6 +5,7 @@ import { AddButton, ClockField, EntityPicker, RemoveButton, StatePicker, TextFie
 const CONDITION_TYPES: [ConditionType, string][] = [
   ["state", "An entity is in a state"],
   ["time", "The time of day"],
+  ["clock", "The fast clock's time"],
   ["trigger", "Which trigger started it"],
   ["and", "All of these"],
   ["or", "Any of these"],
@@ -49,6 +50,7 @@ function ConditionFields({ c, onChange }: { c: Condition; onChange: (c: Conditio
         </>
       );
     case "time":
+    case "clock":
       return (
         <>
           <ClockField value={c.after} onChange={(after) => set({ after })} label="After" />

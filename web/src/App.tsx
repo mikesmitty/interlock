@@ -4,6 +4,7 @@ import { StatusStrip } from "./components/StatusStrip";
 import { AutomationEditor } from "./pages/AutomationEditor";
 import { Automations } from "./pages/Automations";
 import { AutomationTraces } from "./pages/AutomationTraces";
+import { Clock } from "./pages/Clock";
 import { Entities } from "./pages/Entities";
 import { Monitor } from "./pages/Monitor";
 import { NodeDetail } from "./pages/NodeDetail";
@@ -38,6 +39,9 @@ function Shell() {
         </NavLink>
         <NavLink className="rail__link" to="/programming">
           Programming
+        </NavLink>
+        <NavLink className="rail__link" to="/clock">
+          Clock
         </NavLink>
         <NavLink className="rail__link" to="/monitor">
           Monitor
@@ -79,6 +83,7 @@ export default function App() {
         <Route path="throttle" element={<Throttle />} />
         <Route path="throttle/:id" element={<Throttle />} />
         <Route path="programming" element={<Programming />} />
+        <Route path="clock" element={<Clock />} />
         <Route path="monitor" element={<Monitor />} />
         <Route path="settings" element={<Settings />} />
         <Route path="*" element={<NotFound />} />
