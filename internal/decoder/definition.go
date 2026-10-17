@@ -283,8 +283,8 @@ func plain(s string) string {
 func yes(e *element, name string) bool { return e.Attr[name] == "yes" }
 
 // loadDefinition reads the definition of one model from its family file.
-// programmer is the layout file whose panes come first (Comprehensive).
-func loadDefinition(t *treeLoader, file, model, programmer string) (*Definition, error) {
+// DefaultProgrammer is the layout whose panes come first.
+func loadDefinition(t *treeLoader, file, model string) (*Definition, error) {
 	root, err := t.load(path.Join("decoders", file))
 	if err != nil {
 		return nil, err
@@ -347,7 +347,7 @@ func loadDefinition(t *treeLoader, file, model, programmer string) (*Definition,
 	d.FunctionLabels = functionLabels(fam, mod)
 	d.Resets = b.resets(dec.child("resets"))
 	b.outputs = outputs(fam, mod)
-	if err := b.panes(t, root, programmer); err != nil {
+	if err := b.panes(t, root, DefaultProgrammer); err != nil {
 		d.Problems = append(d.Problems, err.Error())
 	}
 	d.Missing = t.Missing

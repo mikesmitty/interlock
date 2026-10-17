@@ -61,6 +61,7 @@ type Node struct {
 	Qualifiers []Qualifier `json:"qualifiers,omitempty"`
 	Grid       *GridPos    `json:"grid,omitempty"`
 	FnMap      *FnMap      `json:"fnmap,omitempty"`
+	ESUMap     *ESUMap     `json:"esu_map,omitempty"`
 	// Items are the address settings a dccaddress node edits.
 	Items []string `json:"items,omitempty"`
 }
@@ -196,7 +197,7 @@ func (b *builder) addPane(e *element, forced, showEmpty bool) {
 	if !b.info.included(inc, exc) {
 		return
 	}
-	pb := &paneBuild{b: b, seen: map[string]bool{}, nameFmtItem: e.attr("nameFmt") == "item"}
+	pb := &paneBuild{b: b, items: []string{}, seen: map[string]bool{}, nameFmtItem: e.attr("nameFmt") == "item"}
 	var nodes []Node
 	// JMRI places a pane's columns first, then rows, grids and groups.
 	for _, kind := range []string{"column", "row", "grid", "group"} {
@@ -296,7 +297,15 @@ func (pb *paneBuild) node(e *element) (Node, bool) {
 		return n, len(n.Items) > 0
 	case "fnmapping":
 		if b.def.ESUFunctionMap != "" {
-			return Node{Kind: NodeESUFnMap}, true
+			m, err := esuMap(b.def.ESUFunctionMap, b.info.numFns, b.info.numOuts, b.outputs)
+			if err != nil {
+				b.def.Problems = append(b.def.Problems, err.Error())
+				return Node{}, false
+			}
+			for _, cv := range m.CVs() {
+				b.cv(cv, Variable{})
+			}
+			return Node{Kind: NodeESUFnMap, ESUMap: m}, true
 		}
 		m := b.fnMap()
 		if m == nil {

@@ -151,7 +151,7 @@ func TestRealModels(t *testing.T) {
 		}
 		ld := &treeLoader{fsys: lib.fsys}
 		for _, m := range f.Models {
-			d, err := loadDefinition(ld, f.File, m.Name, DefaultProgrammer)
+			d, err := loadDefinition(ld, f.File, m.Name)
 			if err != nil {
 				t.Errorf("%s %s: %v", f.File, m.Name, err)
 				continue

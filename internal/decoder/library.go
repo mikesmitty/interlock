@@ -326,7 +326,7 @@ func (l *Library) Definition(file, model string) (*Definition, error) {
 		}
 	}
 	l.mu.Unlock()
-	d, err := loadDefinition(&treeLoader{fsys: l.fsys}, file, model, DefaultProgrammer)
+	d, err := loadDefinition(&treeLoader{fsys: l.fsys}, file, model)
 	if err != nil {
 		return nil, fmt.Errorf("decoder definition: %w", err)
 	}

@@ -92,7 +92,7 @@ func testDefinitionFS() fstest.MapFS {
 
 func loadTest(t *testing.T, model string) *Definition {
 	t.Helper()
-	d, err := loadDefinition(&treeLoader{fsys: testDefinitionFS()}, "Acme.xml", model, DefaultProgrammer)
+	d, err := loadDefinition(&treeLoader{fsys: testDefinitionFS()}, "Acme.xml", model)
 	if err != nil {
 		t.Fatal(err)
 	}
