@@ -42,13 +42,27 @@ config directory.
   - `openlcb/hub` frame router between links and subscribers
   - `openlcb/node` the local node: one goroutine owns all protocol state;
     client operations are serialized onto it and observers run on it
+  - `openlcb/memconfig` memory configuration datagrams: codec, client
+    (one request in flight per node; reads always wait for the reply
+    datagram, writes only when the acknowledgment says so), server
+  - `openlcb/cdi` CDI parser and address resolver; `Element` is the XML
+    tree, `Variables()` the flat address list, `Layout()` the expanded
+    JSON form; values are strings on the wire and `Encode`/`Decode`
+    translate them
+  - `openlcb/sim` simulated nodes built from the embedded copies of the
+    canbus-outpost and simple-dcc CDI files (keep them in sync with the
+    firmware repos)
 - `internal/config` — `interlock.yaml` loading and validation.
 - `internal/store` — sqlite (modernc, no cgo). Schema changes are new files
   in `internal/store/migrations/NNNN_name.sql`; never edit a released one.
 - `internal/identity` — resolves Interlock's own node ID (config, else the
   saved generated 0A-prefix ID).
 - `internal/registry` — nodes seen on the bus, discovery rounds,
-  identification (PIP then SNIP), online tracking.
+  identification (PIP then SNIP), CDI reads cached by software version,
+  online tracking, persistence through the store.
+- `internal/nodeconfig` — reads and writes configuration values keyed by
+  `space:address` through the node's layout; validates a whole batch
+  before writing any of it.
 - `internal/monitor` — rolling log of frames with decoding for display.
 - `internal/api` — HTTP API under `/api/v1`; JSON errors for 404 and 405;
   server-sent events at `/api/v1/events`.

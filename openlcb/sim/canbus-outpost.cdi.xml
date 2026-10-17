@@ -1,0 +1,276 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<cdi xmlns:xsi='http://www.w3.org/2001/XMLSchema-instance' xsi:noNamespaceSchemaLocation='https://openlcb.org/schema/cdi/1/1/cdi.xsd'>
+<identification>
+<manufacturer>mikesmitty</manufacturer>
+<model>CAN Bus Outpost</model>
+<hardwareVersion>Rev A</hardwareVersion>
+<!-- x-release-please-start-version -->
+<softwareVersion>0.2.1</softwareVersion>
+<!-- x-release-please-end -->
+</identification>
+<segment space='253' origin='0'>
+<name>Node Identity</name>
+<string size='64'>
+<name>User Name</name>
+</string>
+<string size='64'>
+<name>User Description</name>
+</string>
+</segment>
+<segment space='253' origin='128'>
+<name>Identify</name>
+<int size='1'>
+<name>Enabled</name>
+<map>
+<relation>
+<property>0</property>
+<value>Disabled</value>
+</relation>
+<relation>
+<property>1</property>
+<value>Enabled</value>
+</relation>
+</map>
+<default>0</default>
+</int>
+<int size='1'>
+<name>LED Timeout</name>
+<description>How long the identify LED flashes before turning off</description>
+<map>
+<relation>
+<property>0</property>
+<value>Indefinite</value>
+</relation>
+<relation>
+<property>1</property>
+<value>1 minute</value>
+</relation>
+<relation>
+<property>5</property>
+<value>5 minutes</value>
+</relation>
+<relation>
+<property>10</property>
+<value>10 minutes</value>
+</relation>
+<relation>
+<property>15</property>
+<value>15 minutes</value>
+</relation>
+</map>
+<default>5</default>
+</int>
+</segment>
+<segment space='253' origin='132'>
+<name>Switch Machines</name>
+<group replication='4'>
+<name>Servo</name>
+<repname>Servo 1</repname>
+<repname>Servo 2</repname>
+<repname>Servo 3</repname>
+<repname>Servo 4</repname>
+<eventid>
+<name>Throw Command Event</name>
+</eventid>
+<eventid>
+<name>Close Command Event</name>
+</eventid>
+<eventid>
+<name>Thrown Feedback Event</name>
+</eventid>
+<eventid>
+<name>Closed Feedback Event</name>
+</eventid>
+<eventid>
+<name>Center Command Event</name>
+</eventid>
+<int size='2'>
+<name>Thrown Position</name>
+<description>PWM position when thrown (0-65535)</description>
+<min>0</min>
+<max>65535</max>
+<default>16384</default>
+</int>
+<int size='2'>
+<name>Closed Position</name>
+<description>PWM position when closed (0-65535)</description>
+<min>0</min>
+<max>65535</max>
+<default>49152</default>
+</int>
+<int size='2'>
+<name>Center Position</name>
+<description>PWM position when centering for installation (0-65535)</description>
+<min>0</min>
+<max>65535</max>
+<default>32768</default>
+</int>
+<int size='1'>
+<name>Throw Time</name>
+<description>Throw duration in tenths of a second (0=instant, 30=3.0s)</description>
+<min>0</min>
+<max>255</max>
+<default>30</default>
+</int>
+<int size='1'>
+<name>Hold Time</name>
+<description>Seconds to hold position after throw before cutting power (0=hold forever)</description>
+<min>0</min>
+<max>255</max>
+<default>2</default>
+</int>
+<int size='1'>
+<name>Enabled</name>
+<map>
+<relation>
+<property>0</property>
+<value>Disabled</value>
+</relation>
+<relation>
+<property>1</property>
+<value>Enabled</value>
+</relation>
+</map>
+<default>1</default>
+</int>
+<int size='1'>
+<name>Default State</name>
+<description>Position at power-on</description>
+<map>
+<relation>
+<property>0</property>
+<value>Thrown</value>
+</relation>
+<relation>
+<property>1</property>
+<value>Closed</value>
+</relation>
+<relation>
+<property>2</property>
+<value>No Change</value>
+</relation>
+</map>
+<default>1</default>
+</int>
+<int size='1'>
+<name>Reversed</name>
+<description>Swap thrown/closed direction</description>
+<map>
+<relation>
+<property>0</property>
+<value>Normal</value>
+</relation>
+<relation>
+<property>1</property>
+<value>Reversed</value>
+</relation>
+</map>
+<default>0</default>
+</int>
+<int size='1'>
+<name>Frog Output</name>
+<description>GP Output to toggle for frog polarity</description>
+<map>
+<relation>
+<property>0</property>
+<value>None</value>
+</relation>
+<relation>
+<property>1</property>
+<value>Output 1 (GPIO 4)</value>
+</relation>
+<relation>
+<property>2</property>
+<value>Output 2 (GPIO 5)</value>
+</relation>
+<relation>
+<property>3</property>
+<value>Output 3 (GPIO 6)</value>
+</relation>
+<relation>
+<property>4</property>
+<value>Output 4 (GPIO 7)</value>
+</relation>
+</map>
+<default>0</default>
+</int>
+<int size='1'>
+<name>Fascia Input</name>
+<description>GP Input for local manual control</description>
+<map>
+<relation>
+<property>0</property>
+<value>None</value>
+</relation>
+<relation>
+<property>1</property>
+<value>Input 1</value>
+</relation>
+<relation>
+<property>2</property>
+<value>Input 2</value>
+</relation>
+<relation>
+<property>3</property>
+<value>Input 3</value>
+</relation>
+<relation>
+<property>4</property>
+<value>Input 4</value>
+</relation>
+</map>
+<default>0</default>
+</int>
+<string size='64'>
+<name>Description</name>
+</string>
+<string size='3'/>
+</group>
+</segment>
+<segment space='253' origin='612'>
+<name>RailCom Detectors</name>
+<description>Each track reports the RailCom decoders seen on it. Only locomotives and cars whose decoders send RailCom are detected.</description>
+<group replication='4'>
+<name>Track</name>
+<repname>Track 1</repname>
+<repname>Track 2</repname>
+<repname>Track 3</repname>
+<repname>Track 4</repname>
+<string size='64'>
+<name>Description</name>
+</string>
+<eventid>
+<name>Occupied Event</name>
+<description>Sent when a RailCom decoder is detected on the track</description>
+</eventid>
+<eventid>
+<name>Clear Event</name>
+<description>Sent when no decoder has been seen on the track for a second</description>
+</eventid>
+<eventid>
+<name>Reporter ID</name>
+<description>Reports which locomotive is on the track (OpenLCB DCC detector events). Enter this as the address of a JMRI LCC Reporter. It must be a unique ID of its own with 00.00 at the end; all zeros turns reporting off.</description>
+</eventid>
+<int size='1'>
+<name>Orientation</name>
+<description>Whether reports say which way a locomotive faces. Rail A is positive in the first half of each DCC bit; the detector senses the TRACK_R rail. If JMRI shows locomotives facing the wrong way, choose the other rail.</description>
+<map>
+<relation>
+<property>0</property>
+<value>Not reported</value>
+</relation>
+<relation>
+<property>1</property>
+<value>TRACK_R is Rail A</value>
+</relation>
+<relation>
+<property>2</property>
+<value>TRACK_R is Rail B</value>
+</relation>
+</map>
+<default>0</default>
+</int>
+<string size='7'/>
+</group>
+</segment>
+</cdi>

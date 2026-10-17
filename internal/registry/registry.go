@@ -1,7 +1,9 @@
 // Package registry keeps track of the nodes on the bus: which are present,
-// what they call themselves and which protocols they speak. It learns from
-// traffic the local node observes and asks nodes for their identification
-// as they appear.
+// what they call themselves, which protocols they speak and how their
+// configuration is laid out. It learns from traffic the local node
+// observes, asks nodes for their identification as they appear, reads
+// their CDI, and remembers all of it in the store so a restart shows the
+// layout at once and offline nodes keep their names.
 package registry
 
 import (
@@ -11,7 +13,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mikesmitty/interlock/internal/store"
 	"github.com/mikesmitty/interlock/openlcb"
+	"github.com/mikesmitty/interlock/openlcb/cdi"
+	"github.com/mikesmitty/interlock/openlcb/memconfig"
 	"github.com/mikesmitty/interlock/openlcb/node"
 )
 
@@ -25,6 +30,51 @@ type Client interface {
 	AliasMapEnquiry(ctx context.Context) error
 	SNIP(ctx context.Context, id openlcb.NodeID) (openlcb.SNIP, error)
 	Protocols(ctx context.Context, id openlcb.NodeID) (openlcb.Protocols, error)
+}
+
+// CDIReader fetches a node's Configuration Description Information.
+type CDIReader interface {
+	ReadCDI(ctx context.Context, id openlcb.NodeID, progress memconfig.Progress) ([]byte, error)
+}
+
+// Store persists nodes between runs. *store.Store implements it.
+type Store interface {
+	Nodes(ctx context.Context) ([]store.NodeRecord, error)
+	SaveNode(ctx context.Context, rec store.NodeRecord) error
+	DeleteNode(ctx context.Context, id openlcb.NodeID) error
+	CDI(ctx context.Context, id openlcb.NodeID) (*store.CDIRecord, error)
+	SaveCDI(ctx context.Context, rec store.CDIRecord) error
+	DeleteCDI(ctx context.Context, id openlcb.NodeID) error
+}
+
+// CDI states.
+const (
+	// CDIPending: the node supports CDI and a read is queued.
+	CDIPending = "pending"
+	// CDIReading: the read is in progress; Read and Total say how far.
+	CDIReading = "reading"
+	// CDIReady: the layout is available.
+	CDIReady = "ready"
+	// CDIError: the last read failed; Error says why.
+	CDIError = "error"
+)
+
+// CDIStatus is what Info says about a node's CDI. It is nil for nodes
+// that do not support CDI or have not been identified yet.
+type CDIStatus struct {
+	State string `json:"state"`
+	// Read and Total are byte counts while reading; Total is 0 if the node
+	// did not say how big the document is.
+	Read  int    `json:"read,omitempty"`
+	Total int    `json:"total,omitempty"`
+	Error string `json:"error,omitempty"`
+	// FetchedAt is when the document was read from the node.
+	FetchedAt time.Time `json:"fetched_at,omitempty"`
+	// Cached means the document came from the store this run.
+	Cached bool `json:"cached,omitempty"`
+	// Truncated means the document ended early; the layout is partial.
+	Truncated bool `json:"truncated,omitempty"`
+	Segments  int  `json:"segments,omitempty"`
 }
 
 // Info is what is known about one node.
@@ -43,6 +93,10 @@ type Info struct {
 	ProtocolBits openlcb.Protocols `json:"protocol_bits,omitempty"`
 	// Error records why the last identification attempt failed, if it did.
 	Error string `json:"error,omitempty"`
+	// CDI reports on the node's configuration description.
+	CDI *CDIStatus `json:"cdi,omitempty"`
+	// Forgotten is set on the last update about a node removed with Forget.
+	Forgotten bool `json:"forgotten,omitempty"`
 }
 
 // Name returns the friendliest name available: the user name, else the
@@ -73,6 +127,18 @@ type Options struct {
 	Logger         *slog.Logger
 	// Timeout bounds each identification request.
 	Timeout time.Duration
+	// Store keeps nodes between runs; nil keeps them in memory only.
+	Store Store
+	// CDI reads configuration descriptions; nil disables that.
+	CDI CDIReader
+}
+
+// cdiEntry is a parsed CDI held in memory.
+type cdiEntry struct {
+	xml       []byte
+	doc       *cdi.CDI
+	version   string
+	fetchedAt time.Time
 }
 
 // Registry is the node table.
@@ -83,15 +149,19 @@ type Registry struct {
 
 	mu      sync.RWMutex
 	nodes   map[openlcb.NodeID]*Info
+	cdis    map[openlcb.NodeID]*cdiEntry
 	subs    map[int]Subscriber
 	nextSub int
 
 	fetch    chan openlcb.NodeID
 	fetching map[openlcb.NodeID]bool
+	cdiFetch chan openlcb.NodeID
+	cdiBusy  map[openlcb.NodeID]bool
 	kick     chan struct{}
 }
 
-// New builds a registry over client. Call Run to start discovery.
+// New builds a registry over client. Call Restore to load stored nodes
+// and Run to start discovery.
 func New(client Client, opts Options) *Registry {
 	if opts.Logger == nil {
 		opts.Logger = slog.Default()
@@ -104,9 +174,12 @@ func New(client Client, opts Options) *Registry {
 		opts:     opts,
 		log:      opts.Logger,
 		nodes:    make(map[openlcb.NodeID]*Info),
+		cdis:     make(map[openlcb.NodeID]*cdiEntry),
 		subs:     make(map[int]Subscriber),
 		fetch:    make(chan openlcb.NodeID, 256),
 		fetching: make(map[openlcb.NodeID]bool),
+		cdiFetch: make(chan openlcb.NodeID, 256),
+		cdiBusy:  make(map[openlcb.NodeID]bool),
 		kick:     make(chan struct{}, 1),
 	}
 	now := time.Now()
@@ -119,6 +192,47 @@ func New(client Client, opts Options) *Registry {
 	return r
 }
 
+// Restore loads nodes and CDIs from the store as offline entries.
+func (r *Registry) Restore(ctx context.Context) error {
+	if r.opts.Store == nil {
+		return nil
+	}
+	records, err := r.opts.Store.Nodes(ctx)
+	if err != nil {
+		return err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, rec := range records {
+		if rec.ID == r.client.ID() {
+			continue
+		}
+		info := &Info{ID: rec.ID, FirstSeen: rec.FirstSeen, LastSeen: rec.LastSeen, SNIP: rec.SNIP}
+		if rec.Protocols != 0 {
+			info.ProtocolBits = rec.Protocols
+			info.Protocols = rec.Protocols.Names()
+		}
+		r.nodes[rec.ID] = info
+		cached, err := r.opts.Store.CDI(ctx, rec.ID)
+		if err != nil {
+			r.log.Warn("could not load cached CDI", "node", rec.ID, "error", err)
+			continue
+		}
+		if cached == nil {
+			continue
+		}
+		doc, err := cdi.Parse(cached.XML)
+		if err != nil {
+			r.log.Warn("cached CDI does not parse; it will be read again", "node", rec.ID, "error", err)
+			continue
+		}
+		r.cdis[rec.ID] = &cdiEntry{xml: cached.XML, doc: doc, version: cached.SoftwareVersion, fetchedAt: cached.FetchedAt}
+		info.CDI = &CDIStatus{State: CDIReady, FetchedAt: cached.FetchedAt, Cached: true, Truncated: doc.Truncated, Segments: len(doc.Segments)}
+	}
+	r.log.Info("restored nodes from store", "count", len(records))
+	return nil
+}
+
 // Run observes the bus, identifies nodes as they appear and runs check-in
 // rounds until ctx ends.
 func (r *Registry) Run(ctx context.Context) error {
@@ -126,6 +240,7 @@ func (r *Registry) Run(ctx context.Context) error {
 	defer unobserve()
 
 	go r.fetchLoop(ctx)
+	go r.cdiLoop(ctx)
 
 	// Wait for the local node to be able to talk before the first round.
 	for r.client.State() != node.StateInitialized {
@@ -146,12 +261,14 @@ func (r *Registry) Run(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
+			r.persistAll()
 			return nil
 		case <-r.kick:
 			r.round(ctx)
 		case <-tick:
 			r.round(ctx)
 			r.expire()
+			r.persistAll()
 		}
 	}
 }
@@ -220,6 +337,32 @@ func (r *Registry) RefreshNode(_ context.Context, id openlcb.NodeID) error {
 	return nil
 }
 
+// Forget removes an offline node and what was stored about it.
+func (r *Registry) Forget(ctx context.Context, id openlcb.NodeID) error {
+	r.mu.Lock()
+	info, ok := r.nodes[id]
+	if !ok {
+		r.mu.Unlock()
+		return node.ErrNotFound
+	}
+	if info.Local || info.Online {
+		r.mu.Unlock()
+		return ErrNodeOnline
+	}
+	delete(r.nodes, id)
+	delete(r.cdis, id)
+	snapshot := *info
+	r.mu.Unlock()
+	if r.opts.Store != nil {
+		if err := r.opts.Store.DeleteNode(ctx, id); err != nil {
+			return err
+		}
+	}
+	snapshot.Forgotten = true
+	r.publish(snapshot)
+	return nil
+}
+
 func (r *Registry) handleEvent(ev node.Event) {
 	switch ev.Kind {
 	case node.EventAliasMapped:
@@ -256,6 +399,7 @@ func (r *Registry) seen(id openlcb.NodeID, alias openlcb.Alias) {
 		r.nodes[id] = info
 	}
 	changed := !ok || !info.Online || (alias != 0 && info.Alias != alias)
+	cameOnline := !info.Online
 	info.LastSeen = now
 	info.Online = true
 	if alias != 0 {
@@ -271,7 +415,13 @@ func (r *Registry) seen(id openlcb.NodeID, alias openlcb.Alias) {
 	if changed {
 		r.publish(snapshot)
 	}
+	if cameOnline {
+		r.persist(snapshot)
+	}
 	if needFetch {
+		r.requestFetch(id)
+	} else if cameOnline {
+		// Known node back on the bus: its software may have changed.
 		r.requestFetch(id)
 	}
 }
@@ -288,6 +438,7 @@ func (r *Registry) offline(id openlcb.NodeID) {
 	r.mu.Unlock()
 	r.log.Info("node left the bus", "node", id, "name", snapshot.Name())
 	r.publish(snapshot)
+	r.persist(snapshot)
 }
 
 func (r *Registry) requestFetch(id openlcb.NodeID) {
@@ -364,6 +515,11 @@ func (r *Registry) identify(ctx context.Context, id openlcb.NodeID) {
 	} else {
 		info.Error = ""
 	}
+	wantCDI := fetchErr == nil && r.opts.CDI != nil &&
+		protocols.Has(openlcb.ProtocolCDI|openlcb.ProtocolMemoryConfiguration|openlcb.ProtocolDatagram)
+	if wantCDI {
+		r.planCDILocked(info)
+	}
 	snapshot := *info
 	r.mu.Unlock()
 
@@ -373,6 +529,10 @@ func (r *Registry) identify(ctx context.Context, id openlcb.NodeID) {
 		r.log.Info("node identified", "node", id, "name", snapshot.Name(), "model", snapshot.SNIP.Model)
 	}
 	r.publish(snapshot)
+	r.persist(snapshot)
+	if snapshot.CDI != nil && snapshot.CDI.State == CDIPending {
+		r.requestCDI(id)
+	}
 }
 
 // Subscribe registers a subscriber and returns a function that removes it.
@@ -398,6 +558,37 @@ func (r *Registry) publish(info Info) {
 	r.mu.RUnlock()
 	for _, sub := range subs {
 		sub(info)
+	}
+}
+
+// persist writes one node to the store.
+func (r *Registry) persist(info Info) {
+	if r.opts.Store == nil || info.Local {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	rec := store.NodeRecord{ID: info.ID, FirstSeen: info.FirstSeen, LastSeen: info.LastSeen, SNIP: info.SNIP, Protocols: info.ProtocolBits}
+	if err := r.opts.Store.SaveNode(ctx, rec); err != nil {
+		r.log.Warn("could not save node", "node", info.ID, "error", err)
+	}
+}
+
+// persistAll refreshes last-seen times of online nodes.
+func (r *Registry) persistAll() {
+	if r.opts.Store == nil {
+		return
+	}
+	r.mu.RLock()
+	online := make([]Info, 0, len(r.nodes))
+	for _, info := range r.nodes {
+		if info.Online && !info.Local {
+			online = append(online, *info)
+		}
+	}
+	r.mu.RUnlock()
+	for _, info := range online {
+		r.persist(info)
 	}
 }
 

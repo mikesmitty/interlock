@@ -1,0 +1,141 @@
+<?xml version="1.0"?>
+<cdi xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://openlcb.org/schema/cdi/1/4/cdi.xsd">
+<identification>
+<manufacturer>simple-dcc</manufacturer>
+<model>DCC Command Station</model>
+<hardwareVersion>1.0.0</hardwareVersion>
+<!-- x-release-please-start-version -->
+<softwareVersion>0.4.0</softwareVersion>
+<!-- x-release-please-end -->
+</identification>
+<acdi/>
+<segment origin="0" space="253">
+<name>User Identification</name>
+<string size="63"><name>User Name</name></string>
+<string size="64"><name>User Description</name></string>
+</segment>
+
+<segment origin="127" space="253">
+<name>DCC Features</name>
+<group>
+<name>Traction</name>
+<int size="1">
+<name>Auto-claim DCC Addresses</name>
+<description>When enabled, automatically creates a traction node for any requested DCC address.</description>
+<map>
+<relation><property>0</property><value>Disabled</value></relation>
+<relation><property>1</property><value>Enabled</value></relation>
+</map>
+</int>
+</group>
+<group>
+<name>Waveform</name>
+<int size="1">
+<name>RailCom Cutout</name>
+<description>Enable the RailCom cutout at the end of each DCC packet.</description>
+<map>
+<relation><property>0</property><value>Disabled</value></relation>
+<relation><property>1</property><value>Enabled</value></relation>
+</map>
+</int>
+</group>
+</segment>
+
+<segment origin="129" space="253">
+<name>Track Current Limits</name>
+<group>
+<int size="2">
+<name>Main Track Limit (mA)</name>
+<description>Maximum current allowed on the Main track before tripping a fault.</description>
+</int>
+<int size="2">
+<name>Programming Track Limit (mA)</name>
+<description>Maximum current allowed on the Programming track before tripping a fault.</description>
+</int>
+</group>
+</segment>
+
+<segment origin="133" space="253">
+<name>Hardware Pin Assignments</name>
+<group>
+<name>Main Track (Channel A)</name>
+<int size="1"><name>Signal Pin</name><description>GPIO pin driving the DCC signal (drives pin and pin+1).</description></int>
+<int size="1"><name>Power Enable Pin</name><description>GPIO pin to enable/disable power to the track.</description></int>
+<int size="1"><name>Brake Pin</name><description>GPIO pin used for RailCom cutout brake signaling.</description></int>
+<int size="1"><name>Fault Pin</name><description>GPIO pin used for fault reporting from the motor shield.</description></int>
+<int size="1"><name>ADC Channel</name><description>ADC channel used for current sensing.</description></int>
+</group>
+<group>
+<name>Programming Track (Channel B)</name>
+<int size="1"><name>Signal Pin</name><description>GPIO pin driving the DCC signal.</description></int>
+<int size="1"><name>Power Enable Pin</name><description>GPIO pin to enable/disable power to the track.</description></int>
+<int size="1"><name>Brake Pin</name><description>GPIO pin used for braking.</description></int>
+<int size="1"><name>Fault Pin</name><description>GPIO pin used for fault reporting.</description></int>
+<int size="1"><name>ADC Channel</name><description>ADC channel used for current sensing.</description></int>
+</group>
+</segment>
+
+<segment origin="143" space="253">
+<name>OLED Display</name>
+<description>128x64 I2C OLED (SSD1306). Pin numbers must be a valid RP2350 I2C pair: SDA on GPIO 0/4/.../20 (I2C0) or 2/6/.../22 (I2C1), with SCL = SDA+1. Changes take effect after reboot.</description>
+<group>
+<int size="1"><name>SDA Pin</name><description>GPIO pin for I2C data.</description></int>
+<int size="1"><name>SCL Pin</name><description>GPIO pin for I2C clock. Must be SDA+1 on the same I2C peripheral.</description></int>
+<int size="1"><name>I2C Address</name><description>7-bit SSD1306 address. Most panels are 0x3C (60); some strap to 0x3D (61).</description></int>
+<int size="1">
+<name>Enabled</name>
+<description>When disabled, the display is not initialized and its task is not created.</description>
+<map>
+<relation><property>0</property><value>Disabled</value></relation>
+<relation><property>1</property><value>Enabled</value></relation>
+</map>
+</int>
+</group>
+</segment>
+
+<segment origin="147" space="253">
+<name>MCP2515 CAN</name>
+<description>Optional MCP2515 CAN controller over SPI, used as a second LCC transport alongside USB. Pin numbers must be a valid RP2350 SPI set for the selected peripheral. Changes take effect after reboot.</description>
+<group>
+<int size="1">
+<name>Enabled</name>
+<description>When disabled, SPI stays idle and no second LCC transport is created.</description>
+<map>
+<relation><property>0</property><value>Disabled</value></relation>
+<relation><property>1</property><value>Enabled</value></relation>
+</map>
+</int>
+<int size="1">
+<name>SPI Peripheral</name>
+<description>Which on-chip SPI instance to drive the MCP2515.</description>
+<map>
+<relation><property>0</property><value>spi0</value></relation>
+<relation><property>1</property><value>spi1</value></relation>
+</map>
+</int>
+<int size="1"><name>MISO Pin</name><description>GPIO pin for SPI MISO.</description></int>
+<int size="1"><name>MOSI Pin</name><description>GPIO pin for SPI MOSI.</description></int>
+<int size="1"><name>SCK Pin</name><description>GPIO pin for SPI clock.</description></int>
+<int size="1"><name>CS Pin</name><description>GPIO pin driving the MCP2515 chip-select (active low).</description></int>
+<int size="1"><name>INT Pin</name><description>GPIO pin tied to the MCP2515 /INT output; used as a falling-edge IRQ source.</description></int>
+<int size="1">
+<name>Crystal</name>
+<description>Oscillator fitted on the MCP2515 module.</description>
+<map>
+<relation><property>0</property><value>8 MHz</value></relation>
+<relation><property>1</property><value>16 MHz</value></relation>
+</map>
+</int>
+<int size="1">
+<name>Bit Rate</name>
+<description>CAN bus bit rate. OpenLCB standard is 125 kbps.</description>
+<map>
+<relation><property>0</property><value>125 kbps</value></relation>
+<relation><property>1</property><value>250 kbps</value></relation>
+<relation><property>2</property><value>500 kbps</value></relation>
+<relation><property>3</property><value>1 Mbps</value></relation>
+</map>
+</int>
+</group>
+</segment>
+</cdi>

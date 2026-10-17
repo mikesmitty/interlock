@@ -69,6 +69,12 @@ class BusStore {
     });
     es.addEventListener("node", (ev) => {
       const info = JSON.parse((ev as MessageEvent<string>).data) as NodeInfo;
+      if (info.forgotten) {
+        const nodes = { ...this.state.nodes };
+        delete nodes[info.id];
+        this.set({ nodes });
+        return;
+      }
       this.set({ nodes: { ...this.state.nodes, [info.id]: info } });
     });
     es.addEventListener("links", (ev) => {

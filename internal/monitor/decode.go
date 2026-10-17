@@ -7,6 +7,7 @@ import (
 
 	"github.com/mikesmitty/interlock/openlcb"
 	"github.com/mikesmitty/interlock/openlcb/can"
+	"github.com/mikesmitty/interlock/openlcb/memconfig"
 )
 
 // Lookup supplies the node ID behind an alias, or 0.
@@ -275,30 +276,6 @@ func memSpaceAndAddress(cmd byte, p []byte) (space uint8, addr uint32, rest []by
 	return space, addr, rest, true
 }
 
-func spaceName(space uint8) string {
-	switch space {
-	case 0xFF:
-		return "CDI"
-	case 0xFE:
-		return "all memory"
-	case 0xFD:
-		return "configuration"
-	case 0xFC:
-		return "ACDI manufacturer"
-	case 0xFB:
-		return "ACDI user"
-	case 0xFA:
-		return "function description"
-	case 0xF9:
-		return "function configuration"
-	case 0xF8:
-		return "traction CVs"
-	case 0xEF:
-		return "firmware"
-	}
-	return fmt.Sprintf("space 0x%02X", space)
-}
-
 func summarizeMemConfig(p []byte) string {
 	if len(p) == 0 {
 		return "memory configuration (empty)"
@@ -308,32 +285,32 @@ func summarizeMemConfig(p []byte) string {
 	case memWrite:
 		space, addr, data, ok := memSpaceAndAddress(cmd, p)
 		if ok {
-			return fmt.Sprintf("write %d bytes to %s at 0x%X", len(data), spaceName(space), addr)
+			return fmt.Sprintf("write %d bytes to %s at 0x%X", len(data), memconfig.SpaceName(space), addr)
 		}
 	case memWriteReplyOK:
 		space, addr, _, ok := memSpaceAndAddress(cmd, p)
 		if ok {
-			return fmt.Sprintf("write to %s at 0x%X done", spaceName(space), addr)
+			return fmt.Sprintf("write to %s at 0x%X done", memconfig.SpaceName(space), addr)
 		}
 	case memWriteReplyFail:
 		space, addr, rest, ok := memSpaceAndAddress(cmd, p)
 		if ok && len(rest) >= 2 {
-			return fmt.Sprintf("write to %s at 0x%X failed: %v", spaceName(space), addr, openlcb.ErrorCode(uint16(rest[0])<<8|uint16(rest[1])))
+			return fmt.Sprintf("write to %s at 0x%X failed: %v", memconfig.SpaceName(space), addr, openlcb.ErrorCode(uint16(rest[0])<<8|uint16(rest[1])))
 		}
 	case memRead:
 		space, addr, rest, ok := memSpaceAndAddress(cmd, p)
 		if ok && len(rest) >= 1 {
-			return fmt.Sprintf("read %d bytes from %s at 0x%X", rest[0], spaceName(space), addr)
+			return fmt.Sprintf("read %d bytes from %s at 0x%X", rest[0], memconfig.SpaceName(space), addr)
 		}
 	case memReadReplyOK:
 		space, addr, data, ok := memSpaceAndAddress(cmd, p)
 		if ok {
-			return fmt.Sprintf("%d bytes from %s at 0x%X", len(data), spaceName(space), addr)
+			return fmt.Sprintf("%d bytes from %s at 0x%X", len(data), memconfig.SpaceName(space), addr)
 		}
 	case memReadReplyFail:
 		space, addr, rest, ok := memSpaceAndAddress(cmd, p)
 		if ok && len(rest) >= 2 {
-			return fmt.Sprintf("read from %s at 0x%X failed: %v", spaceName(space), addr, openlcb.ErrorCode(uint16(rest[0])<<8|uint16(rest[1])))
+			return fmt.Sprintf("read from %s at 0x%X failed: %v", memconfig.SpaceName(space), addr, openlcb.ErrorCode(uint16(rest[0])<<8|uint16(rest[1])))
 		}
 	}
 	switch cmd {
@@ -343,7 +320,7 @@ func summarizeMemConfig(p []byte) string {
 		return "configuration options"
 	case memGetSpaceInfo:
 		if len(p) >= 2 {
-			return "get information about " + spaceName(p[1])
+			return "get information about " + memconfig.SpaceName(p[1])
 		}
 	case memSpaceInfoReply, memSpaceInfoReply + 1:
 		if len(p) >= 2 {
@@ -351,7 +328,7 @@ func summarizeMemConfig(p []byte) string {
 			if cmd&1 != 0 {
 				present = "present"
 			}
-			return spaceName(p[1]) + " is " + present
+			return memconfig.SpaceName(p[1]) + " is " + present
 		}
 	case memLock:
 		return "lock or reserve node"

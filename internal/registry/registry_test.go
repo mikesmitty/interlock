@@ -2,12 +2,17 @@ package registry
 
 import (
 	"context"
+	"errors"
 	"log/slog"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/mikesmitty/interlock/internal/store"
 	"github.com/mikesmitty/interlock/openlcb"
 	"github.com/mikesmitty/interlock/openlcb/can"
+	"github.com/mikesmitty/interlock/openlcb/memconfig"
 	"github.com/mikesmitty/interlock/openlcb/node"
 )
 
@@ -153,5 +158,232 @@ func TestInfoName(t *testing.T) {
 		if got := tt.info.Name(); got != tt.want {
 			t.Errorf("Name() = %q, want %q", got, tt.want)
 		}
+	}
+}
+
+// fakeStore records what the registry persists.
+type fakeStore struct {
+	mu    sync.Mutex
+	nodes map[openlcb.NodeID]store.NodeRecord
+	cdis  map[openlcb.NodeID]store.CDIRecord
+}
+
+func newFakeStore() *fakeStore {
+	return &fakeStore{nodes: map[openlcb.NodeID]store.NodeRecord{}, cdis: map[openlcb.NodeID]store.CDIRecord{}}
+}
+
+func (f *fakeStore) Nodes(context.Context) ([]store.NodeRecord, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []store.NodeRecord
+	for _, rec := range f.nodes {
+		out = append(out, rec)
+	}
+	return out, nil
+}
+
+func (f *fakeStore) SaveNode(_ context.Context, rec store.NodeRecord) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if old, ok := f.nodes[rec.ID]; ok && rec.SNIP == nil {
+		rec.SNIP = old.SNIP
+	}
+	f.nodes[rec.ID] = rec
+	return nil
+}
+
+func (f *fakeStore) DeleteNode(_ context.Context, id openlcb.NodeID) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.nodes, id)
+	delete(f.cdis, id)
+	return nil
+}
+
+func (f *fakeStore) CDI(_ context.Context, id openlcb.NodeID) (*store.CDIRecord, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	rec, ok := f.cdis[id]
+	if !ok {
+		return nil, nil
+	}
+	return &rec, nil
+}
+
+func (f *fakeStore) SaveCDI(_ context.Context, rec store.CDIRecord) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.cdis[rec.NodeID] = rec
+	return nil
+}
+
+func (f *fakeStore) DeleteCDI(_ context.Context, id openlcb.NodeID) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.cdis, id)
+	return nil
+}
+
+// fakeCDI serves a document with a progress callback and counts reads.
+type fakeCDI struct {
+	xml   []byte
+	reads atomic.Int32
+	fail  atomic.Bool
+}
+
+func (f *fakeCDI) ReadCDI(_ context.Context, _ openlcb.NodeID, progress memconfig.Progress) ([]byte, error) {
+	f.reads.Add(1)
+	if f.fail.Load() {
+		return nil, errors.New("node went quiet")
+	}
+	progress(len(f.xml)/2, len(f.xml))
+	progress(len(f.xml), len(f.xml))
+	return f.xml, nil
+}
+
+const tinyCDI = `<cdi><identification><model>T</model></identification><segment space="253"><name>S</name><int size="1"><name>A</name></int></segment></cdi>`
+
+func TestRegistryReadsAndCachesCDI(t *testing.T) {
+	local, _, ctx := pair(t)
+	st := newFakeStore()
+	reader := &fakeCDI{xml: []byte(tinyCDI)}
+	opts := Options{Interval: 0, Logger: slog.New(slog.DiscardHandler), Timeout: 2 * time.Second, Store: st, CDI: reader}
+	// The peer in pair() advertises CDI but not memory configuration;
+	// give the registry a client view that says both.
+	r := New(local, opts)
+	go func() { _ = r.Run(ctx) }()
+
+	waitFor(t, "identification", func() bool {
+		info, ok := r.Get(peerID)
+		return ok && info.SNIP != nil
+	})
+	info, _ := r.Get(peerID)
+	if info.CDI != nil {
+		t.Fatalf("CDI planned although the peer lacks memory configuration: %+v", info.CDI)
+	}
+	st.mu.Lock()
+	rec, saved := st.nodes[peerID]
+	st.mu.Unlock()
+	if !saved || rec.SNIP == nil || rec.SNIP.UserName != "Yard" || !rec.Protocols.Has(openlcb.ProtocolCDI) {
+		t.Errorf("node not persisted after identification: %+v", rec)
+	}
+}
+
+func TestRegistryCDIFlow(t *testing.T) {
+	local, peer, ctx := pair(t)
+	_ = peer
+	st := newFakeStore()
+	reader := &fakeCDI{xml: []byte(tinyCDI)}
+	r := New(local, Options{Interval: 0, Logger: slog.New(slog.DiscardHandler), Timeout: 2 * time.Second, Store: st, CDI: reader})
+	go func() { _ = r.Run(ctx) }()
+	waitFor(t, "identification", func() bool {
+		info, ok := r.Get(peerID)
+		return ok && info.SNIP != nil
+	})
+
+	// Simulate what identify does for a node with the right protocols.
+	r.mu.Lock()
+	info := r.nodes[peerID]
+	info.ProtocolBits |= openlcb.ProtocolMemoryConfiguration | openlcb.ProtocolDatagram
+	r.planCDILocked(info)
+	planned := info.CDI != nil && info.CDI.State == CDIPending
+	r.mu.Unlock()
+	if !planned {
+		t.Fatal("CDI not planned")
+	}
+	r.requestCDI(peerID)
+	waitFor(t, "CDI ready", func() bool {
+		info, _ := r.Get(peerID)
+		return info.CDI != nil && info.CDI.State == CDIReady
+	})
+	info2, _ := r.Get(peerID)
+	if info2.CDI.Cached || info2.CDI.Segments != 1 || info2.CDI.FetchedAt.IsZero() {
+		t.Errorf("CDI status = %+v", info2.CDI)
+	}
+	doc, xml, ok := r.CDI(peerID)
+	if !ok || string(xml) != tinyCDI || len(doc.Segments) != 1 {
+		t.Errorf("CDI() = %v %q %v", doc != nil, xml, ok)
+	}
+	st.mu.Lock()
+	cached, saved := st.cdis[peerID]
+	st.mu.Unlock()
+	if !saved || cached.SoftwareVersion != "0.2.1" || string(cached.XML) != tinyCDI {
+		t.Errorf("CDI not cached: %+v", cached)
+	}
+
+	// A second registry restores the node and its CDI from the store
+	// without reading the node.
+	r2 := New(local, Options{Logger: slog.New(slog.DiscardHandler), Store: st, CDI: reader})
+	if err := r2.Restore(ctx); err != nil {
+		t.Fatal(err)
+	}
+	restored, ok := r2.Get(peerID)
+	if !ok || restored.Online || restored.SNIP == nil || restored.SNIP.UserName != "Yard" {
+		t.Fatalf("restored = %+v", restored)
+	}
+	if restored.CDI == nil || restored.CDI.State != CDIReady || !restored.CDI.Cached {
+		t.Errorf("restored CDI = %+v", restored.CDI)
+	}
+	if reads := reader.reads.Load(); reads != 1 {
+		t.Errorf("node read %d times, want 1", reads)
+	}
+
+	// Refresh drops the cache and reads again.
+	if err := r.RefreshCDI(ctx, peerID); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "CDI re-read", func() bool {
+		info, _ := r.Get(peerID)
+		return info.CDI != nil && info.CDI.State == CDIReady && reader.reads.Load() == 2
+	})
+
+	// A failing read ends in the error state.
+	reader.fail.Store(true)
+	if err := r.RefreshCDI(ctx, peerID); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "CDI error", func() bool {
+		info, _ := r.Get(peerID)
+		return info.CDI != nil && info.CDI.State == CDIError
+	})
+	if info, _ := r.Get(peerID); info.CDI.Error == "" {
+		t.Error("error state without a message")
+	}
+	if _, _, ok := r.CDI(peerID); ok {
+		t.Error("CDI still available after a failed refresh")
+	}
+
+	// Forget refuses online nodes and removes offline ones.
+	if err := r.Forget(ctx, peerID); !errors.Is(err, ErrNodeOnline) {
+		t.Errorf("Forget online = %v", err)
+	}
+	r.mu.Lock()
+	r.nodes[peerID].Online = false
+	r.mu.Unlock()
+	var forgotten bool
+	var mu sync.Mutex
+	r.Subscribe(func(info Info) {
+		mu.Lock()
+		defer mu.Unlock()
+		if info.ID == peerID && info.Forgotten {
+			forgotten = true
+		}
+	})
+	if err := r.Forget(ctx, peerID); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if !forgotten {
+		t.Error("no forgotten update published")
+	}
+	if _, ok := r.Get(peerID); ok {
+		t.Error("node still listed")
+	}
+	st.mu.Lock()
+	_, still := st.nodes[peerID]
+	st.mu.Unlock()
+	if still {
+		t.Error("node still stored")
 	}
 }

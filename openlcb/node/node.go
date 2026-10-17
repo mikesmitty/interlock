@@ -216,6 +216,22 @@ func (n *Node) State() State {
 // node IDs.
 func (n *Node) Cache() *can.AliasCache { return n.cache }
 
+// SNIPInfo returns what the node reports about itself.
+func (n *Node) SNIPInfo() openlcb.SNIP {
+	n.snap.RLock()
+	defer n.snap.RUnlock()
+	return n.cfg.SNIP
+}
+
+// SetUserSNIP changes the user name and description the node reports,
+// for when the configuration they live in is written.
+func (n *Node) SetUserSNIP(name, description string) {
+	n.snap.Lock()
+	defer n.snap.Unlock()
+	n.cfg.SNIP.UserName = name
+	n.cfg.SNIP.UserDescription = description
+}
+
 // Dropped counts frames discarded because the input queue was full.
 func (n *Node) Dropped() uint64 { return n.dropped.Load() }
 
@@ -568,7 +584,7 @@ func (n *Node) handleAddressed(msg *openlcb.Message) {
 	case openlcb.MTIProtocolSupportInquiry:
 		n.sendAddressed(openlcb.MTIProtocolSupportReply, msg.Source, n.cfg.Protocols.Bytes())
 	case openlcb.MTISimpleNodeIdentInfoRequest:
-		n.sendAddressed(openlcb.MTISimpleNodeIdentInfoReply, msg.Source, n.cfg.SNIP.Encode())
+		n.sendAddressed(openlcb.MTISimpleNodeIdentInfoReply, msg.Source, n.SNIPInfo().Encode())
 	case openlcb.MTIIdentifyEventsAddressed:
 		// No events registered yet (Phase 3).
 	case openlcb.MTIDatagram:

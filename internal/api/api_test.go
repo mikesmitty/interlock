@@ -16,6 +16,7 @@ import (
 	"github.com/mikesmitty/interlock/internal/version"
 	"github.com/mikesmitty/interlock/openlcb"
 	"github.com/mikesmitty/interlock/openlcb/can"
+	"github.com/mikesmitty/interlock/openlcb/cdi"
 	"github.com/mikesmitty/interlock/openlcb/hub"
 	"github.com/mikesmitty/interlock/openlcb/node"
 	"github.com/mikesmitty/interlock/openlcb/transport"
@@ -37,6 +38,7 @@ type fakeRegistry struct {
 	nodes     map[openlcb.NodeID]registry.Info
 	subs      []registry.Subscriber
 	refreshed []openlcb.NodeID
+	cdiXML    []byte
 }
 
 func newFakeRegistry() *fakeRegistry {
@@ -81,6 +83,46 @@ func (r *fakeRegistry) Subscribe(sub registry.Subscriber) func() {
 	defer r.mu.Unlock()
 	r.subs = append(r.subs, sub)
 	return func() {}
+}
+
+func (r *fakeRegistry) Forget(_ context.Context, id openlcb.NodeID) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	info, ok := r.nodes[id]
+	if !ok {
+		return node.ErrNotFound
+	}
+	if info.Online {
+		return registry.ErrNodeOnline
+	}
+	delete(r.nodes, id)
+	return nil
+}
+
+func (r *fakeRegistry) CDI(id openlcb.NodeID) (*cdi.CDI, []byte, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if id != peerID || r.cdiXML == nil {
+		return nil, nil, false
+	}
+	doc, err := cdi.Parse(r.cdiXML)
+	if err != nil {
+		return nil, nil, false
+	}
+	return doc, r.cdiXML, true
+}
+
+func (r *fakeRegistry) RefreshCDI(_ context.Context, id openlcb.NodeID) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.nodes[id]; !ok {
+		return node.ErrNotFound
+	}
+	if id != peerID {
+		return registry.ErrNoCDI
+	}
+	r.refreshed = append(r.refreshed, id)
+	return nil
 }
 
 func (r *fakeRegistry) publish(info registry.Info) {

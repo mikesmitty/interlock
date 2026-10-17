@@ -20,12 +20,14 @@ import (
 	"github.com/mikesmitty/interlock/internal/config"
 	"github.com/mikesmitty/interlock/internal/identity"
 	"github.com/mikesmitty/interlock/internal/monitor"
+	"github.com/mikesmitty/interlock/internal/nodeconfig"
 	"github.com/mikesmitty/interlock/internal/registry"
 	"github.com/mikesmitty/interlock/internal/server"
 	"github.com/mikesmitty/interlock/internal/store"
 	"github.com/mikesmitty/interlock/internal/version"
 	"github.com/mikesmitty/interlock/openlcb"
 	"github.com/mikesmitty/interlock/openlcb/hub"
+	"github.com/mikesmitty/interlock/openlcb/memconfig"
 	"github.com/mikesmitty/interlock/openlcb/node"
 	"github.com/mikesmitty/interlock/openlcb/transport"
 	"github.com/mikesmitty/interlock/web"
@@ -125,12 +127,19 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		mon.HandleHubEvent(ev)
 	})
 	local.Observe(mon.HandleNodeEvent)
+	mem := memconfig.NewClient(local, memconfig.WithLogger(logger))
 	reg := registry.New(local, registry.Options{
 		Interval:       cfg.Discovery.Interval,
 		LocalSNIP:      snip,
 		LocalProtocols: protocols,
 		Logger:         logger,
+		Store:          st,
+		CDI:            mem,
 	})
+	if err := reg.Restore(ctx); err != nil {
+		logger.Error("could not restore nodes from the store", "error", err)
+	}
+	nodeCfg := nodeconfig.New(mem, reg, logger)
 
 	for _, lc := range cfg.Links {
 		var dialer transport.Dialer
@@ -184,6 +193,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			Registry:    reg,
 			Monitor:     mon,
 			Bus:         h,
+			Config:      nodeCfg,
 			SerialPorts: transport.SerialPorts,
 			Logger:      logger,
 		}),

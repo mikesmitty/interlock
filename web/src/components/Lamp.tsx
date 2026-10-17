@@ -4,13 +4,16 @@ interface LampProps {
   color: LampColor;
   label: string;
   size?: "md" | "lg";
+  /** Blink slowly, for something in progress. */
+  pulse?: boolean;
 }
 
 /** A panel indicator lamp. The label is read by screen readers. */
-export function Lamp({ color, label, size = "md" }: LampProps) {
+export function Lamp({ color, label, size = "md", pulse = false }: LampProps) {
   const classes = ["lamp"];
   if (color !== "off") classes.push(`lamp--${color}`);
   if (size === "lg") classes.push("lamp--lg");
+  if (pulse) classes.push("lamp--pulse");
   return <span className={classes.join(" ")} role="img" aria-label={label} title={label} />;
 }
 

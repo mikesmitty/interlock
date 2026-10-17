@@ -16,6 +16,7 @@ import (
 	"github.com/mikesmitty/interlock/internal/version"
 	"github.com/mikesmitty/interlock/openlcb"
 	"github.com/mikesmitty/interlock/openlcb/can"
+	"github.com/mikesmitty/interlock/openlcb/cdi"
 	"github.com/mikesmitty/interlock/openlcb/node"
 	"github.com/mikesmitty/interlock/openlcb/transport"
 )
@@ -34,6 +35,9 @@ type Registry interface {
 	Refresh(ctx context.Context) error
 	RefreshNode(ctx context.Context, id openlcb.NodeID) error
 	Subscribe(registry.Subscriber) func()
+	Forget(ctx context.Context, id openlcb.NodeID) error
+	CDI(id openlcb.NodeID) (*cdi.CDI, []byte, bool)
+	RefreshCDI(ctx context.Context, id openlcb.NodeID) error
 }
 
 // Monitor is the traffic log.
@@ -56,6 +60,8 @@ type Deps struct {
 	Registry Registry
 	Monitor  Monitor
 	Bus      Bus
+	// Config reads and writes node configuration; nil disables it.
+	Config Config
 	// SerialPorts lists serial devices for the settings page; may be nil.
 	SerialPorts func() ([]string, error)
 	Logger      *slog.Logger
@@ -79,6 +85,13 @@ func New(deps Deps) *API {
 	a.mux.HandleFunc("POST /api/v1/nodes/refresh", a.refreshNodes)
 	a.mux.HandleFunc("GET /api/v1/nodes/{id}", a.getNode)
 	a.mux.HandleFunc("POST /api/v1/nodes/{id}/refresh", a.refreshNode)
+	a.mux.HandleFunc("DELETE /api/v1/nodes/{id}", a.forgetNode)
+	a.mux.HandleFunc("GET /api/v1/nodes/{id}/cdi", a.getCDI)
+	a.mux.HandleFunc("POST /api/v1/nodes/{id}/cdi/refresh", a.refreshCDI)
+	a.mux.HandleFunc("POST /api/v1/nodes/{id}/config/read", a.configRead)
+	a.mux.HandleFunc("POST /api/v1/nodes/{id}/config/write", a.configWrite)
+	a.mux.HandleFunc("POST /api/v1/nodes/{id}/config/reboot", a.configReboot)
+	a.mux.HandleFunc("POST /api/v1/nodes/{id}/config/factory-reset", a.configFactoryReset)
 	a.mux.HandleFunc("GET /api/v1/links", a.links)
 	a.mux.HandleFunc("GET /api/v1/monitor", a.monitorEntries)
 	a.mux.HandleFunc("POST /api/v1/monitor/send", a.monitorSend)

@@ -119,9 +119,9 @@ openlcb/transport/        Link interface; serial, tcp (GridConnect),
 openlcb/hub/              frame router across links, loop prevention
 openlcb/node/             a local node: alias state machine, PIP, SNIP,
                           event registry, datagram engine, memconfig server
-openlcb/client/           outbound protocol clients: verify, snip, pip,
-                          memconfig (read, write, info, lock, freeze),
-                          event identify, traction, train search, firmware
+openlcb/memconfig/        memory configuration: datagram codec, client
+                          (read, write, info, lock, freeze, reboot,
+                          factory reset), server for the local node
 openlcb/cdi/              CDI XML parser, element tree, byte layout
                           resolver (offset of every variable including
                           replicated groups), value codec, hints
@@ -130,7 +130,8 @@ openlcb/traction/         train control message encode/decode, float16,
 openlcb/detector/         DCC detector event range encode/decode
 openlcb/wellknown/        well-known event IDs and ranges
 openlcb/sim/              simulated nodes for tests and UI development
-internal/registry/        discovered nodes and their cached capability data
+internal/registry/        discovered nodes, CDI reads, sqlite persistence
+internal/nodeconfig/      values in and out of a node through its layout
 internal/entity/          entity model and the profile system
 internal/automation/      automation engine
 internal/store/           sqlite access, migrations
@@ -409,8 +410,25 @@ train reservation protocol, function description information (space 0xFA).
   Settings pages. `cmd/simnode` simulates a canbus-outpost over the hub
   port for development without hardware. Verified against the simulator;
   not yet against real hardware.
-- Next: Phase 2, registry persistence and configuration (memory
-  configuration client, CDI parser, config forms).
+- Phase 2 done (2026-10-16): `openlcb/memconfig` (datagram codec, client
+  with per-node serialization and tolerant reply handling, server with
+  byte-slice spaces), `openlcb/cdi` (parser for CDI 1.4 including hints,
+  action and blob elements, address resolver for replicated groups,
+  value codec, expanded layout for the API), `openlcb/sim` (nodes built
+  from the real canbus-outpost and simple-dcc CDI files), registry
+  persistence in sqlite (nodes and CDI cached by software version,
+  restored at start as offline), `internal/nodeconfig` (values keyed by
+  space:address, validated against the layout before anything is
+  written, Update Complete after each batch), configuration endpoints,
+  and the configuration form on the node page with replicated groups as
+  tabs, a save bar for pending changes, restart and factory reset.
+  Verified against the simulator; not yet against real hardware.
+- Deferred from Phase 2: an "identify" action. The standards have no
+  general one; canbus-outpost exposes its identify LED as an ordinary
+  configuration variable, which the form already covers. A profile can
+  surface it as a button in Phase 3.
+- Next: Phase 3, entities and profiles (named event table from CDI,
+  profile loader, entity model and page, DCC detector decoding).
 
 ## References
 

@@ -31,6 +31,22 @@
     0 0 6px color-mix(in srgb, var(--lamp-amber) 70%, transparent);
 }
 
+.lamp--pulse {
+  animation: lamp-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes lamp-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lamp--pulse {
+    animation: none;
+  }
+}
+
 .lamp--lg {
   width: 1rem;
   height: 1rem;
@@ -91,6 +107,28 @@
   color: var(--ivory);
   border-color: var(--ivory-dim);
   background: var(--enamel-raised);
+}
+
+.linklike {
+  all: unset;
+  cursor: pointer;
+  color: var(--brass);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.linklike:hover {
+  color: var(--brass-hover);
+}
+
+.linklike:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.linklike:focus-visible {
+  outline: 2px solid var(--brass);
+  outline-offset: 2px;
 }
 
 /* Inputs */

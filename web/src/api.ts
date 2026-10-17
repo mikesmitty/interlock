@@ -9,6 +9,17 @@ export interface SNIP {
   UserDescription: string;
 }
 
+export interface CdiStatus {
+  state: "pending" | "reading" | "ready" | "error";
+  read?: number;
+  total?: number;
+  error?: string;
+  fetched_at?: string;
+  cached?: boolean;
+  truncated?: boolean;
+  segments?: number;
+}
+
 export interface NodeInfo {
   id: string;
   alias: number;
@@ -20,6 +31,83 @@ export interface NodeInfo {
   protocols?: string[];
   protocol_bits?: number;
   error?: string;
+  cdi?: CdiStatus;
+  forgotten?: boolean;
+}
+
+// Configuration description, expanded so every value has an address.
+
+export interface Relation {
+  property: string;
+  value: string;
+}
+
+export interface Hints {
+  hideable?: boolean;
+  hidden?: boolean;
+  read_only?: boolean;
+  slider?: { tick_spacing?: number; immediate?: boolean; show_value?: boolean };
+  radio_button?: boolean;
+  checkbox?: boolean;
+}
+
+export type CdiKind = "group" | "int" | "float" | "string" | "eventid" | "action" | "blob";
+
+export interface CdiNode {
+  kind: CdiKind;
+  name: string;
+  description?: string;
+  space: number;
+  address: number;
+  size: number;
+  key?: string;
+  min?: string;
+  max?: string;
+  default?: string;
+  signed?: boolean;
+  map?: Relation[];
+  hints?: Hints;
+  formatting?: string;
+  mode?: string;
+  button_text?: string;
+  dialog_text?: string;
+  value?: string;
+  replication?: number;
+  replicas?: { name: string; items: CdiNode[] }[];
+}
+
+export interface CdiSegment {
+  space: number;
+  origin: number;
+  size: number;
+  name: string;
+  description?: string;
+  items: CdiNode[];
+}
+
+export interface Layout {
+  identification?: {
+    manufacturer: string;
+    model: string;
+    hardware_version: string;
+    software_version: string;
+  };
+  segments: CdiSegment[];
+}
+
+export type Values = Record<string, string>;
+
+export interface ReadResult {
+  values: Values;
+  errors?: Record<string, string>;
+  bytes: number;
+}
+
+export interface WriteResult {
+  written: string[];
+  invalid?: Record<string, string>;
+  failed?: string;
+  failed_error?: string;
 }
 
 export interface LinkStatus {
@@ -75,10 +163,13 @@ export interface Health {
 
 export class ApiError extends Error {
   status: number;
+  /** The decoded error body, when the server sent more than a message. */
+  body?: Record<string, unknown>;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, body?: Record<string, unknown>) {
     super(message);
     this.status = status;
+    this.body = body;
   }
 }
 
@@ -96,11 +187,29 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     }
   }
   if (!res.ok) {
-    const message = (data as { error?: string } | undefined)?.error ?? `HTTP ${res.status}`;
-    throw new ApiError(res.status, message);
+    const body = (data ?? undefined) as Record<string, unknown> | undefined;
+    const message = typeof body?.error === "string" ? body.error : `HTTP ${res.status}`;
+    throw new ApiError(res.status, message, body);
   }
   return data as T;
 }
+
+async function requestText(path: string): Promise<string> {
+  const res = await fetch(path);
+  const text = await res.text();
+  if (!res.ok) {
+    let message = `HTTP ${res.status}`;
+    try {
+      message = (JSON.parse(text) as { error?: string }).error ?? message;
+    } catch {
+      // not JSON; keep the status
+    }
+    throw new ApiError(res.status, message);
+  }
+  return text;
+}
+
+const nodePath = (id: string) => `/api/v1/nodes/${encodeURIComponent(id)}`;
 
 export const api = {
   health: () => request<Health>("/api/v1/health"),
@@ -119,6 +228,17 @@ export const api = {
   sendFrame: (frame: string) =>
     request<{ frame: string }>("/api/v1/monitor/send", { method: "POST", body: JSON.stringify({ frame }) }),
   serialPorts: () => request<{ ports: string[] }>("/api/v1/serial-ports").then((r) => r.ports),
+  forgetNode: (id: string) => request<void>(nodePath(id), { method: "DELETE" }),
+  cdi: (id: string) => request<{ status: CdiStatus; layout: Layout }>(`${nodePath(id)}/cdi`),
+  cdiXML: (id: string) => requestText(`${nodePath(id)}/cdi?format=xml`),
+  refreshCdi: (id: string) => request<{ status: string }>(`${nodePath(id)}/cdi/refresh`, { method: "POST" }),
+  configRead: (id: string, range: { space: number; address: number; size: number }) =>
+    request<ReadResult>(`${nodePath(id)}/config/read`, { method: "POST", body: JSON.stringify(range) }),
+  configWrite: (id: string, values: Values) =>
+    request<WriteResult>(`${nodePath(id)}/config/write`, { method: "POST", body: JSON.stringify({ values }) }),
+  reboot: (id: string) => request<{ status: string }>(`${nodePath(id)}/config/reboot`, { method: "POST" }),
+  factoryReset: (id: string) =>
+    request<{ status: string }>(`${nodePath(id)}/config/factory-reset`, { method: "POST", body: JSON.stringify({ confirm: id }) }),
 };
 
 /** The friendliest name we have for a node. */
