@@ -125,15 +125,23 @@ func TestClock(t *testing.T) {
 		t.Errorf("change events = %v", got)
 	}
 	// A fast minute every quarter second: midnight comes within a second.
-	eventually(t, "the new year", func() bool { return s.State().Date == "1958-01-01" })
+	// The state's date turns over a moment before the minute tick sends
+	// its events and runs the callbacks, so wait for those instead.
+	eventually(t, "the midnight broadcast", func() bool { return strings.Contains(strings.Join(bus.kinds(), ","), "time 00:00") })
+	if d := s.State().Date; d != "1958-01-01" {
+		t.Errorf("date after midnight = %s", d)
+	}
 	kinds := strings.Join(bus.kinds(), ",")
 	if !strings.Contains(kinds, "time 23:59,date rollover,year 1958,date 01-01,time 00:00") {
 		t.Errorf("rollover events = %v", kinds)
 	}
-	mu.Lock()
-	seen := strings.Join(minutes, ",")
-	mu.Unlock()
-	if !strings.Contains(seen, "23:59,00:00") {
+	callbacks := func() string {
+		mu.Lock()
+		defer mu.Unlock()
+		return strings.Join(minutes, ",")
+	}
+	eventually(t, "the midnight callback", func() bool { return strings.Contains(callbacks(), "00:00") })
+	if seen := callbacks(); !strings.Contains(seen, "23:59,00:00") {
 		t.Errorf("minute callbacks = %v", seen)
 	}
 	// The broadcast after the change carries the whole state in order.
