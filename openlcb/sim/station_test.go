@@ -203,3 +203,35 @@ func TestStationProgrammingTrack(t *testing.T) {
 		t.Fatal("power still off after Clear Emergency Off")
 	}
 }
+
+func TestESUDecoderPages(t *testing.T) {
+	d := sim.NewESUDecoder(6641, true)
+	read := func(cv uint16) byte { return d.CV(cv) }
+	if read(8) != 151 || read(7) != 255 {
+		t.Fatalf("identity = %d, %d", read(8), read(7))
+	}
+	d.SetCV(31, 0)
+	d.SetCV(32, 255)
+	id := uint32(read(261)) | uint32(read(262))<<8 | uint32(read(263))<<16 | uint32(read(264))<<24
+	if id != sim.ESUProductID {
+		t.Errorf("product ID = %d", id)
+	}
+	d.SetCV(32, 0)
+	d.SetCV(31, 1)
+	if read(261) != 'S' {
+		t.Errorf("name page CV 261 = %q", read(261))
+	}
+	// Each page keeps its own values; CVs outside 257 to 512 have one.
+	d.SetCV(300, 9)
+	d.SetCV(31, 16)
+	if read(300) != 0 {
+		t.Errorf("CV 300 in another page = %d", read(300))
+	}
+	d.SetCV(2, 7)
+	if read(2) != 7 || d.CVs[2] != 7 {
+		t.Errorf("CV 2 = %d", read(2))
+	}
+	if plain := sim.NewDecoder(3, false); plain.Pages != nil {
+		t.Error("a plain decoder has pages")
+	}
+}

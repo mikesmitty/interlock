@@ -282,7 +282,7 @@ func (p *pomSpace) Write(address uint32, data []byte) error {
 	}
 	write := func(cv uint32, v byte) {
 		p.t.station.mu.Lock()
-		p.t.Decoder.CVs[uint16(cv)] = v
+		p.t.Decoder.SetCV(uint16(cv), v)
 		p.t.station.mu.Unlock()
 		p.t.log.Info("sim: POM write", "address", p.t.Address, "cv", cv, "value", v)
 	}

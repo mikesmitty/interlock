@@ -50,6 +50,7 @@ func main() {
 	which := flag.String("cdi", "outpost", "which device to simulate: outpost or cs (command station)")
 	pace := flag.Duration("pace", 6*time.Second, "how often the locomotive moves to the next track; 0 for never")
 	address := flag.Int("address", 1234, "DCC address of the locomotive (outpost: the one detected; cs: the one on the programming track)")
+	decoderKind := flag.String("decoder", "diy", "cs: the decoder on the programming track, diy (a plain one) or esu (a LokSound 5 with paged CVs)")
 	verbose := flag.Bool("v", false, "log every frame")
 	makeFirmware := flag.String("make-firmware", "", "write a firmware image the simulated outpost accepts to this file and exit")
 	firmwareVersion := flag.String("firmware-version", "1.2.3", "software version the image made with -make-firmware reports")
@@ -100,10 +101,20 @@ func main() {
 			cfg.SNIP.UserName = "Sim Command Station"
 		}
 		long := *address > 127
-		peer, err = sim.NewStation(cfg, sim.StationOptions{
-			Decoders:         []*sim.Decoder{sim.NewDecoder(uint16(*address), long)},
-			ProgrammingTrack: uint16(*address),
-		})
+		dec := sim.NewDecoder(uint16(*address), long)
+		switch *decoderKind {
+		case "diy":
+		case "esu":
+			dec = sim.NewESUDecoder(uint16(*address), long)
+		default:
+			err = fmt.Errorf("-decoder must be diy or esu, not %q", *decoderKind)
+		}
+		if err == nil {
+			peer, err = sim.NewStation(cfg, sim.StationOptions{
+				Decoders:         []*sim.Decoder{dec},
+				ProgrammingTrack: uint16(*address),
+			})
+		}
 	default:
 		err = fmt.Errorf("-cdi must be outpost or cs, not %q", *which)
 	}

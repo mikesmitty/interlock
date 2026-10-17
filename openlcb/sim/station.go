@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"maps"
 	"sync"
 	"time"
 
@@ -22,6 +23,10 @@ type Decoder struct {
 	// CVs holds the configuration variables by number (1-based); unset
 	// ones read as zero.
 	CVs map[uint16]byte
+	// Pages holds CVs 257 to 512 for each page CVs 31 and 32 select, as
+	// ESU decoders keep them, keyed by PageKey; nil for a decoder with a
+	// single page, whose CVs 257 to 512 live in CVs.
+	Pages map[uint32]byte
 
 	Speed     traction.Speed
 	EStop     bool
@@ -40,6 +45,56 @@ func NewDecoder(address uint16, long bool) *Decoder {
 		d.CVs[29] = 0x22
 	} else {
 		d.CVs[1] = byte(address)
+	}
+	return d
+}
+
+// PageKey is a paged CV's key in Decoder.Pages.
+func PageKey(cv31, cv32 byte, cv uint16) uint32 {
+	return uint32(cv31)<<24 | uint32(cv32)<<16 | uint32(cv)
+}
+
+// paged reports whether a CV is reached through the page CVs 31 and 32
+// select.
+func (d *Decoder) paged(cv uint16) bool {
+	return d.Pages != nil && cv >= 257 && cv <= 512
+}
+
+// CV returns a CV's value, from the selected page for a paged CV.
+func (d *Decoder) CV(cv uint16) byte {
+	if d.paged(cv) {
+		return d.Pages[PageKey(d.CVs[31], d.CVs[32], cv)]
+	}
+	return d.CVs[cv]
+}
+
+// SetCV sets a CV, in the selected page for a paged CV.
+func (d *Decoder) SetCV(cv uint16, v byte) {
+	if d.paged(cv) {
+		d.Pages[PageKey(d.CVs[31], d.CVs[32], cv)] = v
+		return
+	}
+	d.CVs[cv] = v
+}
+
+// ESUProductID is the product ID NewESUDecoder reports: an ESU LokSound 5
+// micro DCC Direct.
+const ESUProductID = 16777370
+
+// NewESUDecoder returns a decoder that identifies itself as an ESU
+// LokSound 5 micro DCC Direct: manufacturer 151, version 255, its product
+// ID behind CV 31 = 0 and CV 32 = 255, and a name in the page ESU keeps
+// it in.
+func NewESUDecoder(address uint16, long bool) *Decoder {
+	d := NewDecoder(address, long)
+	d.CVs[7], d.CVs[8], d.CVs[2], d.CVs[3], d.CVs[4] = 255, 151, 3, 4, 3
+	d.Pages = make(map[uint32]byte)
+	id := uint32(ESUProductID)
+	for i := range 4 {
+		d.Pages[PageKey(0, 255, uint16(261+i))] = byte(id >> (8 * i))
+	}
+	for i, c := range []byte("Sim locomotive") {
+		d.Pages[PageKey(1, 0, uint16(261+i))] = c
 	}
 	return d
 }
@@ -176,6 +231,7 @@ func (s *Station) DecoderState(address uint16, long bool) Decoder {
 	for k, v := range d.CVs {
 		snapshot.CVs[k] = v
 	}
+	snapshot.Pages = maps.Clone(d.Pages)
 	snapshot.Functions = make(map[uint32]bool, len(d.Functions))
 	for k, v := range d.Functions {
 		snapshot.Functions[k] = v
@@ -444,7 +500,7 @@ func (p *programmingTrack) Read(address uint32, buf []byte) (int, error) {
 		return 0, &openlcb.Error{Code: errNoLocomotive}
 	}
 	p.s.mu.Lock()
-	buf[0] = d.CVs[uint16(address)+1]
+	buf[0] = d.CV(uint16(address) + 1)
 	p.s.mu.Unlock()
 	return 1, nil
 }
@@ -459,7 +515,7 @@ func (p *programmingTrack) Write(address uint32, data []byte) error {
 		return &openlcb.Error{Code: errNoLocomotive}
 	}
 	p.s.mu.Lock()
-	d.CVs[uint16(address)+1] = data[0]
+	d.SetCV(uint16(address)+1, data[0])
 	p.s.mu.Unlock()
 	return nil
 }
