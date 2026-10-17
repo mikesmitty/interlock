@@ -1,0 +1,347 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Link, useSearchParams } from "react-router";
+import { api } from "../api";
+import { Status } from "../components/Lamp";
+import { Page } from "../components/Page";
+import { PaneNodes, type PaneContext } from "../components/decoder/PaneView";
+import type { DecoderDefinition, DecoderPane, DecoderVariable } from "../decoder/types";
+import {
+  addressItems,
+  applyUpdates,
+  cvsOf,
+  encode,
+  initialTable,
+  isEdited,
+  isKnown,
+  merge,
+  qualified,
+  setAddress,
+  settle,
+  variableMap,
+  type CVTable,
+  type CVUpdate,
+  type EncodeResult,
+  type Value,
+} from "../decoder/values";
+import { useBus } from "../store";
+
+function describe(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+interface Job {
+  kind: "read" | "write";
+  done: number;
+  total: number;
+  failed: number;
+}
+
+/** The bits a whole CV holds: 16 for the TCS protocol, 8 for the rest. */
+const fullBits = (cv: string) => (cv.startsWith("T2CV") ? 0xffff : 0xff);
+
+/** The CVs a pane reads and writes, in its order. */
+function paneCVs(pane: DecoderPane, def: DecoderDefinition, vars: Map<string, DecoderVariable>): string[] {
+  if (pane.all_cvs) return def.cvs.map((c) => c.name);
+  const items = [...pane.items];
+  // Writing a short address can make a decoder change these, so they go
+  // after it.
+  const short = vars.get("Short Address");
+  if (short && items.includes(short.item)) {
+    for (const cv of short.address_changes ?? []) {
+      const v = def.variables.find((x) => x.parts?.some((p) => p.cv === cv));
+      if (v && !items.includes(v.item)) items.push(v.item);
+    }
+  }
+  return cvsOf(items, vars);
+}
+
+export function DecoderSettings() {
+  const [params] = useSearchParams();
+  const file = params.get("file") ?? "";
+  const model = params.get("model") ?? "";
+  const { trains } = useBus();
+  const [def, setDef] = useState<DecoderDefinition>();
+  const [loadError, setLoadError] = useState<string>();
+  const [table, setTableState] = useState<CVTable>({});
+  const tableRef = useRef<CVTable>({});
+  const [tab, setTab] = useState(0);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [failures, setFailures] = useState<Record<string, string>>({});
+  const [job, setJob] = useState<Job>();
+  const stopRef = useRef(false);
+  const [train, setTrain] = useState(params.get("train") ?? "");
+  const [message, setMessage] = useState<string>();
+
+  const setTable = (t: CVTable) => {
+    tableRef.current = t;
+    setTableState(t);
+  };
+
+  useEffect(() => {
+    if (!file || !model) return;
+    setDef(undefined);
+    setLoadError(undefined);
+    api
+      .decoderDefinition(file, model)
+      .then((d) => {
+        setDef(d);
+        setTable(initialTable(d));
+        setTab(0);
+      })
+      .catch((err) => setLoadError(describe(err)));
+  }, [file, model]);
+
+  const vars = useMemo(() => (def ? variableMap(def) : new Map<string, DecoderVariable>()), [def]);
+  const cvInfo = useMemo(() => new Map((def?.cvs ?? []).map((c) => [c.name, c])), [def]);
+
+  const back = (
+    <Link className="page__back" to="/programming">
+      Programming
+    </Link>
+  );
+  if (!file || !model) {
+    return (
+      <Page title="Decoder settings" back={back}>
+        <p className="note">Choose a decoder on the Programming page first.</p>
+      </Page>
+    );
+  }
+  if (loadError) {
+    return (
+      <Page title={model} back={back}>
+        <p className="note note--error">{loadError}</p>
+      </Page>
+    );
+  }
+  if (!def) {
+    return (
+      <Page title={model} back={back} lead="Reading the decoder definition…">
+        <div className="progress" aria-label="Loading">
+          <div className="progress__bar progress__bar--indeterminate" />
+        </div>
+      </Page>
+    );
+  }
+
+  const onMain = train !== "";
+  const pane = def.panes[Math.min(tab, def.panes.length - 1)];
+  const busy = job !== undefined;
+
+  function edit(item: string, r: EncodeResult) {
+    if ("error" in r) {
+      setErrors((e) => ({ ...e, [item]: r.error }));
+      return;
+    }
+    setErrors((e) => {
+      const { [item]: _drop, ...rest } = e;
+      return rest;
+    });
+    setTable(applyUpdates(tableRef.current, r.updates, "edited"));
+  }
+
+  const ctx: PaneContext = {
+    table,
+    vars,
+    cvs: def.cvs,
+    busy,
+    onMain,
+    errors,
+    setValue: (v: DecoderVariable, value: Value) => edit(v.item, encode(v, value, tableRef.current, vars)),
+    setAddress: (address: number) => edit("Address", setAddress(addressItems(vars), address, tableRef.current, vars)),
+    setCV: (cv: string, value: number) => {
+      const u: CVUpdate = { cv, value, bits: fullBits(cv) };
+      setTable(applyUpdates(tableRef.current, [u], "edited"));
+    },
+  };
+
+  async function cvCall(cv: string, write?: number) {
+    return api.decoderCV({ file, model, cv, write: write !== undefined, value: write, train: train || undefined });
+  }
+
+  async function run(kind: Job["kind"], cvs: string[], step: (cv: string) => Promise<string | undefined>) {
+    stopRef.current = false;
+    setMessage(undefined);
+    let failed = 0;
+    setJob({ kind, done: 0, total: cvs.length, failed });
+    const newFailures: Record<string, string> = {};
+    try {
+      for (let i = 0; i < cvs.length; i++) {
+        if (stopRef.current) break;
+        let problem: string | undefined;
+        try {
+          problem = await step(cvs[i]);
+        } catch (err) {
+          problem = describe(err);
+        }
+        if (problem) {
+          failed++;
+          newFailures[cvs[i]] = problem;
+        }
+        setJob({ kind, done: i + 1, total: cvs.length, failed });
+      }
+    } finally {
+      setJob(undefined);
+      setFailures(newFailures);
+      const verb = kind === "read" ? "read" : "written";
+      if (stopRef.current) setMessage("Stopped.");
+      else if (failed > 0) setMessage(`${failed} of ${cvs.length} CVs could not be ${verb}.`);
+      else if (cvs.length === 0) setMessage(kind === "read" ? "This page has nothing to read." : "Nothing on this page needs writing.");
+      else setMessage(`${cvs.length} CV${cvs.length === 1 ? "" : "s"} ${verb}.`);
+    }
+  }
+
+  async function readCV(cv: string): Promise<string | undefined> {
+    const r = await cvCall(cv);
+    if (!r.ok) return r.error ?? "Failed";
+    setTable(settle(tableRef.current, cv, r.value, "read"));
+    return undefined;
+  }
+
+  async function writeCV(cv: string): Promise<string | undefined> {
+    const cell = tableRef.current[cv];
+    if (!cell) return undefined;
+    let value = cell.value;
+    const info = cvInfo.get(cv);
+    // A CV edited before it was ever read keeps the decoder's other bits.
+    if (!cell.known && cell.state === "edited" && cell.edited !== fullBits(cv) && !info?.write_only && !onMain) {
+      const r = await cvCall(cv);
+      if (!r.ok) return `Could not read it first: ${r.error ?? "failed"}`;
+      value = merge(cell, r.value);
+    }
+    const w = await cvCall(cv, value);
+    if (!w.ok) return w.error ?? "Failed";
+    setTable(settle(tableRef.current, cv, value, "stored"));
+    return undefined;
+  }
+
+  const readable = (cv: string) => {
+    const c = cvInfo.get(cv);
+    return !c?.info_only && !c?.write_only;
+  };
+  const writable = (cv: string) => {
+    const c = cvInfo.get(cv);
+    return !c?.info_only && !c?.read_only;
+  };
+  const cvs = pane ? paneCVs(pane, def, vars) : [];
+  const toRead = cvs.filter(readable);
+  const changed = cvs.filter((cv) => writable(cv) && table[cv]?.state === "edited");
+  const toWrite = cvs.filter((cv) => writable(cv) && table[cv] && table[cv].state !== "unknown");
+  const allChanged = def.cvs.filter((c) => !c.info_only && !c.read_only && table[c.name]?.state === "edited").map((c) => c.name);
+  const unread = pane ? pane.items.map((i) => vars.get(i)).filter((v): v is DecoderVariable => !!v && v.type !== "constant" && !isKnown(v, table)).length : 0;
+  const changedSettings = pane ? pane.items.filter((i) => { const v = vars.get(i); return v && isEdited(v, table); }).length : 0;
+  const roster = Object.values(trains).sort((a, b) => a.name.localeCompare(b.name));
+  const programmable = def.programming.no_decoder !== true && !(def.programming.modes ?? []).some((m) => m.startsWith("LOCONET"));
+
+  return (
+    <Page
+      title={def.model}
+      back={back}
+      lead={`${def.family}, ${def.manufacturer}. Settings come from the JMRI project's decoder definitions.`}
+    >
+      {!programmable && <p className="note">This device is not programmed through DCC, so Interlock can show its settings but not read or write them.</p>}
+      <div className="panel dec-target">
+        <label className="dec-target__pick">
+          <span>Program</span>
+          <select className="input input--select" value={train} disabled={busy} onChange={(e) => setTrain(e.target.value)}>
+            <option value="">on the programming track</option>
+            {roster.map((t) => (
+              <option key={t.id} value={t.id}>
+                on the main: {t.name || `#${t.address}`}
+              </option>
+            ))}
+          </select>
+        </label>
+        {onMain && <span className="dim">Writes only: reading on the main needs RailCom.</span>}
+      </div>
+
+      <div className="cfg-tabs" role="tablist" aria-label="Pages">
+        {def.panes.map((p, i) => {
+          const enabled = qualified(p.qualifiers, table, vars);
+          return (
+            <button
+              key={i}
+              role="tab"
+              type="button"
+              className="cfg-tab"
+              aria-selected={i === tab}
+              disabled={!enabled || busy}
+              title={p.tooltip}
+              onClick={() => {
+                setTab(i);
+                setMessage(undefined);
+                setFailures({});
+              }}
+            >
+              {p.name}
+            </button>
+          );
+        })}
+      </div>
+
+      {pane && (
+        <div role="tabpanel" className="panel cfg-panel dec-panel">
+          <div className="dec-toolbar">
+            <button className="btn" disabled={busy || onMain || !programmable || toRead.length === 0} onClick={() => void run("read", toRead, readCV)}>
+              Read page
+            </button>
+            <button className="btn btn--primary" disabled={busy || !programmable || changed.length === 0} onClick={() => void run("write", changed, writeCV)}>
+              Write changes{changed.length > 0 ? ` (${changed.length})` : ""}
+            </button>
+            <button className="btn btn--quiet" disabled={busy || !programmable || toWrite.length === 0} onClick={() => void run("write", toWrite, writeCV)}>
+              Write page
+            </button>
+            {allChanged.length > changed.length && !busy && (
+              <button className="btn btn--quiet" disabled={!programmable} onClick={() => void run("write", allChanged, writeCV)}>
+                Write changes on every page ({allChanged.length})
+              </button>
+            )}
+            <span className="dec-toolbar__status">
+              {job ? (
+                <>
+                  <span className="progress dec-progress" aria-label={`${job.done} of ${job.total}`}>
+                    <span className="progress__bar" style={{ width: `${job.total ? (job.done / job.total) * 100 : 0}%` }} />
+                  </span>
+                  <span className="num">
+                    {job.kind === "read" ? "Reading" : "Writing"} {job.done} of {job.total}
+                  </span>
+                  <button className="btn btn--quiet" onClick={() => (stopRef.current = true)}>
+                    Stop
+                  </button>
+                </>
+              ) : (
+                <>
+                  {message && <span>{message}</span>}
+                  {!message && unread > 0 && <Status color="amber">{`${unread} not read yet`}</Status>}
+                  {!message && unread === 0 && changedSettings === 0 && pane.items.length > 0 && <Status color="green">Up to date</Status>}
+                </>
+              )}
+            </span>
+          </div>
+          {Object.keys(failures).length > 0 && !busy && (
+            <details className="note note--error">
+              <summary>Which CVs failed</summary>
+              <ul>
+                {Object.entries(failures).map(([cv, why]) => (
+                  <li key={cv}>
+                    CV {cv}: {why}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+          <PaneNodes nodes={pane.nodes} ctx={ctx} />
+        </div>
+      )}
+
+      {((def.problems?.length ?? 0) > 0 || (def.missing?.length ?? 0) > 0) && (
+        <details className="note dec-problems">
+          <summary>Parts of this definition Interlock could not use</summary>
+          <ul>
+            {def.problems?.map((p, i) => <li key={`p${i}`}>{p}</li>)}
+            {def.missing?.map((m) => <li key={m}>Missing file {m}</li>)}
+          </ul>
+        </details>
+      )}
+    </Page>
+  );
+}

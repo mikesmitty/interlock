@@ -1,0 +1,313 @@
+/* Decoder settings: the picker on the Programming page and the settings
+   pages built from decoder definitions. */
+
+.dec-picker {
+  margin-bottom: var(--gutter);
+  display: grid;
+  gap: 0.75rem;
+  max-width: 48rem;
+}
+
+.dec-picker h2 {
+  margin: 0;
+  font-size: var(--fs-lg);
+}
+
+.dec-picker p {
+  margin: 0;
+}
+
+.dec-picker__identify {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.dec-picker__found {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.dec-picker__search {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-family: var(--font-condensed);
+  color: var(--ivory-dim);
+}
+
+.dec-picker__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.2rem;
+}
+
+.dec-target {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1.25rem;
+  margin-bottom: 1rem;
+}
+
+.dec-target__pick {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-family: var(--font-condensed);
+  color: var(--ivory-dim);
+}
+
+.dec-panel {
+  display: grid;
+  gap: 1rem;
+}
+
+.dec-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--enamel-line);
+}
+
+.dec-toolbar__status {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  margin-left: auto;
+  color: var(--ivory-dim);
+  font-family: var(--font-condensed);
+}
+
+.dec-progress {
+  display: inline-block;
+  width: 10rem;
+}
+
+/* Layout from the definition: panes run columns side by side; columns
+   stack; rows run across. */
+.dec-pane {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 1.5rem 3rem;
+}
+
+.dec-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.dec-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.25rem 1.5rem;
+  min-width: 0;
+}
+
+.dec-grid {
+  display: grid;
+  gap: 0.15rem 1.25rem;
+  align-items: center;
+  justify-content: start;
+}
+
+.dec-label {
+  margin: 0.6rem 0 0.2rem;
+  max-width: 70ch;
+  white-space: pre-line;
+  color: var(--ivory-dim);
+}
+
+.dec-col > .dec-label:first-child {
+  margin-top: 0;
+}
+
+.dec-spacer {
+  height: 0.5rem;
+}
+
+.dec-sep {
+  width: 100%;
+  margin: 0.5rem 0;
+  border: 0;
+  border-top: 1px solid var(--enamel-line);
+}
+
+.dec-sep--v {
+  width: 0;
+  align-self: stretch;
+  margin: 0 0.25rem;
+  border-top: 0;
+  border-left: 1px solid var(--enamel-line);
+}
+
+.dec-field {
+  display: grid;
+  grid-template-columns: minmax(8rem, 15rem) auto;
+  align-items: center;
+  gap: 0.15rem 1rem;
+  padding: 0.3rem 0 0.3rem 0.6rem;
+  margin-left: -0.6rem;
+  border-left: 3px solid transparent;
+}
+
+.dec-field.is-dirty {
+  border-left-color: var(--brass);
+}
+
+.dec-field__label {
+  font-family: var(--font-condensed);
+  color: var(--ivory-dim);
+  line-height: 1.3;
+}
+
+.dec-field.is-dirty .dec-field__label {
+  color: var(--ivory);
+}
+
+.dec-field__control {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.75rem;
+  min-width: 0;
+}
+
+.dec-field .field__error {
+  grid-column: 1 / -1;
+}
+
+.dec-field.is-unread .input,
+.dec-field.is-unread input[type="checkbox"],
+.dec-field.is-unread input[type="radio"] {
+  opacity: 0.6;
+}
+
+.dec-field--above,
+.dec-field--below {
+  grid-template-columns: auto;
+  justify-items: start;
+}
+
+.dec-field--below .dec-field__label {
+  order: 2;
+}
+
+.dec-field--right {
+  grid-template-columns: auto 1fr;
+}
+
+.dec-field--right .dec-field__label {
+  order: 2;
+}
+
+/* Fields placed side by side in a row size to their content. */
+.dec-row > .dec-field {
+  grid-template-columns: auto auto;
+}
+
+/* A grid or function map cell holds one control and no label. */
+.dec-grid .dec-field,
+.dec-row .dec-field--above,
+.dec-row .dec-field--below {
+  grid-template-columns: auto;
+}
+
+.slider--v {
+  flex-direction: column;
+}
+
+.slider--v input[type="range"] {
+  writing-mode: vertical-lr;
+  direction: rtl;
+  width: auto;
+  height: 8rem;
+}
+
+/* The speed curve stays on one line, scrolling sideways when narrow, so
+   its shape can be seen. */
+.dec-speed {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.25rem;
+  overflow-x: auto;
+  max-width: calc(100vw - var(--rail-w) - 7rem);
+  padding-bottom: 0.25rem;
+}
+
+.dec-speed__point {
+  flex: none;
+  display: grid;
+  justify-items: center;
+  gap: 0.2rem;
+  width: 2.75rem;
+  height: 9rem;
+  grid-template-rows: 1fr auto auto;
+  align-items: end;
+}
+
+.dec-speed__bar {
+  width: 0.9rem;
+  min-height: 1px;
+  background: color-mix(in srgb, var(--brass) 55%, transparent);
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+
+.dec-speed .input--num {
+  width: 2.75rem;
+  padding-left: 0.3rem;
+  padding-right: 0.3rem;
+  text-align: center;
+}
+
+.dec-fnmap {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.dec-fnmap td {
+  text-align: center;
+}
+
+.dec-fnmap__out {
+  text-align: center;
+  white-space: nowrap;
+}
+
+.dec-fnmap__out .faint {
+  display: block;
+  font-weight: 400;
+}
+
+.dec-cvtable .input--num {
+  width: 6rem;
+}
+
+.dec-problems ul,
+.dec-panel details ul {
+  margin: 0.5rem 0 0;
+  padding-left: 1.25rem;
+}
+
+@media (max-width: 720px) {
+  .dec-field {
+    grid-template-columns: 1fr;
+  }
+
+  .dec-toolbar__status {
+    margin-left: 0;
+  }
+
+  .dec-speed {
+    max-width: calc(100vw - 3rem);
+  }
+}

@@ -22,9 +22,10 @@ web/node_modules: web/package.json web/package-lock.json
 	cd web && npm ci
 	@touch web/node_modules
 
-## test: run the Go tests
+## test: run the Go tests and the web interface's tests
 test:
 	$(GO) test -race ./...
+	cd web && npm test
 
 ## lint: run golangci-lint and the TypeScript type check
 lint:

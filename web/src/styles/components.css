@@ -78,11 +78,6 @@
   color: var(--brass-hover);
 }
 
-.btn:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
 .btn--primary {
   background: var(--brass);
   color: var(--brass-ink);
@@ -91,6 +86,15 @@
 .btn--primary:hover {
   background: var(--brass-hover);
   color: var(--brass-ink);
+}
+
+/* Brass means "you can press this", so a disabled button has none. */
+.btn:disabled,
+.btn:disabled:hover {
+  border-color: var(--enamel-line);
+  background: transparent;
+  color: var(--ivory-faint);
+  cursor: default;
 }
 
 .btn--quiet {

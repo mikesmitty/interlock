@@ -5,6 +5,7 @@ import { AutomationEditor } from "./pages/AutomationEditor";
 import { Automations } from "./pages/Automations";
 import { AutomationTraces } from "./pages/AutomationTraces";
 import { Clock } from "./pages/Clock";
+import { DecoderSettings } from "./pages/DecoderSettings";
 import { Entities } from "./pages/Entities";
 import { Monitor } from "./pages/Monitor";
 import { NodeDetail } from "./pages/NodeDetail";
@@ -83,6 +84,7 @@ export default function App() {
         <Route path="throttle" element={<Throttle />} />
         <Route path="throttle/:id" element={<Throttle />} />
         <Route path="programming" element={<Programming />} />
+        <Route path="programming/decoder" element={<DecoderSettings />} />
         <Route path="clock" element={<Clock />} />
         <Route path="monitor" element={<Monitor />} />
         <Route path="settings" element={<Settings />} />

@@ -1,5 +1,13 @@
 // Typed access to the Interlock API. Shapes mirror the Go structs.
 
+import type {
+  DecoderCandidate,
+  DecoderDefinition,
+  DecoderIdentity,
+  DecoderIndex,
+  DecoderSource,
+} from "./decoder/types";
+
 export interface SNIP {
   Manufacturer: string;
   Model: string;
@@ -738,6 +746,20 @@ export const api = {
     request<CVOp>("/api/v1/programming/write", {
       method: "POST",
       body: JSON.stringify({ cv, value }),
+    }),
+  decoderSource: () => request<DecoderSource>("/api/v1/decoders"),
+  decoderIndex: () => request<DecoderIndex>("/api/v1/decoders/index"),
+  decoderDefinition: (file: string, model: string) =>
+    request<DecoderDefinition>(`/api/v1/decoders/definition?${new URLSearchParams({ file, model }).toString()}`),
+  identifyDecoder: () =>
+    request<{ identity: DecoderIdentity; manufacturer?: string; candidates: DecoderCandidate[]; note?: string }>(
+      "/api/v1/programming/identify",
+      { method: "POST" },
+    ),
+  decoderCV: (body: { file: string; model: string; cv: string; write?: boolean; value?: number; train?: string }) =>
+    request<{ cv: string; value: number; ok: boolean; error?: string }>("/api/v1/programming/decoder-cv", {
+      method: "POST",
+      body: JSON.stringify(body),
     }),
 };
 

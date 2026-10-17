@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { api, type CVOp, type ProgrammingTrack } from "../api";
+import { DecoderPicker } from "../components/decoder/DecoderPicker";
 import { Status } from "../components/Lamp";
 import { Page } from "../components/Page";
 import { clockTime } from "../format";
@@ -75,6 +76,7 @@ export function Programming() {
       }
     >
       {message && <p className="note note--error">{message}</p>}
+      <DecoderPicker />
       <div className="prog-layout">
         <ServiceMode track={track} onOp={record} onTrack={setTrack} />
         <OnTheMain roster={roster} onOp={record} />
