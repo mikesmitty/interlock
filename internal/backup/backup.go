@@ -1,6 +1,7 @@
 // Package backup writes the data directory out as one zip file and
-// restores one: the configuration, entities, automations, roster and
-// profiles as they are, and a consistent snapshot of the database. A
+// restores one: the configuration, entities, automations, roster with its
+// decoder CV values and profiles as they are, and a consistent snapshot
+// of the database. A
 // restore is staged next to the data and applied when Interlock starts,
 // so nothing is replaced while it is open.
 package backup
@@ -54,6 +55,10 @@ const (
 
 var plainFiles = []string{"interlock.yaml", "entities.yaml", "automations.yaml", "trains.yaml"}
 
+// yamlDirs hold YAML files that are backed up too: the user's profiles
+// and the roster's decoder CV values.
+var yamlDirs = []string{"profiles", "cvs"}
+
 // allowed reports whether an archive entry may be restored, and the clean
 // path to restore it at.
 func allowed(name string) (string, bool) {
@@ -69,8 +74,11 @@ func allowed(name string) (string, bool) {
 			return clean, true
 		}
 	}
-	if dir, base := path.Split(clean); dir == "profiles/" && (strings.HasSuffix(base, ".yaml") || strings.HasSuffix(base, ".yml")) {
-		return clean, true
+	dir, base := path.Split(clean)
+	for _, d := range yamlDirs {
+		if dir == d+"/" && (strings.HasSuffix(base, ".yaml") || strings.HasSuffix(base, ".yml")) {
+			return clean, true
+		}
 	}
 	return "", false
 }
@@ -115,12 +123,15 @@ func Write(ctx context.Context, w io.Writer, dir string, db DB, version string) 
 			return fmt.Errorf("backup %s: %w", name, err)
 		}
 	}
-	entries, err := os.ReadDir(filepath.Join(dir, "profiles"))
-	if err == nil {
+	for _, d := range yamlDirs {
+		entries, err := os.ReadDir(filepath.Join(dir, d))
+		if err != nil {
+			continue
+		}
 		for _, e := range entries {
-			name := "profiles/" + e.Name()
+			name := d + "/" + e.Name()
 			if clean, ok := allowed(name); ok && !e.IsDir() {
-				if err := add(clean, filepath.Join(dir, "profiles", e.Name())); err != nil {
+				if err := add(clean, filepath.Join(dir, d, e.Name())); err != nil {
 					return fmt.Errorf("backup %s: %w", name, err)
 				}
 			}

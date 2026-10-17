@@ -2,10 +2,10 @@ package train
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -43,6 +43,8 @@ type Options struct {
 	// Functions is how many functions are read back from a train after
 	// taking control; 29 (F0 to F28) when zero.
 	Functions int
+	// CVs keeps the roster's decoder CV values; nil keeps none.
+	CVs *CVStore
 }
 
 // Subscriber is told whenever a train changes.
@@ -55,6 +57,9 @@ type LayoutSubscriber func(Layout)
 // answer one does not hold a throttle for long.
 const queryTimeout = 750 * time.Millisecond
 
+// train is a locomotive address on the bus: the train node there and
+// what Interlock set or read back. Its Entry is the bare address; roster
+// entries at the address share the train.
 type train struct {
 	Train
 	on map[int]bool
@@ -69,8 +74,12 @@ type Manager struct {
 	window time.Duration
 	fns    int
 
-	mu         sync.RWMutex
-	trains     map[string]*train
+	mu sync.RWMutex
+	// trains are the addresses driven or seen, by address ID; every
+	// roster entry has one.
+	trains map[string]*train
+	// roster is the roster entries by ID.
+	roster     map[string]Entry
 	layout     Layout
 	subs       map[int]Subscriber
 	layoutSubs map[int]LayoutSubscriber
@@ -89,6 +98,7 @@ func New(opts Options) *Manager {
 		window:     opts.SearchWindow,
 		fns:        opts.Functions,
 		trains:     make(map[string]*train),
+		roster:     make(map[string]Entry),
 		subs:       make(map[int]Subscriber),
 		layoutSubs: make(map[int]LayoutSubscriber),
 	}
@@ -98,12 +108,82 @@ func New(opts Options) *Manager {
 	if m.fns <= 0 {
 		m.fns = 29
 	}
-	now := time.Now()
 	for _, e := range opts.File.List() {
-		m.trains[e.ID] = &train{Train: Train{Entry: e, Roster: true, Direction: Forward, On: []int{}, Updated: now}, on: make(map[int]bool)}
+		m.roster[e.ID] = e.clone()
+		m.trainAtLocked(e.Address, e.Long)
 	}
 	m.opts.Bus.HandleTraction(m.handleTraction)
 	return m
+}
+
+// trainAtLocked returns the train at an address, making it if need be;
+// the caller holds m.mu.
+func (m *Manager) trainAtLocked(address uint16, long bool) *train {
+	key := IDFor(address, long)
+	if tr, ok := m.trains[key]; ok {
+		return tr
+	}
+	e := Entry{Address: address, Long: long}.Normalize()
+	e.ID = key
+	tr := &train{Train: Train{Entry: e, Direction: Forward, On: []int{}, Updated: time.Now()}, on: make(map[int]bool)}
+	m.trains[key] = tr
+	return tr
+}
+
+// entriesAtLocked lists the roster entries at a train's address by name.
+func (m *Manager) entriesAtLocked(key string) []Entry {
+	var out []Entry
+	for _, e := range m.roster {
+		if e.key() == key {
+			out = append(out, e)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Name != out[j].Name {
+			return out[i].Name < out[j].Name
+		}
+		return out[i].ID < out[j].ID
+	})
+	return out
+}
+
+// viewLocked is a roster entry with its train's state.
+func (m *Manager) viewLocked(e Entry) Train {
+	t := Train{Direction: Forward, On: []int{}}
+	if tr, ok := m.trains[e.key()]; ok {
+		t = tr.Train
+	}
+	t.Entry = e.clone()
+	t.Roster = true
+	return t
+}
+
+// viewsLocked is how a train shows: once for each roster entry at its
+// address, or by its address when there is none.
+func (m *Manager) viewsLocked(tr *train) []Train {
+	es := m.entriesAtLocked(tr.ID)
+	if len(es) == 0 {
+		return []Train{tr.Train}
+	}
+	out := make([]Train, len(es))
+	for i, e := range es {
+		out[i] = m.viewLocked(e)
+	}
+	return out
+}
+
+// viewForLocked is the view of tr that id asked for.
+func (m *Manager) viewForLocked(id string, tr *train) Train {
+	if e, ok := m.roster[id]; ok {
+		return m.viewLocked(e)
+	}
+	return m.viewsLocked(tr)[0]
+}
+
+func (m *Manager) viewFor(id string, tr *train) Train {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.viewForLocked(id, tr)
 }
 
 // --- following the bus ---------------------------------------------------
@@ -114,7 +194,7 @@ func (m *Manager) HandleNode(info registry.Info) {
 		return
 	}
 	m.mu.Lock()
-	var changed *Train
+	var changed *train
 	for _, tr := range m.trains {
 		if tr.Node != info.ID {
 			continue
@@ -126,14 +206,13 @@ func (m *Manager) HandleNode(info registry.Info) {
 				tr.Controlled = false
 			}
 			tr.Updated = time.Now()
-			snapshot := tr.Train
-			changed = &snapshot
+			changed = tr
 		}
 		break
 	}
 	m.mu.Unlock()
 	if changed != nil {
-		m.publish(*changed)
+		m.publish(changed)
 	}
 }
 
@@ -201,14 +280,12 @@ func (m *Manager) handleTraction(src openlcb.NodeHandle, payload []byte) []byte 
 	default:
 		changed = false
 	}
-	var snapshot Train
 	if changed {
 		tr.Updated = time.Now()
-		snapshot = tr.Train
 	}
 	m.mu.Unlock()
 	if changed {
-		go m.publish(snapshot)
+		go m.publish(tr)
 	}
 	return reply
 }
@@ -240,9 +317,14 @@ func (t *train) setFunction(fn int, on bool) {
 // List returns every train, roster entries first, by name.
 func (m *Manager) List() []Train {
 	m.mu.RLock()
-	out := make([]Train, 0, len(m.trains))
-	for _, tr := range m.trains {
-		out = append(out, tr.Train)
+	out := make([]Train, 0, len(m.roster)+len(m.trains))
+	for _, e := range m.roster {
+		out = append(out, m.viewLocked(e))
+	}
+	for key, tr := range m.trains {
+		if len(m.entriesAtLocked(key)) == 0 {
+			out = append(out, tr.Train)
+		}
 	}
 	m.mu.RUnlock()
 	sort.Slice(out, func(i, j int) bool {
@@ -257,20 +339,37 @@ func (m *Manager) List() []Train {
 	return out
 }
 
-// Get returns one train by ID, or by bare address.
+// Get returns one train by roster ID, or by address.
 func (m *Manager) Get(id string) (Train, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	tr, ok := m.lookupLocked(id)
+	if e, ok := m.roster[id]; ok {
+		return m.viewLocked(e), true
+	}
+	address, long, ok := ParseID(id)
 	if !ok {
 		return Train{}, false
 	}
-	return tr.Train, true
+	tr, ok := m.trains[IDFor(address, long)]
+	if !ok {
+		return Train{}, false
+	}
+	return m.viewsLocked(tr)[0], true
 }
 
+// Entry returns a roster entry by ID.
+func (m *Manager) Entry(id string) (Entry, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	e, ok := m.roster[id]
+	return e.clone(), ok
+}
+
+// lookupLocked finds the train id names: a roster entry's, or the one at
+// an address.
 func (m *Manager) lookupLocked(id string) (*train, bool) {
-	if tr, ok := m.trains[id]; ok {
-		return tr, true
+	if e, ok := m.roster[id]; ok {
+		return m.trains[e.key()], true
 	}
 	if address, long, ok := ParseID(id); ok {
 		tr, ok := m.trains[IDFor(address, long)]
@@ -280,7 +379,7 @@ func (m *Manager) lookupLocked(id string) (*train, bool) {
 }
 
 // get finds a train, creating one outside the roster when id names an
-// address that is not in it.
+// address Interlock has not met.
 func (m *Manager) get(id string) (*train, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -291,97 +390,223 @@ func (m *Manager) get(id string) (*train, error) {
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrNotFound, id)
 	}
-	return m.placeLocked(address, long), nil
+	tr := m.trainAtLocked(address, long)
+	go m.publish(tr)
+	return tr, nil
 }
 
-// placeLocked creates a train outside the roster; the caller holds m.mu.
-func (m *Manager) placeLocked(address uint16, long bool) *train {
-	e := Entry{Address: address, Long: long}.Normalize()
-	tr := &train{Train: Train{Entry: e, Direction: Forward, On: []int{}, Updated: time.Now()}, on: make(map[int]bool)}
-	m.trains[e.ID] = tr
-	snapshot := tr.Train
-	go m.publish(snapshot)
-	return tr
+// newIDLocked makes a roster ID from a name. It never looks like an
+// address, so addresses and roster IDs cannot be confused.
+func (m *Manager) newIDLocked(name string) string {
+	base := slug(name)
+	if base == "" {
+		base = "locomotive"
+	}
+	if _, _, ok := ParseID(base); ok {
+		base = "locomotive-" + base
+	}
+	return uniqueID(base, func(id string) bool {
+		_, taken := m.roster[id]
+		_, _, address := ParseID(id)
+		return taken || address
+	})
 }
 
-// Create adds a locomotive to the roster. A train already driven outside
-// the roster keeps its state.
+// newDecoderIDLocked makes a decoder ID, unique in the roster, from a name.
+func (m *Manager) newDecoderIDLocked(name string, also []Decoder) string {
+	base := slug(name)
+	if base == "" || reservedNames.MatchString(base) {
+		base = strings.TrimPrefix(base+"-decoder", "-")
+	}
+	return uniqueID(base, func(id string) bool {
+		for _, d := range also {
+			if d.ID == id {
+				return true
+			}
+		}
+		return m.decoderOwnerLocked(id) != ""
+	})
+}
+
+// decoderOwnerLocked returns the ID of the entry with a decoder, if any.
+func (m *Manager) decoderOwnerLocked(decoder string) string {
+	for id, e := range m.roster {
+		if _, ok := e.Decoder(decoder); ok {
+			return id
+		}
+	}
+	return ""
+}
+
+// Create adds a locomotive to the roster under a new ID made from its
+// name. A train already driven at its address keeps its state. Decoders
+// without an ID get one.
 func (m *Manager) Create(e Entry) (Train, error) {
-	e = e.Normalize()
+	e = e.clone().Normalize()
+	m.mu.Lock()
+	e.ID = m.newIDLocked(e.Name)
+	for i := range e.Decoders {
+		if e.Decoders[i].ID == "" {
+			e.Decoders[i].ID = m.newDecoderIDLocked(e.Decoders[i].Title(), e.Decoders)
+		} else if owner := m.decoderOwnerLocked(e.Decoders[i].ID); owner != "" {
+			m.mu.Unlock()
+			return Train{}, invalid("the decoder %s already belongs to %s", e.Decoders[i].ID, m.roster[owner].Name)
+		}
+	}
 	if err := e.Validate(); err != nil {
+		m.mu.Unlock()
 		return Train{}, err
 	}
-	m.mu.Lock()
-	tr, exists := m.trains[e.ID]
-	if exists && tr.Roster {
-		m.mu.Unlock()
-		return Train{}, fmt.Errorf("%w: %s", ErrExists, e.ID)
+	key := e.key()
+	_, existed := m.trains[key]
+	bare := existed && len(m.entriesAtLocked(key)) == 0
+	tr := m.trainAtLocked(e.Address, e.Long)
+	var hidden Train
+	if bare {
+		hidden = tr.Train
 	}
-	if !exists {
-		tr = &train{Train: Train{Direction: Forward, On: []int{}}, on: make(map[int]bool)}
-		m.trains[e.ID] = tr
-	}
-	tr.Entry = e
-	tr.Roster = true
-	tr.Updated = time.Now()
-	snapshot := tr.Train
+	m.roster[e.ID] = e
+	view := m.viewLocked(e)
 	m.mu.Unlock()
 	if err := m.opts.File.Put(e); err != nil {
-		return snapshot, err
+		return view, err
 	}
-	m.publish(snapshot)
-	return snapshot, nil
+	if bare {
+		// The train driven by its address is the roster entry's now.
+		hidden.Removed = true
+		m.send(hidden)
+	}
+	m.send(view)
+	return view, nil
 }
 
-// Update changes a roster entry's name, function labels and momentary
-// functions. The address stays; make a new train for another address.
-func (m *Manager) Update(id string, e Entry) (Train, error) {
+// Update changes a roster entry: change edits a copy, which is checked
+// and saved. A new address moves the entry to the train there; an entry
+// known by its address gets an ID of its own then.
+func (m *Manager) Update(ctx context.Context, id string, change func(*Entry) error) (Train, error) {
+	return m.edit(ctx, id, func(e *Entry) error {
+		decoders, installed := e.Decoders, e.Installed
+		if err := change(e); err != nil {
+			return err
+		}
+		// Decoders change through their own methods.
+		e.Decoders, e.Installed = decoders, installed
+		return nil
+	})
+}
+
+// edit applies a change to a roster entry and settles what follows from
+// it: the ID, the train the entry drives, the file and the subscribers.
+func (m *Manager) edit(ctx context.Context, id string, change func(*Entry) error) (Train, error) {
 	m.mu.Lock()
-	tr, ok := m.lookupLocked(id)
+	old, ok := m.roster[id]
 	if !ok {
 		m.mu.Unlock()
 		return Train{}, fmt.Errorf("%w: %s", ErrNotFound, id)
 	}
-	next := tr.Entry
-	next.Name, next.Functions, next.Momentary = e.Name, e.Functions, e.Momentary
+	next := old.clone()
+	if err := change(&next); err != nil {
+		m.mu.Unlock()
+		return Train{}, err
+	}
+	next.ID = old.ID
 	next = next.Normalize()
+	if _, _, address := ParseID(next.ID); address && next.key() != next.ID {
+		next.ID = m.newIDLocked(next.Name)
+	}
 	if err := next.Validate(); err != nil {
 		m.mu.Unlock()
 		return Train{}, err
 	}
-	tr.Entry = next
-	tr.Roster = true
-	tr.Updated = time.Now()
-	snapshot := tr.Train
-	m.mu.Unlock()
-	if err := m.opts.File.Put(next); err != nil {
-		return snapshot, err
+	for _, d := range next.Decoders {
+		if owner := m.decoderOwnerLocked(d.ID); owner != "" && owner != old.ID {
+			m.mu.Unlock()
+			return Train{}, invalid("the decoder %s already belongs to %s", d.ID, m.roster[owner].Name)
+		}
 	}
-	m.publish(snapshot)
-	return snapshot, nil
+	delete(m.roster, old.ID)
+	m.roster[next.ID] = next
+	m.trainAtLocked(next.Address, next.Long)
+	// A train no entry drives any more goes, as a deleted entry's does.
+	var orphan *train
+	if oldKey := old.key(); oldKey != next.key() && len(m.entriesAtLocked(oldKey)) == 0 {
+		orphan = m.trains[oldKey]
+		delete(m.trains, oldKey)
+	}
+	view := m.viewLocked(next)
+	m.mu.Unlock()
+	if err := m.opts.File.Replace(old.ID, next); err != nil {
+		return view, err
+	}
+	if orphan != nil {
+		m.release(ctx, orphan)
+	}
+	if next.ID != old.ID {
+		gone := view
+		gone.Entry = old
+		gone.Removed = true
+		m.send(gone)
+	}
+	m.send(view)
+	return view, nil
 }
 
-// Delete removes a train, releasing it first when Interlock controls it.
+// Delete removes a train: a roster entry with its decoders' CV values, or
+// a train driven outside the roster. The train is released when no other
+// entry drives it.
 func (m *Manager) Delete(ctx context.Context, id string) error {
-	if _, err := m.Release(ctx, id); err != nil && !errors.Is(err, ErrNotFound) {
-		m.log.Debug("release before delete failed", "train", id, "error", err)
-	}
 	m.mu.Lock()
 	tr, ok := m.lookupLocked(id)
-	if !ok {
+	if !ok || tr == nil {
 		m.mu.Unlock()
 		return fmt.Errorf("%w: %s", ErrNotFound, id)
 	}
-	delete(m.trains, tr.ID)
-	removed := tr.Train
+	e, inRoster := m.roster[id]
+	if !inRoster && len(m.entriesAtLocked(tr.ID)) > 0 {
+		m.mu.Unlock()
+		return invalid("locomotives in the roster drive %s; remove them from the roster instead", traction.AddressName(tr.Address, tr.Long))
+	}
+	removed := m.viewForLocked(id, tr)
+	if inRoster {
+		delete(m.roster, id)
+	}
+	last := len(m.entriesAtLocked(tr.ID)) == 0
+	if last {
+		delete(m.trains, tr.ID)
+	}
 	m.mu.Unlock()
-	if err := m.opts.File.Remove(removed.ID); err != nil {
-		return err
+	if last {
+		m.release(ctx, tr)
+	}
+	if inRoster {
+		if err := m.opts.File.Remove(id); err != nil {
+			return err
+		}
+		for _, d := range e.Decoders {
+			if err := m.opts.CVs.Delete(d.ID); err != nil {
+				m.log.Warn("removing CV values failed", "decoder", d.ID, "error", err)
+			}
+		}
 	}
 	removed.Removed = true
 	removed.Updated = time.Now()
-	m.publish(removed)
+	m.send(removed)
 	return nil
+}
+
+// release gives up a train that is leaving, if Interlock controls it.
+func (m *Manager) release(ctx context.Context, tr *train) {
+	tr.acquire.Lock()
+	defer tr.acquire.Unlock()
+	m.mu.Lock()
+	controlled, nodeID := tr.Controlled, tr.Node
+	tr.Controlled = false
+	m.mu.Unlock()
+	if controlled && nodeID != 0 {
+		if _, err := m.opts.Bus.TractionCommand(ctx, nodeID, traction.ReleaseController(m.opts.Bus.ID()), false); err != nil {
+			m.log.Debug("release failed", "train", tr.ID, "error", err)
+		}
+	}
 }
 
 // --- finding and driving ---------------------------------------------------
@@ -420,10 +645,9 @@ func (m *Manager) Search(ctx context.Context, query string) ([]Found, error) {
 				f.Name = info.SNIP.UserName
 			}
 		}
-		if tr, ok := m.Get(f.ID); ok {
-			f.Roster = tr.Roster
-			if tr.Roster {
-				f.Name = tr.Name
+		if f.Address != 0 {
+			if tr, ok := m.Get(f.ID); ok && tr.Roster {
+				f.ID, f.Name, f.Roster = tr.ID, m.Name(f.Address, f.Long), true
 			}
 		}
 		found = append(found, f)
@@ -506,7 +730,7 @@ func (m *Manager) ensureControl(ctx context.Context, tr *train) (openlcb.NodeID,
 		m.mu.Lock()
 		tr.Online = false
 		m.mu.Unlock()
-		return 0, fmt.Errorf("take control of %s: %w", tr.Name, err)
+		return 0, fmt.Errorf("take control of %s: %w", m.Name(tr.Address, tr.Long), err)
 	}
 	result, err := traction.ParseAssignReply(reply)
 	if err != nil {
@@ -515,9 +739,8 @@ func (m *Manager) ensureControl(ctx context.Context, tr *train) (openlcb.NodeID,
 	if result != traction.AssignOK {
 		m.mu.Lock()
 		tr.Controlled = false
-		snapshot := tr.Train
 		m.mu.Unlock()
-		m.publish(snapshot)
+		m.publish(tr)
 		why := "another throttle holds it"
 		if result == traction.AssignRefusedByTrain {
 			why = "the train is not available"
@@ -587,13 +810,12 @@ func (m *Manager) Acquire(ctx context.Context, id string) (Train, error) {
 	tr, _, err := m.control(ctx, id)
 	if err != nil {
 		if tr != nil {
-			return m.snapshot(tr), err
+			return m.viewFor(id, tr), err
 		}
 		return Train{}, err
 	}
-	snapshot := m.snapshot(tr)
-	m.publish(snapshot)
-	return snapshot, nil
+	m.publish(tr)
+	return m.viewFor(id, tr), nil
 }
 
 // Release gives a train up. Its last known state stays.
@@ -601,7 +823,7 @@ func (m *Manager) Release(ctx context.Context, id string) (Train, error) {
 	m.mu.RLock()
 	tr, ok := m.lookupLocked(id)
 	m.mu.RUnlock()
-	if !ok {
+	if !ok || tr == nil {
 		return Train{}, fmt.Errorf("%w: %s", ErrNotFound, id)
 	}
 	tr.acquire.Lock()
@@ -613,15 +835,14 @@ func (m *Manager) Release(ctx context.Context, id string) (Train, error) {
 		tr.Controller = 0
 	}
 	tr.Updated = time.Now()
-	snapshot := tr.Train
 	m.mu.Unlock()
 	if controlled && nodeID != 0 {
 		if _, err := m.opts.Bus.TractionCommand(ctx, nodeID, traction.ReleaseController(m.opts.Bus.ID()), false); err != nil {
 			m.log.Debug("release failed", "train", tr.ID, "error", err)
 		}
 	}
-	m.publish(snapshot)
-	return snapshot, nil
+	m.publish(tr)
+	return m.viewFor(id, tr), nil
 }
 
 // SetSpeed sets a train's speed, 0 to MaxSpeed, and direction; an empty
@@ -644,15 +865,14 @@ func (m *Manager) SetSpeed(ctx context.Context, id string, speed float32, direct
 	m.mu.RUnlock()
 	s := traction.Speed{Value: speed, Reverse: direction == Reverse}
 	if _, err := m.opts.Bus.TractionCommand(ctx, nodeID, traction.SetSpeed(s), false); err != nil {
-		return m.snapshot(tr), err
+		return m.viewFor(id, tr), err
 	}
 	m.mu.Lock()
 	tr.setSpeed(s)
 	tr.Updated = time.Now()
-	snapshot := tr.Train
 	m.mu.Unlock()
-	m.publish(snapshot)
-	return snapshot, nil
+	m.publish(tr)
+	return m.viewFor(id, tr), nil
 }
 
 // EmergencyStop stops a train at once.
@@ -662,15 +882,14 @@ func (m *Manager) EmergencyStop(ctx context.Context, id string) (Train, error) {
 		return Train{}, err
 	}
 	if _, err := m.opts.Bus.TractionCommand(ctx, nodeID, traction.EmergencyStop(), false); err != nil {
-		return m.snapshot(tr), err
+		return m.viewFor(id, tr), err
 	}
 	m.mu.Lock()
 	tr.EStop, tr.Speed = true, 0
 	tr.Updated = time.Now()
-	snapshot := tr.Train
 	m.mu.Unlock()
-	m.publish(snapshot)
-	return snapshot, nil
+	m.publish(tr)
+	return m.viewFor(id, tr), nil
 }
 
 // SetFunction turns a function on or off.
@@ -687,15 +906,14 @@ func (m *Manager) SetFunction(ctx context.Context, id string, fn int, on bool) (
 		value = 1
 	}
 	if _, err := m.opts.Bus.TractionCommand(ctx, nodeID, traction.SetFunction(uint32(fn), value), false); err != nil {
-		return m.snapshot(tr), err
+		return m.viewFor(id, tr), err
 	}
 	m.mu.Lock()
 	tr.setFunction(fn, on)
 	tr.Updated = time.Now()
-	snapshot := tr.Train
 	m.mu.Unlock()
-	m.publish(snapshot)
-	return snapshot, nil
+	m.publish(tr)
+	return m.viewFor(id, tr), nil
 }
 
 // Refresh reads a train's state back from its node without taking
@@ -709,7 +927,7 @@ func (m *Manager) Refresh(ctx context.Context, id string) (Train, error) {
 	defer tr.acquire.Unlock()
 	nodeID, err := m.ensureNode(ctx, tr)
 	if err != nil {
-		return m.snapshot(tr), err
+		return m.viewFor(id, tr), err
 	}
 	m.readBack(ctx, tr, nodeID)
 	qctx, cancel := context.WithTimeout(ctx, queryTimeout)
@@ -723,9 +941,8 @@ func (m *Manager) Refresh(ctx context.Context, id string) (Train, error) {
 			m.mu.Unlock()
 		}
 	}
-	snapshot := m.snapshot(tr)
-	m.publish(snapshot)
-	return snapshot, nil
+	m.publish(tr)
+	return m.viewFor(id, tr), nil
 }
 
 // NodeFor returns a train's node, finding it if need be, for programming
@@ -738,7 +955,7 @@ func (m *Manager) NodeFor(ctx context.Context, id string) (openlcb.NodeID, Train
 	tr.acquire.Lock()
 	defer tr.acquire.Unlock()
 	nodeID, err := m.ensureNode(ctx, tr)
-	return nodeID, m.snapshot(tr), err
+	return nodeID, m.viewFor(id, tr), err
 }
 
 // Command carries out an automation's train action.
@@ -760,18 +977,20 @@ func (m *Manager) Command(ctx context.Context, cmd Command) (Train, error) {
 }
 
 // Name returns how a locomotive at an address is called: its roster
-// name, else the address.
+// name (the names of all that share the address), else the address.
 func (m *Manager) Name(address uint16, long bool) string {
-	if tr, ok := m.Get(IDFor(address, long || address > traction.ShortAddressMax)); ok && tr.Roster {
-		return tr.Name
-	}
-	return "locomotive " + traction.AddressName(address, long || address > traction.ShortAddressMax)
-}
-
-func (m *Manager) snapshot(tr *train) Train {
+	long = long || address > traction.ShortAddressMax
 	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return tr.Train
+	es := m.entriesAtLocked(IDFor(address, long))
+	m.mu.RUnlock()
+	if len(es) == 0 {
+		return "locomotive " + traction.AddressName(address, long)
+	}
+	names := make([]string, len(es))
+	for i, e := range es {
+		names[i] = e.Name
+	}
+	return strings.Join(names, " / ")
 }
 
 // --- the layout --------------------------------------------------------------
@@ -815,14 +1034,14 @@ func (m *Manager) SetEmergencyStop(ctx context.Context, stop bool) (Layout, erro
 // stopAll marks every train as emergency stopped.
 func (m *Manager) stopAll() {
 	m.mu.Lock()
-	var changed []Train
+	var changed []*train
 	for _, tr := range m.trains {
 		if tr.EStop && tr.Speed == 0 {
 			continue
 		}
 		tr.EStop, tr.Speed = true, 0
 		tr.Updated = time.Now()
-		changed = append(changed, tr.Train)
+		changed = append(changed, tr)
 	}
 	m.mu.Unlock()
 	for _, tr := range changed {
@@ -881,7 +1100,24 @@ func (m *Manager) SubscribeLayout(sub LayoutSubscriber) (unsubscribe func()) {
 	}
 }
 
-func (m *Manager) publish(tr Train) {
+// publish tells subscribers about a train as each roster entry at its
+// address sees it, or as the address alone.
+func (m *Manager) publish(tr *train) {
+	m.mu.RLock()
+	if m.trains[tr.ID] != tr {
+		// Gone since the change.
+		m.mu.RUnlock()
+		return
+	}
+	views := m.viewsLocked(tr)
+	m.mu.RUnlock()
+	for _, v := range views {
+		m.send(v)
+	}
+}
+
+// send tells subscribers about one view of a train.
+func (m *Manager) send(t Train) {
 	m.mu.RLock()
 	subs := make([]Subscriber, 0, len(m.subs))
 	for _, sub := range m.subs {
@@ -889,6 +1125,6 @@ func (m *Manager) publish(tr Train) {
 	}
 	m.mu.RUnlock()
 	for _, sub := range subs {
-		sub(tr)
+		sub(t)
 	}
 }

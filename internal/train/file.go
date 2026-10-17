@@ -24,8 +24,9 @@ type fileDoc struct {
 }
 
 const fileHeader = `# The locomotive roster. The web interface edits this file; restart
-# Interlock after editing it yourself. Each train has a DCC address, a name
-# and optional function labels; see docs/trains.md.
+# Interlock after editing it yourself. Each train has a DCC address, a name,
+# optional function labels and the decoders it has; see docs/trains.md.
+# Decoder CV values are kept in the cvs folder beside this file.
 `
 
 // File is trains.yaml. A nil *File keeps the roster in memory only.
@@ -60,15 +61,27 @@ func OpenFile(path string) (*File, error) {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
 	seen := make(map[string]bool, len(f.doc.Trains))
+	decoders := make(map[string]string)
 	for i := range f.doc.Trains {
 		e := f.doc.Trains[i].Normalize()
+		if e.ID == "" {
+			// Entries written before locomotives had IDs of their own
+			// are known by their address.
+			e.ID = e.key()
+		}
 		if err := e.Validate(); err != nil {
 			return nil, fmt.Errorf("%s: train %d (%s): %w", path, i+1, e.Name, err)
 		}
 		if seen[e.ID] {
-			return nil, fmt.Errorf("%s: two trains have the address %s", path, e.ID)
+			return nil, fmt.Errorf("%s: two trains have the ID %s", path, e.ID)
 		}
 		seen[e.ID] = true
+		for _, d := range e.Decoders {
+			if other, ok := decoders[d.ID]; ok {
+				return nil, fmt.Errorf("%s: %s and %s both have a decoder with the ID %s", path, other, e.Name, d.ID)
+			}
+			decoders[d.ID] = e.Name
+		}
 		f.doc.Trains[i] = e
 	}
 	return f, nil
@@ -95,7 +108,11 @@ func (f *File) List() []Entry {
 }
 
 // Put adds or replaces an entry by ID and saves the file.
-func (f *File) Put(e Entry) error {
+func (f *File) Put(e Entry) error { return f.Replace(e.ID, e) }
+
+// Replace puts e where the entry with ID old was, or at the end, and
+// saves the file; e may have a new ID.
+func (f *File) Replace(old string, e Entry) error {
 	if f == nil {
 		return nil
 	}
@@ -103,7 +120,7 @@ func (f *File) Put(e Entry) error {
 	defer f.mu.Unlock()
 	replaced := false
 	for i := range f.doc.Trains {
-		if f.doc.Trains[i].ID == e.ID {
+		if f.doc.Trains[i].ID == old {
 			f.doc.Trains[i] = e
 			replaced = true
 			break

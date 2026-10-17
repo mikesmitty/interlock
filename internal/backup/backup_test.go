@@ -29,6 +29,7 @@ func TestBackupAndRestore(t *testing.T) {
 	write("trains.yaml", "trains: []\n")
 	write("profiles/mine.yaml", "name: mine\n")
 	write("profiles/notes.txt", "not a profile\n")
+	write("cvs/loksound.yaml", "cvs: {}\n")
 	write("interlock.log", "not kept\n")
 	st, err := store.Open(ctx, filepath.Join(dir, "interlock.db"))
 	if err != nil {
@@ -49,7 +50,7 @@ func TestBackupAndRestore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if manifest.Version != "1.2.3" || strings.Join(manifest.Files, ",") != "interlock.yaml,trains.yaml,profiles/mine.yaml,interlock.db" {
+	if manifest.Version != "1.2.3" || strings.Join(manifest.Files, ",") != "interlock.yaml,trains.yaml,profiles/mine.yaml,cvs/loksound.yaml,interlock.db" {
 		t.Errorf("manifest = %+v", manifest)
 	}
 

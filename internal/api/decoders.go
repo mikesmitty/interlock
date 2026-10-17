@@ -13,6 +13,7 @@ import (
 
 	"github.com/mikesmitty/interlock/internal/decoder"
 	"github.com/mikesmitty/interlock/internal/programmer"
+	"github.com/mikesmitty/interlock/internal/train"
 )
 
 // Decoders reads the DCC decoder definitions.
@@ -27,13 +28,17 @@ type Decoders interface {
 //	GET  /api/v1/decoders                         where the definitions come from
 //	GET  /api/v1/decoders/index                   every manufacturer and decoder family
 //	GET  /api/v1/decoders/definition?file=&model= one model's settings and panes
-//	POST /api/v1/programming/identify             {identity, manufacturer, candidates}
-//	POST /api/v1/programming/decoder-cv           {file, model, cv, write, value, train} -> {value}
+//	POST /api/v1/programming/identify             {identity, manufacturer, candidates, address, roster}
+//	POST /api/v1/programming/decoder-cv           {file, model, cv, write, value, train, locomotive, decoder} -> {value}
 //
 // decoder-cv reads or writes one CV by the name a definition uses for it
 // ("29", "16.0.259", "T2CV.1.05"), on the programming track or, with a
 // train, on the main. The browser walks a pane's CVs one request at a
-// time, so it can show progress and stop.
+// time, so it can show progress and stop. With a roster locomotive and
+// one of its decoders, each value read or written is saved for it.
+//
+// identify also reads the address the decoder answers to and lists the
+// roster decoders it could be.
 
 func (a *API) decoderStatus(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, a.deps.Decoders.Status())
@@ -72,6 +77,11 @@ type identifyResponse struct {
 	// Note explains why there are no candidates when the definitions
 	// could not be read.
 	Note string `json:"note,omitempty"`
+	// Address is the address the decoder answers to, when it could be
+	// read.
+	Address *decoder.Address `json:"address,omitempty"`
+	// Roster lists the roster decoders it could be, best first.
+	Roster []train.DecoderMatch `json:"roster"`
 }
 
 func (a *API) identifyDecoder(w http.ResponseWriter, r *http.Request) {
@@ -84,7 +94,25 @@ func (a *API) identifyDecoder(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, "The decoder could not be identified: "+programmer.Explain(err))
 		return
 	}
-	resp := identifyResponse{Identity: id, Candidates: []decoder.Candidate{}}
+	resp := identifyResponse{Identity: id, Candidates: []decoder.Candidate{}, Roster: []train.DecoderMatch{}}
+	if addr, err := decoder.ReadAddress(r.Context(), serviceBus{a.deps.Programmer}); err == nil {
+		resp.Address = &addr
+	}
+	if a.deps.Trains != nil {
+		tid := train.Identity{Manufacturer: id.Manufacturer, Version: id.Version}
+		if id.HasProductID {
+			p := id.ProductID
+			tid.ProductID = &p
+		}
+		var address uint16
+		var long bool
+		if resp.Address != nil {
+			address, long = uint16(resp.Address.Address), resp.Address.Long
+		}
+		if m := a.deps.Trains.FindDecoder(tid, address, long); m != nil {
+			resp.Roster = m
+		}
+	}
 	idx, err := a.deps.Decoders.Index()
 	if err != nil {
 		resp.Note = "The decoder definitions could not be read: " + err.Error()
@@ -107,6 +135,9 @@ type decoderCVBody struct {
 	Value *int   `json:"value"`
 	// Train is set to program on the main through that train's node.
 	Train string `json:"train"`
+	// Locomotive and Decoder name a roster decoder to save the value for.
+	Locomotive string `json:"locomotive"`
+	Decoder    string `json:"decoder"`
 }
 
 type decoderCVResponse struct {
@@ -140,6 +171,25 @@ func (a *API) decoderCV(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cv := d.CVs[i]
+	if body.Locomotive != "" || body.Decoder != "" {
+		if !a.trainsReady(w) {
+			return
+		}
+		e, ok := a.deps.Trains.Entry(body.Locomotive)
+		if !ok {
+			writeError(w, http.StatusNotFound, "no locomotive "+body.Locomotive+" in the roster")
+			return
+		}
+		saved, ok := e.Decoder(body.Decoder)
+		if !ok {
+			writeError(w, http.StatusNotFound, e.Name+" has no decoder "+body.Decoder)
+			return
+		}
+		if saved.File != body.File || saved.Model != body.Model {
+			writeError(w, http.StatusBadRequest, e.Name+"'s decoder "+saved.Title()+" uses another definition")
+			return
+		}
+	}
 	switch {
 	case cv.InfoOnly:
 		writeError(w, http.StatusBadRequest, "CV "+body.CV+" is for information only and is never read or written")
@@ -175,6 +225,11 @@ func (a *API) decoderCV(w http.ResponseWriter, r *http.Request) {
 	resp.OK = err == nil
 	if err != nil {
 		resp.Error = programmer.Explain(err)
+	}
+	if resp.OK && body.Decoder != "" {
+		if err := a.deps.Trains.SetCVs(body.Locomotive, body.Decoder, map[string]int{body.CV: resp.Value}, false); err != nil {
+			resp.Error = "The value could not be saved in the roster: " + err.Error()
+		}
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -228,24 +283,24 @@ type decoderSessions struct {
 	sessions map[string]*decoder.Session
 }
 
-func (s *decoderSessions) get(train string) *decoder.Session {
+func (s *decoderSessions) get(target string) *decoder.Session {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.sessions == nil {
 		s.sessions = make(map[string]*decoder.Session)
 	}
-	sess, ok := s.sessions[train]
+	sess, ok := s.sessions[target]
 	if !ok {
 		sess = decoder.NewSession()
-		s.sessions[train] = sess
+		s.sessions[target] = sess
 	}
 	return sess
 }
 
-func (s *decoderSessions) forget(train string) {
+func (s *decoderSessions) forget(target string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if sess, ok := s.sessions[train]; ok {
+	if sess, ok := s.sessions[target]; ok {
 		sess.Forget()
 	}
 }

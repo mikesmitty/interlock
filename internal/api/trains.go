@@ -14,9 +14,19 @@ import (
 type Trains interface {
 	List() []train.Train
 	Get(id string) (train.Train, bool)
+	Entry(id string) (train.Entry, bool)
 	Create(e train.Entry) (train.Train, error)
-	Update(id string, e train.Entry) (train.Train, error)
+	Update(ctx context.Context, id string, change func(*train.Entry) error) (train.Train, error)
 	Delete(ctx context.Context, id string) error
+	AddDecoder(ctx context.Context, id string, d train.Decoder, install bool) (train.Train, train.Decoder, error)
+	UpdateDecoder(ctx context.Context, id, decoder string, change func(*train.Decoder)) (train.Train, error)
+	RemoveDecoder(ctx context.Context, id, decoder string) (train.Train, error)
+	Install(ctx context.Context, id, decoder string) (train.Train, error)
+	CVs(id, decoder string) (train.CVValues, error)
+	SetCVs(id, decoder string, values map[string]int, replace bool) error
+	FindDecoder(id train.Identity, address uint16, long bool) []train.DecoderMatch
+	PlanImport(items []train.Import) []train.ImportStep
+	ApplyImport(ctx context.Context, items []train.Import, plan []train.ImportStep) (train.ImportResult, error)
 	Search(ctx context.Context, query string) ([]train.Found, error)
 	Acquire(ctx context.Context, id string) (train.Train, error)
 	Release(ctx context.Context, id string) (train.Train, error)
@@ -45,12 +55,13 @@ type Programmer interface {
 // The train and programming endpoints:
 //
 //	GET    /api/v1/trains                     {trains, layout}
-//	POST   /api/v1/trains                     add to the roster {name, address, long, functions, momentary}
+//	POST   /api/v1/trains                     add to the roster {name, address, long, functions, momentary, ...}
 //	POST   /api/v1/trains/search              {query} -> {trains: [found]}
 //	GET    /api/v1/trains/layout              {power_off, emergency_stop}
 //	POST   /api/v1/trains/layout              {power} or {emergency_stop} -> layout
-//	GET    /api/v1/trains/{id}                id is the address: "1234", "3", or "3l" for a long address under 128
-//	PATCH  /api/v1/trains/{id}                {name, functions, momentary}
+//	GET    /api/v1/trains/{id}                id is a roster ID, or an address: "1234", "3", or "3l" for a long address under 128
+//	PATCH  /api/v1/trains/{id}                any of {name, address, long, functions, momentary, road_name, road_number,
+//	                                          manufacturer, model, owner, comment}
 //	DELETE /api/v1/trains/{id}
 //	POST   /api/v1/trains/{id}/acquire        find the train node and take control
 //	POST   /api/v1/trains/{id}/release
@@ -120,17 +131,63 @@ func (a *API) updateTrain(w http.ResponseWriter, r *http.Request) {
 	if !a.trainsReady(w) {
 		return
 	}
-	var e train.Entry
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&e); err != nil {
-		writeError(w, http.StatusBadRequest, "body must be JSON with any of name, functions and momentary")
+	var p trainPatch
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&p); err != nil {
+		writeError(w, http.StatusBadRequest, "body must be JSON with the roster fields to change")
 		return
 	}
-	tr, err := a.deps.Trains.Update(r.PathValue("id"), e)
+	tr, err := a.deps.Trains.Update(r.Context(), r.PathValue("id"), func(e *train.Entry) error {
+		p.apply(e)
+		return nil
+	})
 	if err != nil {
 		a.trainError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, tr)
+}
+
+// trainPatch is a roster change: only the fields present change.
+type trainPatch struct {
+	Name         *string         `json:"name"`
+	Address      *uint16         `json:"address"`
+	Long         *bool           `json:"long"`
+	Functions    *map[int]string `json:"functions"`
+	Momentary    *[]int          `json:"momentary"`
+	RoadName     *string         `json:"road_name"`
+	RoadNumber   *string         `json:"road_number"`
+	Manufacturer *string         `json:"manufacturer"`
+	Model        *string         `json:"model"`
+	Owner        *string         `json:"owner"`
+	Comment      *string         `json:"comment"`
+}
+
+func (p trainPatch) apply(e *train.Entry) {
+	set := func(dst *string, src *string) {
+		if src != nil {
+			*dst = *src
+		}
+	}
+	set(&e.Name, p.Name)
+	set(&e.RoadName, p.RoadName)
+	set(&e.RoadNumber, p.RoadNumber)
+	set(&e.Manufacturer, p.Manufacturer)
+	set(&e.Model, p.Model)
+	set(&e.Owner, p.Owner)
+	set(&e.Comment, p.Comment)
+	if p.Address != nil {
+		e.Address = *p.Address
+		e.Long = false
+	}
+	if p.Long != nil {
+		e.Long = *p.Long
+	}
+	if p.Functions != nil {
+		e.Functions = *p.Functions
+	}
+	if p.Momentary != nil {
+		e.Momentary = *p.Momentary
+	}
 }
 
 func (a *API) deleteTrain(w http.ResponseWriter, r *http.Request) {
@@ -261,8 +318,6 @@ func (a *API) trainError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, train.ErrNotFound):
 		writeError(w, http.StatusNotFound, err.Error())
-	case errors.Is(err, train.ErrExists):
-		writeError(w, http.StatusConflict, err.Error())
 	case errors.Is(err, train.ErrNoNode), errors.Is(err, train.ErrRefused):
 		writeError(w, http.StatusConflict, err.Error())
 	case errors.As(err, &invalid):

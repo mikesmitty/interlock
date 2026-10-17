@@ -204,7 +204,13 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	trains := train.New(train.Options{Bus: local, Nodes: reg, File: trainFile, Logger: logger})
+	cvStore := train.OpenCVStore(filepath.Join(*dataDir, train.CVDirName), logger)
+	defer func() {
+		if err := cvStore.Close(); err != nil {
+			logger.Warn("saving CV values failed", "error", err)
+		}
+	}()
+	trains := train.New(train.Options{Bus: local, Nodes: reg, File: trainFile, Logger: logger, CVs: cvStore})
 	logger.Info("loaded the roster", "count", len(trainFile.List()))
 	reg.Subscribe(trains.HandleNode)
 	prog := programmer.New(programmer.Options{Bus: local, Memory: mem, Nodes: reg, Trains: trains, Logger: logger})

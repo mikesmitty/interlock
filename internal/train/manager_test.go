@@ -105,32 +105,43 @@ func TestRoster(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if tr.ID != "4014" || !tr.Long || !tr.Roster || tr.Functions[2] != "Whistle" || tr.Direction != train.Forward {
+	if tr.ID != "big-boy" || !tr.Long || !tr.Roster || tr.Functions[2] != "Whistle" || tr.Direction != train.Forward {
 		t.Errorf("created = %+v", tr)
 	}
-	if _, err := b.m.Create(train.Entry{Name: "Again", Address: 4014}); !errors.Is(err, train.ErrExists) {
-		t.Errorf("duplicate = %v", err)
+	// Locomotives may share an address.
+	again, err := b.m.Create(train.Entry{Name: "Big Boy", Address: 4014})
+	if err != nil || again.ID != "big-boy-2" {
+		t.Errorf("same name and address = %+v, %v", again, err)
 	}
 	if _, err := b.m.Create(train.Entry{Name: "Bad", Address: 0}); err == nil {
 		t.Error("address 0 should be invalid")
 	}
 	short, err := b.m.Create(train.Entry{Address: 3})
-	if err != nil || short.ID != "3" || short.Long || short.Name != "3 (short)" {
+	if err != nil || short.ID != "3-short" || short.Long || short.Name != "3 (short)" {
 		t.Errorf("short = %+v, %v", short, err)
 	}
-	long3, err := b.m.Create(train.Entry{Address: 3, Long: true})
-	if err != nil || long3.ID != "3l" || !long3.Long {
+	long3, err := b.m.Create(train.Entry{Name: "3", Address: 3, Long: true})
+	if err != nil || long3.ID != "locomotive-3" || !long3.Long {
 		t.Errorf("long 3 = %+v, %v", long3, err)
 	}
-	if got, ok := b.m.Get("4014"); !ok || got.Name != "Big Boy" {
-		t.Errorf("Get = %+v %v", got, ok)
+	if got, ok := b.m.Get("4014"); !ok || got.ID != "big-boy" {
+		t.Errorf("Get by address = %+v %v", got, ok)
 	}
-	if list := b.m.List(); len(list) != 3 || list[0].Name != "3 (long)" {
+	if got, ok := b.m.Get("3l"); !ok || got.ID != "locomotive-3" {
+		t.Errorf("Get by long address = %+v %v", got, ok)
+	}
+	if list := b.m.List(); len(list) != 4 || list[0].Name != "3" {
 		t.Errorf("List = %+v", list)
 	}
-	updated, err := b.m.Update("4014", train.Entry{Name: "UP 4014", Functions: map[int]string{0: "Headlight"}, Momentary: []int{2}})
-	if err != nil || updated.Name != "UP 4014" || updated.Address != 4014 || len(updated.Momentary) != 1 {
+	updated, err := b.m.Update(b.ctx, "big-boy", func(e *train.Entry) error {
+		e.Name, e.Functions, e.Momentary, e.RoadName = "UP 4014", map[int]string{0: "Headlight"}, []int{2}, " Union Pacific "
+		return nil
+	})
+	if err != nil || updated.Name != "UP 4014" || updated.Address != 4014 || len(updated.Momentary) != 1 || updated.RoadName != "Union Pacific" {
 		t.Errorf("Update = %+v, %v", updated, err)
+	}
+	if name := b.m.Name(4014, true); name != "Big Boy / UP 4014" {
+		t.Errorf("Name of a shared address = %q", name)
 	}
 
 	// The file holds the roster and loads back.
@@ -145,13 +156,13 @@ func TestRoster(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if entries := f.List(); len(entries) != 3 || entries[0].ID != "4014" || entries[0].Momentary[0] != 2 {
+	if entries := f.List(); len(entries) != 4 || entries[0].ID != "big-boy" || entries[0].Momentary[0] != 2 {
 		t.Errorf("reloaded = %+v", entries)
 	}
-	if err := b.m.Delete(b.ctx, "3l"); err != nil {
+	if err := b.m.Delete(b.ctx, "locomotive-3"); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := b.m.Get("3l"); ok {
+	if _, ok := b.m.Get("locomotive-3"); ok {
 		t.Error("deleted train still there")
 	}
 	if err := b.m.Delete(b.ctx, "nope"); !errors.Is(err, train.ErrNotFound) {
@@ -163,6 +174,182 @@ func TestRoster(t *testing.T) {
 	if _, err := train.OpenFile(b.file); err == nil || !strings.Contains(err.Error(), "colr") {
 		t.Errorf("unknown field = %v", err)
 	}
+	if err := os.WriteFile(b.file, []byte("trains:\n  - id: \"7\"\n    address: 5\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := train.OpenFile(b.file); err == nil || !strings.Contains(err.Error(), "address") {
+		t.Errorf("an ID that is another address = %v", err)
+	}
+}
+
+func TestOlderRoster(t *testing.T) {
+	// Entries from before IDs of their own are known by their address,
+	// until the address changes.
+	path := filepath.Join(t.TempDir(), "trains.yaml")
+	if err := os.WriteFile(path, []byte("trains:\n  - id: \"4014\"\n    name: Big Boy\n    address: 4014\n    long: true\n  - name: Switcher\n    address: 3\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f, err := train.OpenFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := newBench(t)
+	m := train.New(train.Options{Bus: b.local, File: f, Logger: slog.New(slog.DiscardHandler)})
+	if got, ok := m.Get("3"); !ok || got.Name != "Switcher" || got.ID != "3" {
+		t.Errorf("Get(3) = %+v %v", got, ok)
+	}
+	moved, err := m.Update(b.ctx, "4014", func(e *train.Entry) error { e.Address = 4015; return nil })
+	if err != nil || moved.ID != "big-boy" || moved.Address != 4015 {
+		t.Fatalf("moved = %+v, %v", moved, err)
+	}
+	if _, ok := m.Get("4014"); ok {
+		t.Error("the old address still has a train")
+	}
+	reloaded, err := train.OpenFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entries := reloaded.List(); len(entries) != 2 || entries[0].ID != "big-boy" || entries[1].ID != "3" {
+		t.Errorf("file after the move = %+v", entries)
+	}
+}
+
+func TestDecoders(t *testing.T) {
+	b := newBench(t)
+	cvDir := filepath.Join(t.TempDir(), train.CVDirName)
+	store := train.OpenCVStore(cvDir, nil)
+	m := train.New(train.Options{Bus: b.local, Logger: slog.New(slog.DiscardHandler), CVs: store})
+	esuID := uint32(16777468)
+	p42, err := m.Create(train.Entry{Name: "Kato P42", Address: 150, Functions: map[int]string{1: "Bell", 2: "Horn"}, Momentary: []int{2}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The first decoder is the fitted one.
+	p42, esu, err := m.AddDecoder(b.ctx, p42.ID, train.Decoder{Name: "ESU", File: "ESU_LokPilot5.xml", Family: "ESU LokPilot 5", Model: "LokPilot 5 nano DCC",
+		Identity: &train.Identity{Manufacturer: 151, Version: 255, ProductID: &esuID}}, false)
+	if err != nil || esu.ID != "esu" || p42.Installed != "esu" {
+		t.Fatalf("AddDecoder = %+v %+v, %v", p42, esu, err)
+	}
+	// Another one, not fitted, with its own address and labels.
+	p42, dt, err := m.AddDecoder(b.ctx, p42.ID, train.Decoder{File: "Digitrax_01x3.xml", Family: "Series 3", Model: "DN163K1A",
+		Identity: &train.Identity{Manufacturer: 129, Version: 50}, Address: 42, Functions: map[int]string{0: "Light"}}, false)
+	if err != nil || dt.ID != "dn163k1a" || p42.Installed != "esu" || p42.Address != 150 {
+		t.Fatalf("second decoder = %+v %+v, %v", p42, dt, err)
+	}
+	if _, err := m.Create(train.Entry{Name: "Thief", Address: 9, Decoders: []train.Decoder{{ID: "esu"}}}); err == nil {
+		t.Error("a decoder belongs to one locomotive")
+	}
+
+	// The Digitrax decoder on the programming track, while the ESU one
+	// is fitted: found by its own address and identity.
+	matches := m.FindDecoder(train.Identity{Manufacturer: 129, Version: 51}, 42, false)
+	if len(matches) != 1 || matches[0].Decoder != dt.ID || matches[0].Installed || !matches[0].Identity {
+		t.Errorf("FindDecoder(Digitrax) = %+v", matches)
+	}
+	matches = m.FindDecoder(train.Identity{Manufacturer: 151, Version: 255, ProductID: &esuID}, 150, true)
+	if len(matches) != 1 || matches[0].Decoder != esu.ID || !matches[0].Installed {
+		t.Errorf("FindDecoder(ESU) = %+v", matches)
+	}
+	// Moved to another address since: found by identity alone.
+	if matches = m.FindDecoder(train.Identity{Manufacturer: 151, ProductID: &esuID}, 3, false); len(matches) != 1 || matches[0].Decoder != esu.ID {
+		t.Errorf("FindDecoder(ESU at 3) = %+v", matches)
+	}
+
+	// Swapping decoders swaps the address and labels.
+	p42, err = m.Install(b.ctx, p42.ID, dt.ID)
+	if err != nil || p42.Installed != dt.ID || p42.Address != 42 || p42.Long || p42.Functions[0] != "Light" || len(p42.Momentary) != 0 {
+		t.Fatalf("Install(Digitrax) = %+v, %v", p42, err)
+	}
+	if _, ok := m.Get("150"); ok {
+		t.Error("nothing should drive 150 now")
+	}
+	p42, err = m.Install(b.ctx, p42.ID, esu.ID)
+	if err != nil || p42.Address != 150 || p42.Functions[2] != "Horn" || p42.Momentary[0] != 2 {
+		t.Fatalf("Install(ESU) = %+v, %v", p42, err)
+	}
+	if d, _ := p42.Decoder(dt.ID); d.Address != 42 || d.Functions[0] != "Light" {
+		t.Errorf("the Digitrax decoder kept %+v", d)
+	}
+
+	// CV values are kept per decoder.
+	if err := m.SetCVs(p42.ID, esu.ID, map[string]int{"1": 3, "0.255.261": 0xBC}, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.SetCVs(p42.ID, esu.ID, map[string]int{"29": 34}, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.SetCVs(p42.ID, "nope", map[string]int{"1": 3}, false); !errors.Is(err, train.ErrNotFound) {
+		t.Errorf("SetCVs on another decoder = %v", err)
+	}
+	if err := store.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(cvDir, "esu.yaml"))
+	if err != nil || !strings.Contains(string(data), "0.255.261: 188") || !strings.Contains(string(data), `"29": 34`) {
+		t.Errorf("CV file = %s, %v", data, err)
+	}
+	reopened := train.OpenCVStore(cvDir, nil)
+	if got, err := reopened.Get(esu.ID); err != nil || len(got.CVs) != 3 || got.CVs["1"] != 3 || got.Updated.IsZero() {
+		t.Errorf("reopened = %+v, %v", got, err)
+	}
+	if err := m.SetCVs(p42.ID, esu.ID, map[string]int{"8": 151}, true); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := m.CVs(p42.ID, esu.ID); len(got.CVs) != 1 {
+		t.Errorf("replaced = %+v", got)
+	}
+
+	if _, err := m.RemoveDecoder(b.ctx, p42.ID, esu.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(cvDir, "esu.yaml")); !os.IsNotExist(err) {
+		t.Errorf("the removed decoder's values are still there: %v", err)
+	}
+	got, _ := m.Get(p42.ID)
+	if got.Installed != "" || got.Address != 150 || len(got.Decoders) != 1 {
+		t.Errorf("after removing the fitted decoder = %+v", got)
+	}
+}
+
+func TestSharedAddress(t *testing.T) {
+	b := newBench(t)
+	a, err := b.m.Create(train.Entry{Name: "Challenger", Address: 1234})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := b.m.Create(train.Entry{Name: "Cab forward", Address: 1234})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.m.SetSpeed(b.ctx, a.ID, 12, train.Forward); err != nil {
+		t.Fatal(err)
+	}
+	// One train on the bus, so both entries see its state.
+	if got, _ := b.m.Get(c.ID); got.Speed != 12 || !got.Controlled {
+		t.Errorf("the other entry = %+v", got)
+	}
+	b.mu.Lock()
+	seen := map[string]bool{}
+	for _, ch := range b.changes {
+		if ch.Speed == 12 {
+			seen[ch.ID] = true
+		}
+	}
+	b.mu.Unlock()
+	if !seen[a.ID] || !seen[c.ID] {
+		t.Errorf("changes published for %v", seen)
+	}
+	// The address alone is not a roster entry to delete.
+	if err := b.m.Delete(b.ctx, "1234"); err == nil {
+		t.Error("deleting by address should name the roster entries instead")
+	}
+	// Deleting one leaves the train to the other.
+	if err := b.m.Delete(b.ctx, a.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := b.m.Get(c.ID); !got.Controlled {
+		t.Errorf("the train was released: %+v", got)
+	}
 }
 
 func TestDrive(t *testing.T) {
@@ -170,6 +357,7 @@ func TestDrive(t *testing.T) {
 	if _, err := b.m.Create(train.Entry{Name: "Challenger", Address: 1234}); err != nil {
 		t.Fatal(err)
 	}
+	// By address, which finds the roster entry.
 	tr, err := b.m.Acquire(b.ctx, "1234")
 	if err != nil {
 		t.Fatal(err)
@@ -333,5 +521,59 @@ func TestLayoutAndNotices(t *testing.T) {
 	b.mu.Unlock()
 	if n == 0 {
 		t.Error("no train changes were published")
+	}
+}
+
+func TestImport(t *testing.T) {
+	b := newBench(t)
+	store := train.OpenCVStore(filepath.Join(t.TempDir(), train.CVDirName), nil)
+	m := train.New(train.Options{Bus: b.local, Logger: slog.New(slog.DiscardHandler), CVs: store})
+	if _, err := m.Create(train.Entry{Name: "Old timer", Address: 9}); err != nil {
+		t.Fatal(err)
+	}
+	day := func(d int) time.Time { return time.Date(2025, 7, d, 0, 0, 0, 0, time.UTC) }
+	items := []train.Import{
+		{Key: "a", Entry: train.Entry{Name: "Kato P42 Digitrax", Address: 150, RoadName: "Amtrak", RoadNumber: "150"},
+			Decoder: &train.Decoder{File: "Digitrax_01x3.xml", Family: "Series 3", Model: "Series 3", Identity: &train.Identity{Manufacturer: 129}}, CVs: map[string]int{"1": 3, "8": 129}, Updated: day(1)},
+		{Key: "b", Entry: train.Entry{Name: "Kato P42 ESU", Address: 150, RoadName: "Amtrak", RoadNumber: "150", Functions: map[int]string{2: "Horn"}, Momentary: []int{2}},
+			Decoder: &train.Decoder{File: "ESU_LokPilot5.xml", Family: "ESU LokPilot 5", Model: "LokPilot 5 nano DCC"}, CVs: map[string]int{"1": 3, "8": 151}, Updated: day(2)},
+		{Key: "c", Entry: train.Entry{Name: "Test bench", Address: 2350},
+			Decoder: &train.Decoder{File: "ESU_LokPilot5.xml", Model: "LokPilot 5 nano DCC"}, CVs: map[string]int{"8": 151}},
+		{Key: "d", Entry: train.Entry{Name: "old timer", Address: 9}},
+	}
+	plan := m.PlanImport(items)
+	want := []train.ImportStep{
+		{Key: "a", Action: train.ImportDecoder, Into: "b", Name: "Digitrax", DecoderName: "Series 3"},
+		{Key: "b", Action: train.ImportNew, Name: "Kato P42", DecoderName: "ESU"},
+		{Key: "c", Action: train.ImportNew, Name: "Test bench", DecoderName: "LokPilot 5 nano DCC"},
+		{Key: "d", Action: train.ImportSkip, Into: "old-timer", Name: "old timer"},
+	}
+	for i, w := range want {
+		got := plan[i]
+		got.Note = ""
+		if got != w {
+			t.Errorf("step %d = %+v, want %+v", i, plan[i], w)
+		}
+	}
+
+	if _, err := m.ApplyImport(b.ctx, items, []train.ImportStep{{Key: "a", Action: train.ImportDecoder, Into: "nowhere"}}); err == nil {
+		t.Error("a decoder for no locomotive should be refused")
+	}
+	res, err := m.ApplyImport(b.ctx, items, plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Trains) != 2 || res.Decoders != 3 || res.CVs != 5 || res.Skipped != 1 {
+		t.Errorf("result = %+v", res)
+	}
+	p42, ok := m.Get("kato-p42")
+	if !ok || len(p42.Decoders) != 2 || p42.Installed != "esu" || p42.Address != 150 || p42.Functions[2] != "Horn" || p42.RoadName != "Amtrak" {
+		t.Fatalf("P42 = %+v", p42)
+	}
+	if d, _ := p42.Decoder("digitrax"); d.Address != 150 || !d.Long || d.Identity == nil {
+		t.Errorf("Digitrax decoder = %+v", d)
+	}
+	if got, _ := m.CVs("kato-p42", "digitrax"); got.CVs["8"] != 129 || !got.Updated.Equal(day(1)) {
+		t.Errorf("Digitrax CVs = %+v", got)
 	}
 }

@@ -122,17 +122,18 @@ func TestTrainEndpoints(t *testing.T) {
 		t.Fatalf("GET trains = %d %v", rec.Code, body)
 	}
 	rec, body = ta.do(t, http.MethodPost, "/api/v1/trains", `{"name": "Challenger", "address": 1234, "functions": {"0": "Headlight"}}`)
-	if rec.Code != http.StatusCreated || body["id"] != "1234" || body["long"] != true || body["roster"] != true {
+	if rec.Code != http.StatusCreated || body["id"] != "challenger" || body["long"] != true || body["roster"] != true {
 		t.Fatalf("POST trains = %d %v", rec.Code, body)
 	}
-	if rec, _ = ta.do(t, http.MethodPost, "/api/v1/trains", `{"name": "Again", "address": 1234}`); rec.Code != http.StatusConflict {
-		t.Errorf("duplicate = %d", rec.Code)
+	// Locomotives may share an address.
+	if rec, body = ta.do(t, http.MethodPost, "/api/v1/trains", `{"name": "Again", "address": 1234}`); rec.Code != http.StatusCreated || body["id"] != "again" {
+		t.Errorf("same address = %d %v", rec.Code, body)
 	}
 	if rec, _ = ta.do(t, http.MethodPost, "/api/v1/trains", `{"name": "Bad", "address": 0}`); rec.Code != http.StatusBadRequest {
 		t.Errorf("invalid = %d", rec.Code)
 	}
-	rec, body = ta.do(t, http.MethodPatch, "/api/v1/trains/1234", `{"name": "UP 3985"}`)
-	if rec.Code != http.StatusOK || body["name"] != "UP 3985" {
+	rec, body = ta.do(t, http.MethodPatch, "/api/v1/trains/challenger", `{"name": "UP 3985", "road_name": "Union Pacific"}`)
+	if rec.Code != http.StatusOK || body["name"] != "UP 3985" || body["road_name"] != "Union Pacific" || body["functions"] == nil {
 		t.Fatalf("PATCH = %d %v", rec.Code, body)
 	}
 
@@ -195,9 +196,10 @@ func TestTrainEndpoints(t *testing.T) {
 		t.Errorf("empty layout = %d", rec.Code)
 	}
 
-	rec, _ = ta.do(t, http.MethodDelete, "/api/v1/trains/1234", "")
-	if rec.Code != http.StatusNoContent {
-		t.Fatalf("DELETE = %d", rec.Code)
+	for _, id := range []string{"challenger", "again"} {
+		if rec, _ = ta.do(t, http.MethodDelete, "/api/v1/trains/"+id, ""); rec.Code != http.StatusNoContent {
+			t.Fatalf("DELETE %s = %d", id, rec.Code)
+		}
 	}
 	rec, body = ta.do(t, http.MethodGet, "/api/v1/trains", "")
 	if list := body["trains"].([]any); rec.Code != http.StatusOK || len(list) != 1 {

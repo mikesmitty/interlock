@@ -80,7 +80,7 @@ func newDecoderAPI(t *testing.T) (*testAPI, *fakeDecoders, *cvProgrammer) {
 			CVs:         []decoder.CV{{Name: "29"}, {Name: "16.0.259"}, {Name: "16.0.260"}, {Name: "8", ReadOnly: true}, {Name: "64", WriteOnly: true}, {Name: "99", InfoOnly: true}},
 		},
 	}
-	prog := &cvProgrammer{cvs: map[int]int{8: 151, 7: 255, 261: 0x96, 262: 0, 263: 0, 264: 2, 29: 6, 259: 40, 260: 41}}
+	prog := &cvProgrammer{cvs: map[int]int{8: 151, 7: 255, 261: 0x96, 262: 0, 263: 0, 264: 2, 29: 6, 1: 3, 259: 40, 260: 41}}
 	a := New(Deps{Node: fakeNode{}, Registry: newFakeRegistry(), Bus: &fakeBus{}, Decoders: fd, Programmer: prog})
 	mux := http.NewServeMux()
 	a.Register(mux)
@@ -141,7 +141,10 @@ func TestIdentifyEndpoint(t *testing.T) {
 		len(cands) != 1 || cands[0].(map[string]any)["model"] != "LokSound 5" || cands[0].(map[string]any)["exact"] != true {
 		t.Errorf("identify = %v", body)
 	}
-	if got := strings.Join(prog.log, " "); got != "R8 R7 W31=0 W32=255 R261 R262 R263 R264" {
+	if addr := body["address"].(map[string]any); addr["address"] != float64(3) || addr["long"] != false || len(body["roster"].([]any)) != 0 {
+		t.Errorf("address = %v, roster %v", body["address"], body["roster"])
+	}
+	if got := strings.Join(prog.log, " "); got != "R8 R7 W31=0 W32=255 R261 R262 R263 R264 R29 R1" {
 		t.Errorf("identify ran %s", got)
 	}
 

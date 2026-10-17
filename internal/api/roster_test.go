@@ -1,0 +1,153 @@
+package api
+
+import (
+	"bytes"
+	"encoding/json"
+	"mime/multipart"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/mikesmitty/interlock/internal/train"
+)
+
+func newRosterAPI(t *testing.T) (*testAPI, *cvProgrammer) {
+	t.Helper()
+	ta, fd, prog := newDecoderAPI(t)
+	store := train.OpenCVStore(filepath.Join(t.TempDir(), train.CVDirName), nil)
+	trains := train.New(train.Options{Bus: &fakeTrainBus{}, SearchWindow: time.Millisecond, Functions: 3, CVs: store})
+	a := New(Deps{Node: fakeNode{}, Registry: newFakeRegistry(), Bus: &fakeBus{}, Decoders: fd, Programmer: prog, Trains: trains})
+	mux := http.NewServeMux()
+	a.Register(mux)
+	ta.api, ta.mux = a, mux
+	return ta, prog
+}
+
+func TestRosterDecoderEndpoints(t *testing.T) {
+	ta, prog := newRosterAPI(t)
+	if rec, body := ta.do(t, http.MethodPost, "/api/v1/trains", `{"name": "GP40", "address": 6641}`); rec.Code != http.StatusCreated || body["id"] != "gp40" {
+		t.Fatalf("POST trains = %d %v", rec.Code, body)
+	}
+	if rec, _ := ta.do(t, http.MethodPost, "/api/v1/trains/gp40/decoders", `{"file": "Nope.xml", "model": "X"}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("unknown definition = %d", rec.Code)
+	}
+	rec, body := ta.do(t, http.MethodPost, "/api/v1/trains/gp40/decoders",
+		`{"file": "ESU_LokSound5.xml", "family": "ESU LokSound 5", "model": "LokSound 5", "identity": {"manufacturer": 151, "version": 255, "product_id": 33554582}}`)
+	if rec.Code != http.StatusCreated || body["decoder"].(map[string]any)["id"] != "loksound-5" || body["train"].(map[string]any)["installed"] != "loksound-5" {
+		t.Fatalf("POST decoders = %d %v", rec.Code, body)
+	}
+
+	// Values read and written for a roster decoder are saved for it.
+	const def = `"file":"ESU_LokSound5.xml","model":"LokSound 5","locomotive":"gp40","decoder":"loksound-5",`
+	if rec, body := ta.do(t, http.MethodPost, "/api/v1/programming/decoder-cv", `{`+def+`"cv":"16.0.259"}`); rec.Code != http.StatusOK || body["ok"] != true || body["error"] != nil {
+		t.Fatalf("read = %d %v", rec.Code, body)
+	}
+	if rec, body := ta.do(t, http.MethodPost, "/api/v1/programming/decoder-cv", `{`+def+`"cv":"29","write":true,"value":38}`); rec.Code != http.StatusOK || body["ok"] != true {
+		t.Fatalf("write = %d %v", rec.Code, body)
+	}
+	if rec, _ := ta.do(t, http.MethodPost, "/api/v1/programming/decoder-cv", `{"file":"ESU_LokSound5.xml","model":"LokSound 5","locomotive":"gp40","decoder":"nope","cv":"29"}`); rec.Code != http.StatusNotFound {
+		t.Errorf("another decoder = %d", rec.Code)
+	}
+	rec, body = ta.do(t, http.MethodGet, "/api/v1/trains/gp40/decoders/loksound-5/cvs", "")
+	if cvs := body["cvs"].(map[string]any); rec.Code != http.StatusOK || cvs["16.0.259"] != float64(40) || cvs["29"] != float64(38) || body["updated"] == nil {
+		t.Fatalf("GET cvs = %d %v", rec.Code, body)
+	}
+	if rec, body = ta.do(t, http.MethodPatch, "/api/v1/trains/gp40/decoders/loksound-5/cvs", `{"cvs": {"3": 10}}`); rec.Code != http.StatusOK || len(body["cvs"].(map[string]any)) != 3 {
+		t.Errorf("PATCH cvs = %d %v", rec.Code, body)
+	}
+	if rec, body = ta.do(t, http.MethodPut, "/api/v1/trains/gp40/decoders/loksound-5/cvs", `{"cvs": {"3": 11}}`); rec.Code != http.StatusOK || len(body["cvs"].(map[string]any)) != 1 {
+		t.Errorf("PUT cvs = %d %v", rec.Code, body)
+	}
+
+	// Identify names the roster decoder on the track.
+	prog.cvs[29], prog.cvs[17], prog.cvs[18] = 0x26, 0xD9, 0xF1
+	rec, body = ta.do(t, http.MethodPost, "/api/v1/programming/identify", "")
+	roster := body["roster"].([]any)
+	if rec.Code != http.StatusOK || len(roster) != 1 {
+		t.Fatalf("identify = %d %v", rec.Code, body)
+	}
+	if m := roster[0].(map[string]any); m["train"] != "gp40" || m["decoder"] != "loksound-5" || m["installed"] != true || m["identity"] != true {
+		t.Errorf("roster match = %v", m)
+	}
+
+	if rec, body = ta.do(t, http.MethodPatch, "/api/v1/trains/gp40/decoders/loksound-5", `{"name": "Sound"}`); rec.Code != http.StatusOK || body["decoders"].([]any)[0].(map[string]any)["name"] != "Sound" {
+		t.Errorf("PATCH decoder = %d %v", rec.Code, body)
+	}
+	if rec, body = ta.do(t, http.MethodPost, "/api/v1/trains/gp40/install", `{"decoder": ""}`); rec.Code != http.StatusOK || body["installed"] != nil {
+		t.Errorf("install none = %d %v", rec.Code, body)
+	}
+	if rec, _ = ta.do(t, http.MethodPost, "/api/v1/trains/gp40/install", `{}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("install without decoder = %d", rec.Code)
+	}
+	if rec, body = ta.do(t, http.MethodDelete, "/api/v1/trains/gp40/decoders/loksound-5", ""); rec.Code != http.StatusOK || body["decoders"] != nil {
+		t.Errorf("DELETE decoder = %d %v", rec.Code, body)
+	}
+	if rec, _ = ta.do(t, http.MethodGet, "/api/v1/trains/gp40/decoders/loksound-5/cvs", ""); rec.Code != http.StatusNotFound {
+		t.Errorf("cvs of a removed decoder = %d", rec.Code)
+	}
+}
+
+const importLocomotive = `<?xml version="1.0" encoding="UTF-8"?>
+<locomotive-config>
+  <locomotive id="GP40 1" fileName="GP40_1.xml" roadNumber="6641" roadName="CSX" dccAddress="6641">
+    <decoder model="LokSound 5" family="ESU LokSound 5" />
+    <locoaddress><dcclocoaddress number="6641" longaddress="yes" /></locoaddress>
+    <functionlabels><functionlabel num="2" lockable="false">Horn</functionlabel></functionlabels>
+    <values><CVvalue name="8" value="151" /><CVvalue name="16.0.259" value="12" /></values>
+  </locomotive>
+</locomotive-config>`
+
+func postImport(t *testing.T, ta *testAPI, plan string) (int, map[string]any) {
+	t.Helper()
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	fw, err := mw.CreateFormFile("file", "GP40_1.xml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = fw.Write([]byte(importLocomotive))
+	if plan != "" {
+		_ = mw.WriteField("plan", plan)
+	}
+	_ = mw.Close()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/trains/import", &buf)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	rec := httptest.NewRecorder()
+	ta.mux.ServeHTTP(rec, req)
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("import: %q", rec.Body)
+	}
+	return rec.Code, body
+}
+
+func TestImportEndpoint(t *testing.T) {
+	ta, _ := newRosterAPI(t)
+	code, body := postImport(t, ta, "")
+	if code != http.StatusOK {
+		t.Fatalf("preview = %d %v", code, body)
+	}
+	locos := body["locomotives"].([]any)
+	l := locos[0].(map[string]any)
+	if len(locos) != 1 || l["key"] != "GP40 1" || l["cv_count"] != float64(2) || l["definition"] != true || l["decoder"].(map[string]any)["file"] != "ESU_LokSound5.xml" {
+		t.Fatalf("preview = %v", body)
+	}
+	if rec, body := ta.do(t, http.MethodGet, "/api/v1/trains", ""); len(body["trains"].([]any)) != 0 {
+		t.Fatalf("the preview changed the roster: %d %v", rec.Code, body)
+	}
+	plan, _ := json.Marshal(body["plan"])
+	code, body = postImport(t, ta, string(plan))
+	if code != http.StatusOK || body["error"] != nil {
+		t.Fatalf("import = %d %v", code, body)
+	}
+	res := body["result"].(map[string]any)
+	tr := res["trains"].([]any)[0].(map[string]any)
+	if res["decoders"] != float64(1) || res["cvs"] != float64(2) || tr["id"] != "gp40-1" || tr["road_name"] != "CSX" {
+		t.Fatalf("result = %v", res)
+	}
+	if code, body = postImport(t, ta, `[{"key": "GP40 1", "action": "fly"}]`); code != http.StatusBadRequest {
+		t.Errorf("bad plan = %d %v", code, body)
+	}
+}
