@@ -31,7 +31,8 @@ config directory.
 
 - `cmd/interlock/` — main: flags, config, wiring, graceful shutdown.
 - `cmd/simnode/` — simulated node that joins the hub port; use it to
-  develop and test without hardware.
+  develop and test without hardware. As an outpost it moves its servos on
+  command and walks a locomotive around its tracks (`-pace`).
 - `openlcb/` — public OpenLCB protocol packages. **Must not import
   `internal/`**; other Go programs should be able to use them.
   - `openlcb` core types (NodeID, EventID, MTI, Message, SNIP, PIP, errors)
@@ -49,9 +50,12 @@ config directory.
     tree, `Variables()` the flat address list, `Layout()` the expanded
     JSON form; values are strings on the wire and `Encode`/`Decode`
     translate them
+  - `openlcb/detector` the DCC detector event protocol: a 16-bit range
+    per detector whose low bytes report locomotives entering and leaving
   - `openlcb/sim` simulated nodes built from the embedded copies of the
     canbus-outpost and simple-dcc CDI files (keep them in sync with the
-    firmware repos)
+    firmware repos); `Outpost` adds the firmware's behavior (servos,
+    detectors, Identify replies) over the plain node
 - `internal/config` — `interlock.yaml` loading and validation.
 - `internal/store` — sqlite (modernc, no cgo). Schema changes are new files
   in `internal/store/migrations/NNNN_name.sql`; never edit a released one.
@@ -63,6 +67,17 @@ config directory.
 - `internal/nodeconfig` — reads and writes configuration values keyed by
   `space:address` through the node's layout; validates a whole batch
   before writing any of it.
+- `internal/eventtable` — the named event table: every eventid variable
+  of every node with its value, read from the segments that hold events
+  (so neighboring descriptions and enables are available too), cached in
+  the store, re-read when a node returns or its configuration is written.
+- `internal/profile` — profiles are YAML data that turn a node's groups
+  into entities; shipped ones live in `profiles/` (canbus-outpost,
+  simple-dcc, generic guesser), user ones in `<data>/profiles/`.
+- `internal/entity` — kinds (turnout, block, reporter, sensor, switch,
+  button), the manager that builds entities from profiles over the event
+  table, follows Event Reports and Identified replies, sends commands,
+  and keeps overrides and hand-built entities in `<data>/entities.yaml`.
 - `internal/monitor` — rolling log of frames with decoding for display.
 - `internal/api` — HTTP API under `/api/v1`; JSON errors for 404 and 405;
   server-sent events at `/api/v1/events`.

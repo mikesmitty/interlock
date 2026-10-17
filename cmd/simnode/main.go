@@ -2,10 +2,13 @@
 // hardware. It connects to Interlock's hub port over GridConnect TCP and
 // behaves like a canbus-outpost: it answers identification, serves the
 // outpost's real CDI with a configuration space behind it that can be
-// read and written, and produces an event every second.
+// read and written, moves its servos when their throw and close events
+// arrive and reports the feedback, and walks a locomotive around its
+// four tracks so the blocks and reporters have something to show.
 //
 //	go run ./cmd/simnode                 # connects to 127.0.0.1:12021
 //	go run ./cmd/simnode -hub host:port
+//	go run ./cmd/simnode -pace 0         # no locomotive
 //	go run ./cmd/simnode -cdi cs         # simulate the command station instead
 package main
 
@@ -21,33 +24,31 @@ import (
 
 	"github.com/mikesmitty/interlock/openlcb"
 	"github.com/mikesmitty/interlock/openlcb/can"
+	"github.com/mikesmitty/interlock/openlcb/detector"
 	"github.com/mikesmitty/interlock/openlcb/node"
 	"github.com/mikesmitty/interlock/openlcb/sim"
 	"github.com/mikesmitty/interlock/openlcb/transport"
 )
+
+// runner is what both kinds of simulated node offer main.
+type runner interface {
+	Run(ctx context.Context) error
+	HandleFrame(f can.Frame)
+}
 
 func main() {
 	hubAddr := flag.String("hub", "127.0.0.1:12021", "Interlock hub address (GridConnect TCP)")
 	idText := flag.String("id", "0A.00.00.00.00.42", "node ID to simulate")
 	name := flag.String("name", "Sim Outpost", "user name reported in SNIP and the configuration")
 	which := flag.String("cdi", "outpost", "which device to simulate: outpost or cs (command station)")
-	interval := flag.Duration("events", time.Second, "how often to produce an event; 0 for never")
+	pace := flag.Duration("pace", 6*time.Second, "how often the locomotive moves to the next track; 0 for never")
+	address := flag.Int("address", 1234, "DCC address of the locomotive")
 	verbose := flag.Bool("v", false, "log every frame")
 	flag.Parse()
 
 	id, err := openlcb.ParseNodeID(*idText)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "simnode:", err)
-		os.Exit(2)
-	}
-	var cdiXML []byte
-	switch *which {
-	case "outpost":
-		cdiXML = sim.OutpostCDI
-	case "cs":
-		cdiXML = sim.CommandStationCDI
-	default:
-		fmt.Fprintln(os.Stderr, "simnode: -cdi must be outpost or cs")
 		os.Exit(2)
 	}
 	level := slog.LevelInfo
@@ -59,7 +60,7 @@ func main() {
 	defer stop()
 
 	link := transport.NewGridConnect("hub", transport.TCPDialer{Address: *hubAddr}, logger)
-	peer, err := sim.New(node.Config{
+	cfg := node.Config{
 		ID:   id,
 		SNIP: openlcb.SNIP{UserName: *name, UserDescription: "Simulated node from cmd/simnode"},
 		Send: func(f can.Frame) {
@@ -68,7 +69,18 @@ func main() {
 			}
 		},
 		Logger: logger,
-	}, cdiXML)
+	}
+	var peer runner
+	var outpost *sim.Outpost
+	switch *which {
+	case "outpost":
+		outpost, err = sim.NewOutpost(cfg)
+		peer = outpost
+	case "cs":
+		peer, err = sim.New(cfg, sim.CommandStationCDI)
+	default:
+		err = fmt.Errorf("-cdi must be outpost or cs, not %q", *which)
+	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "simnode:", err)
 		stop()
@@ -95,25 +107,38 @@ func main() {
 		time.Sleep(200 * time.Millisecond)
 	}()
 
-	if *interval <= 0 {
+	if outpost == nil || *pace <= 0 {
 		<-ctx.Done()
 		return
 	}
-	ticker := time.NewTicker(*interval)
+	// A locomotive runs around the four tracks, facing east, and turns
+	// every lap.
+	loco := sim.Locomotive{Address: detector.Address{Type: detector.Long, Number: uint16(*address)}, Facing: "east"}
+	if *address <= 127 {
+		loco.Address.Type = detector.Short
+	}
+	ticker := time.NewTicker(*pace)
 	defer ticker.Stop()
-	n := 0
+	track := -1
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if peer.State() != node.StateInitialized {
-				continue
+			next := (track + 1) % sim.OutpostTracks
+			if track >= 0 {
+				outpost.SetTrack(track, nil)
 			}
-			n++
-			if err := peer.SendEvent(ctx, id.Event(uint16(n%2))); err != nil {
-				logger.Debug("event", "error", err)
+			if next == 0 && track >= 0 {
+				if loco.Facing == "east" {
+					loco.Facing = "west"
+				} else {
+					loco.Facing = "east"
+				}
 			}
+			outpost.SetTrack(next, &loco)
+			logger.Info("locomotive moved", "address", loco.Address.String(), "track", next+1, "facing", loco.Facing)
+			track = next
 		}
 	}
 }

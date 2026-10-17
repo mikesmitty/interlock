@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { api, aliasHex, nodeModel, nodeName, type CdiStatus, type MonitorEntry, type NodeInfo } from "../api";
 import { ConfigForm } from "../components/ConfigForm";
+import { EntityRows } from "../components/EntityRows";
 import { Status } from "../components/Lamp";
 import { Empty, Page } from "../components/Page";
 import { clockTime, relativeTime, useNow } from "../format";
@@ -10,7 +11,7 @@ import { describeEndpoint } from "./Monitor";
 
 export function NodeDetail() {
   const { id = "" } = useParams();
-  const { nodes, entries, loaded } = useBus();
+  const { nodes, entries, entities, loaded } = useBus();
   const now = useNow();
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
@@ -139,6 +140,8 @@ export function NodeDetail() {
         </dl>
       </div>
 
+      {!node.local && <NodeEntities nodeId={node.id} entities={Object.values(entities)} />}
+
       {configurable && <Configuration node={node} />}
 
       <h2 style={{ marginTop: "1.5rem" }}>Recent traffic</h2>
@@ -179,6 +182,31 @@ export function NodeDetail() {
         </div>
       )}
     </Page>
+  );
+}
+
+/** The entities built from this node, with their live state. */
+function NodeEntities({ nodeId, entities }: { nodeId: string; entities: import("../api").Entity[] }) {
+  const mine = entities.filter((e) => e.node === nodeId && !e.hidden);
+  if (mine.length === 0) return null;
+  const suggested = mine.filter((e) => e.suggested).length;
+  return (
+    <>
+      <div className="cfg-segment__head" style={{ marginTop: "1.75rem" }}>
+        <h2>Entities</h2>
+        <span className="cfg-segment__status">
+          {suggested > 0 ? `${suggested} suggested · ` : ""}
+          <Link to="/entities">all entities</Link>
+        </span>
+      </div>
+      <div className="panel">
+        <table className="table ent-table">
+          <tbody>
+            <EntityRows entities={mine} compact />
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }
 

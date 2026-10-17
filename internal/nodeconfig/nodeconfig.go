@@ -38,6 +38,13 @@ type Service struct {
 	mem     Memory
 	layouts Layouts
 	log     *slog.Logger
+	written func(openlcb.NodeID)
+}
+
+// OnWritten sets a function called after values are written to a node,
+// so caches of its configuration can be refreshed.
+func (s *Service) OnWritten(fn func(openlcb.NodeID)) {
+	s.written = fn
 }
 
 // New returns a service.
@@ -157,19 +164,21 @@ func (s *Service) Write(ctx context.Context, id openlcb.NodeID, values Values) (
 		return batch[i].v.Address < batch[j].v.Address
 	})
 	result := &WriteResult{Written: []string{}}
+	defer func() {
+		if len(result.Written) > 0 {
+			s.updateComplete(ctx, id)
+			if s.written != nil {
+				s.written(id)
+			}
+		}
+	}()
 	for _, p := range batch {
 		if err := s.mem.Write(ctx, id, p.v.Space, p.v.Address, p.data); err != nil {
 			result.Failed = p.key
 			result.FailedError = err.Error()
-			if len(result.Written) > 0 {
-				s.updateComplete(ctx, id)
-			}
 			return result, err
 		}
 		result.Written = append(result.Written, p.key)
-	}
-	if len(result.Written) > 0 {
-		s.updateComplete(ctx, id)
 	}
 	return result, nil
 }

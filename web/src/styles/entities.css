@@ -1,0 +1,316 @@
+/* Entities: the layout as rows with a lamp, a name and a lever. */
+.ent-section {
+  margin-top: 1.5rem;
+}
+
+.ent-section h2 {
+  margin-bottom: 0.5rem;
+}
+
+.ent-section > p {
+  margin-bottom: 0.5rem;
+  font-size: var(--fs-sm);
+}
+
+.ent-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-top: 1.25rem;
+}
+
+.ent-bar .input {
+  flex: 1 1 14rem;
+}
+
+.ent-bar__count {
+  margin-left: auto;
+  color: var(--ivory-faint);
+  font-family: var(--font-condensed);
+  font-size: var(--fs-sm);
+}
+
+.ent-table td {
+  vertical-align: middle;
+}
+
+.ent-row.is-hidden .cell-title,
+.ent-row.is-hidden .ent-state {
+  color: var(--ivory-faint);
+}
+
+.ent-row.is-editing td {
+  background: var(--enamel-hover);
+}
+
+.ent-state {
+  white-space: nowrap;
+  width: 8rem;
+}
+
+.ent-state .lamp {
+  margin-right: 0.5rem;
+}
+
+.ent-kind {
+  color: var(--ivory-dim);
+  white-space: nowrap;
+  width: 6rem;
+}
+
+.ent-name {
+  min-width: 12rem;
+}
+
+.ent-tag {
+  display: inline-block;
+  margin-left: 0.5rem;
+  padding: 0 0.4rem;
+  border: 1px solid var(--lamp-amber);
+  border-radius: var(--radius);
+  color: var(--lamp-amber);
+  font-size: var(--fs-sm);
+  font-weight: 400;
+  vertical-align: 0.1em;
+}
+
+.ent-detail {
+  color: var(--ivory-dim);
+  font-size: var(--fs-sm);
+}
+
+.ent-locos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+}
+
+.ent-loco__name {
+  color: var(--ivory);
+  font-weight: 500;
+}
+
+.ent-controls {
+  white-space: nowrap;
+  text-align: right;
+}
+
+.ent-controls .btn + .btn,
+.ent-controls .lever + .btn {
+  margin-left: 0.5rem;
+}
+
+.ent-controls--decide {
+  width: 12rem;
+}
+
+.ent-menu {
+  width: 4rem;
+  text-align: right;
+  font-family: var(--font-condensed);
+}
+
+.ent-events {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 1rem;
+}
+
+.ent-event code {
+  color: var(--ivory);
+}
+
+/* The lever: a two position control. The set position reads as engraved
+   and lit; the other is brass, since pressing it does something. */
+.lever {
+  display: inline-flex;
+  border: 1px solid var(--enamel-line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  vertical-align: middle;
+}
+
+.lever__opt {
+  font-family: var(--font-condensed);
+  font-weight: 500;
+  font-size: var(--fs-sm);
+  padding: 0.3rem 0.8rem;
+  border: 0;
+  background: transparent;
+  color: var(--brass);
+  cursor: pointer;
+  line-height: 1.3;
+  min-width: 4.5rem;
+}
+
+.lever__opt + .lever__opt {
+  border-left: 1px solid var(--enamel-line);
+}
+
+.lever__opt:hover:not(:disabled):not([aria-pressed="true"]) {
+  background: color-mix(in srgb, var(--brass) 12%, transparent);
+  color: var(--brass-hover);
+}
+
+.lever__opt[aria-pressed="true"] {
+  background: var(--enamel-deep);
+  color: var(--ivory);
+  box-shadow: inset 0 -2px 0 var(--brass);
+  cursor: default;
+}
+
+.lever__opt:disabled {
+  color: var(--ivory-faint);
+  cursor: default;
+}
+
+.lever__opt:disabled[aria-pressed="true"] {
+  color: var(--ivory-dim);
+  box-shadow: inset 0 -2px 0 var(--enamel-line);
+}
+
+.btn--sm {
+  font-size: var(--fs-sm);
+  padding: 0.3rem 0.7rem;
+}
+
+/* The inline editor and the add form */
+.ent-editor td {
+  background: var(--enamel-deep);
+  padding: 0.9rem 1rem 1rem;
+}
+
+.ent-add {
+  padding: 1rem 1.25rem 1.25rem;
+  margin-top: 1rem;
+}
+
+.ent-add h2 {
+  margin-bottom: 0.25rem;
+}
+
+.ent-add > p {
+  margin-bottom: 0.75rem;
+}
+
+.ent-edit__row,
+.ent-edit__events {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.5rem;
+  align-items: flex-end;
+}
+
+.ent-edit__events {
+  margin-top: 0.75rem;
+}
+
+.ent-edit__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-family: var(--font-condensed);
+  color: var(--ivory-dim);
+  font-size: var(--fs-sm);
+}
+
+.ent-edit__field .input {
+  min-width: 12rem;
+}
+
+.ent-edit__field .input--event {
+  min-width: 17rem;
+}
+
+.ent-edit__value {
+  font-family: var(--font-sans);
+  font-size: var(--fs-md);
+  color: var(--ivory);
+  line-height: 2.1;
+}
+
+.ent-edit__hint {
+  margin-top: 0.75rem;
+  font-size: var(--fs-sm);
+}
+
+.ent-edit__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin-top: 1rem;
+}
+
+.ent-edit__actions .confirm {
+  margin-left: auto;
+}
+
+.ent-edit .field__error {
+  margin-top: 0.75rem;
+}
+
+@media (max-width: 720px) {
+  .ent-table,
+  .ent-table tbody {
+    display: block;
+  }
+
+  .ent-table tr {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 0.2rem 0.75rem;
+    padding: 0.6rem 0.75rem;
+    border-bottom: 1px solid var(--enamel-line);
+  }
+
+  .ent-table tr:last-child {
+    border-bottom: 0;
+  }
+
+  .ent-table td {
+    display: block;
+    padding: 0;
+    border: 0;
+    width: auto;
+  }
+
+  .ent-table .ent-state {
+    grid-column: 1;
+    grid-row: 1;
+    font-size: var(--fs-sm);
+  }
+
+  .ent-table .ent-menu {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .ent-table .ent-name {
+    grid-column: 1 / -1;
+  }
+
+  .ent-table .ent-detail {
+    grid-column: 1 / -1;
+  }
+
+  .ent-table .ent-detail:empty {
+    display: none;
+  }
+
+  .ent-table .ent-controls {
+    grid-column: 1 / -1;
+    text-align: left;
+    margin-top: 0.25rem;
+  }
+
+  .ent-table .ent-kind {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .ent-editor td {
+    grid-column: 1 / -1;
+  }
+}

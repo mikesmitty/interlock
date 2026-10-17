@@ -127,12 +127,19 @@ openlcb/cdi/              CDI XML parser, element tree, byte layout
                           replicated groups), value codec, hints
 openlcb/traction/         train control message encode/decode, float16,
                           consist flags, search event encoding
-openlcb/detector/         DCC detector event range encode/decode
+openlcb/detector/         DCC detector event decoding (entry, exit,
+                          facing, address) over a 16-bit event range
 openlcb/wellknown/        well-known event IDs and ranges
-openlcb/sim/              simulated nodes for tests and UI development
+openlcb/sim/              simulated nodes for tests and UI development;
+                          Outpost behaves like the canbus-outpost firmware
 internal/registry/        discovered nodes, CDI reads, sqlite persistence
 internal/nodeconfig/      values in and out of a node through its layout
-internal/entity/          entity model and the profile system
+internal/eventtable/      the named event table: every node's eventid
+                          variables with their values, cached in sqlite
+internal/profile/         YAML profiles that turn CDI groups into entities;
+                          shipped ones embedded, user ones in the data dir
+internal/entity/          entity kinds and the manager: state from the bus,
+                          commands, overrides and manual entities
 internal/automation/      automation engine
 internal/store/           sqlite access, migrations
 internal/config/          yaml config dir loading and writing
@@ -426,9 +433,34 @@ train reservation protocol, function description information (space 0xFA).
 - Deferred from Phase 2: an "identify" action. The standards have no
   general one; canbus-outpost exposes its identify LED as an ordinary
   configuration variable, which the form already covers. A profile can
-  surface it as a button in Phase 3.
-- Next: Phase 3, entities and profiles (named event table from CDI,
-  profile loader, entity model and page, DCC detector decoding).
+  surface it as a button later.
+- Phase 3 done (2026-10-16): `openlcb.EventRange` and `openlcb/detector`
+  (DCC detector event decoding as canbus-outpost implements the working
+  note), `internal/eventtable` (every eventid variable of every node with
+  its value, read from the segments that hold events, cached in sqlite,
+  re-read when a node returns or is written to, with producer and
+  consumer directions from Identify Events replies), `internal/profile`
+  (YAML profiles: group, role bindings by exact name or `~regexp`, name
+  templates, enable variables, literal event IDs; shipped profiles for
+  canbus-outpost and simple-dcc plus a generic guesser marked
+  `suggest`), `internal/entity` (turnout, block, reporter, sensor,
+  switch, button; state from Event Reports and Identified replies, one
+  Identify Events per node when it appears, commands that send events,
+  overrides and hand-built entities in `entities.yaml`), entity and
+  event-name endpoints with an `entities` SSE topic, the Entities page
+  (levers, suggestions to confirm, inline editor, build by hand), the
+  entities section on the node page and event names in the monitor.
+  `sim.Outpost` gives the simulator the firmware's servo, detector and
+  Identify behavior and `cmd/simnode` walks a locomotive around its
+  tracks. Milestone met against the simulator: a lever throws a turnout
+  and its feedback lights the lamp, a block goes occupied and its
+  reporter names the locomotive. Not yet against real hardware.
+- Deferred from Phase 3: Interlock's own node does not yet answer
+  Identify Events for the events its entities send and listen for;
+  entity state history and RailCom sightings are not yet stored; the
+  generic guesser only tries pairs that name a turnout, block, reporter
+  or sensor.
+- Next: Phase 4, automations.
 
 ## References
 

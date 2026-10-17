@@ -1,0 +1,28 @@
+# canbus-outpost: four servo switch machines and four RailCom detectors.
+name: canbus-outpost
+description: Servo switch machines and RailCom detectors
+match:
+  manufacturer: mikesmitty
+  model: CAN Bus Outpost
+entities:
+  - kind: turnout
+    group: Servo
+    name: ["{Description}", "{node} {group}"]
+    enabled: Enabled
+    events:
+      throw: Throw Command Event
+      close: Close Command Event
+      center: Center Command Event
+      thrown: Thrown Feedback Event
+      closed: Closed Feedback Event
+  - kind: block
+    group: Track
+    name: ["{Description}", "{node} {group}"]
+    events:
+      occupied: Occupied Event
+      clear: Clear Event
+  - kind: reporter
+    group: Track
+    name: ["{Description}", "{node} {group}"]
+    events:
+      range: Reporter ID

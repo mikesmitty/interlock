@@ -1,7 +1,7 @@
 // One live connection to the server feeds every page: nodes, links and
 // bus traffic arrive over server-sent events and land in this store.
 import { useSyncExternalStore } from "react";
-import { api, type Health, type LinkStatus, type MonitorEntry, type NodeInfo } from "./api";
+import { api, type Entity, type EventName, type Health, type LinkStatus, type MonitorEntry, type NodeInfo } from "./api";
 
 export type Connection = "connecting" | "live" | "reconnecting";
 
@@ -15,6 +15,9 @@ export interface BusState {
   lastSeq: number;
   lagged: boolean;
   health?: Health;
+  entities: Record<string, Entity>;
+  /** The named event table, every node's events by name. */
+  eventNames: EventName[];
 }
 
 const MAX_ENTRIES = 2000;
@@ -39,11 +42,14 @@ class BusStore {
     entries: [],
     lastSeq: 0,
     lagged: false,
+    entities: {},
+    eventNames: [],
   };
   private listeners = new Set<Listener>();
   private source?: EventSource;
   private pending: MonitorEntry[] = [];
   private flushTimer?: number;
+  private namesTimer?: number;
 
   subscribe = (listener: Listener): (() => void) => {
     this.listeners.add(listener);
@@ -87,6 +93,21 @@ class BusStore {
         this.flushTimer = window.setTimeout(() => this.flush(), 40);
       }
     });
+    es.addEventListener("entity", (ev) => {
+      const entity = JSON.parse((ev as MessageEvent<string>).data) as Entity;
+      const entities = { ...this.state.entities };
+      if (entity.removed) delete entities[entity.id];
+      else entities[entity.id] = entity;
+      this.set({ entities });
+    });
+    es.addEventListener("event_names", () => {
+      // Several nodes may change at once; fetch the table once they settle.
+      if (this.namesTimer !== undefined) window.clearTimeout(this.namesTimer);
+      this.namesTimer = window.setTimeout(() => {
+        this.namesTimer = undefined;
+        void this.refreshEventNames();
+      }, 300);
+    });
     es.addEventListener("lagged", () => this.set({ lagged: true }));
     es.onerror = () => {
       if (this.state.connection !== "reconnecting") this.set({ connection: "reconnecting" });
@@ -108,9 +129,17 @@ class BusStore {
   private async load(serverSeq: number) {
     this.set({ connection: "live" });
     try {
-      const [nodes, links, health] = await Promise.all([api.nodes(), api.links(), api.health()]);
+      const [nodes, links, health, entityList, eventNames] = await Promise.all([
+        api.nodes(),
+        api.links(),
+        api.health(),
+        api.entities(),
+        api.eventNames(),
+      ]);
       const map: Record<string, NodeInfo> = {};
       for (const n of nodes) map[n.id] = n;
+      const entities: Record<string, Entity> = {};
+      for (const e of entityList) entities[e.id] = e;
       const haveHistory = this.state.lastSeq > 0 && this.state.lastSeq <= serverSeq;
       const backlog = haveHistory
         ? await api.monitor({ since: this.state.lastSeq, limit: 0 })
@@ -120,6 +149,8 @@ class BusStore {
         nodes: map,
         links,
         health,
+        entities,
+        eventNames,
         entries,
         lastSeq: Math.max(this.state.lastSeq, backlog.last_seq),
         lagged: false,
@@ -132,6 +163,14 @@ class BusStore {
 
   clearEntries() {
     this.set({ entries: [], lagged: false });
+  }
+
+  async refreshEventNames() {
+    try {
+      this.set({ eventNames: await api.eventNames() });
+    } catch (err) {
+      console.error("loading event names", err);
+    }
   }
 
   async refreshNodes() {

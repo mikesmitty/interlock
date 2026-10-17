@@ -62,6 +62,12 @@ type Deps struct {
 	Bus      Bus
 	// Config reads and writes node configuration; nil disables it.
 	Config Config
+	// Entities is the entity manager; nil disables the entity endpoints.
+	Entities Entities
+	// EventNames is the named event table; may be nil.
+	EventNames EventNames
+	// Profiles lists node profiles; may be nil.
+	Profiles Profiles
 	// SerialPorts lists serial devices for the settings page; may be nil.
 	SerialPorts func() ([]string, error)
 	Logger      *slog.Logger
@@ -92,6 +98,17 @@ func New(deps Deps) *API {
 	a.mux.HandleFunc("POST /api/v1/nodes/{id}/config/write", a.configWrite)
 	a.mux.HandleFunc("POST /api/v1/nodes/{id}/config/reboot", a.configReboot)
 	a.mux.HandleFunc("POST /api/v1/nodes/{id}/config/factory-reset", a.configFactoryReset)
+	a.mux.HandleFunc("POST /api/v1/nodes/{id}/event-names/refresh", a.refreshEventNames)
+	a.mux.HandleFunc("GET /api/v1/entities", a.listEntities)
+	a.mux.HandleFunc("POST /api/v1/entities", a.createEntity)
+	a.mux.HandleFunc("POST /api/v1/entities/refresh", a.refreshEntities)
+	a.mux.HandleFunc("GET /api/v1/entities/kinds", a.entityKinds)
+	a.mux.HandleFunc("GET /api/v1/entities/{id}", a.getEntity)
+	a.mux.HandleFunc("PATCH /api/v1/entities/{id}", a.updateEntity)
+	a.mux.HandleFunc("DELETE /api/v1/entities/{id}", a.deleteEntity)
+	a.mux.HandleFunc("POST /api/v1/entities/{id}/command", a.commandEntity)
+	a.mux.HandleFunc("GET /api/v1/event-names", a.eventNames)
+	a.mux.HandleFunc("GET /api/v1/profiles", a.listProfiles)
 	a.mux.HandleFunc("GET /api/v1/links", a.links)
 	a.mux.HandleFunc("GET /api/v1/monitor", a.monitorEntries)
 	a.mux.HandleFunc("POST /api/v1/monitor/send", a.monitorSend)

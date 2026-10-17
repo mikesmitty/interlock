@@ -1,0 +1,36 @@
+# Generic: tried on nodes no other profile matches. It guesses from the
+# names of the events in each group of the node's configuration; the
+# entities it makes are marked as suggestions until confirmed. Roles are
+# tried in the order written, so feedback names are claimed before the
+# command names they also contain.
+name: generic
+description: Guesses entities from event names on nodes without a profile
+match:
+  any: true
+suggest: true
+entities:
+  - kind: turnout
+    group: "*"
+    name: ["{Description}", "{node} {group}"]
+    events:
+      thrown: ~\b(thrown|throw|reverse|reversed|diverging)\b.*\b(feedback|indication|indicator|sensor|position|status|state|report|reached)\b
+      closed: ~\b(closed|close|normal|straight)\b.*\b(feedback|indication|indicator|sensor|position|status|state|report|reached)\b
+      throw: ~\b(throw|thrown|reverse|reversed|diverging)\b
+      close: ~\b(close|closed|normal|straight)\b
+  - kind: block
+    group: "*"
+    name: ["{Description}", "{node} {group}"]
+    events:
+      occupied: ~\b(occupied|occupancy|occupy)\b
+      clear: ~\b(clear|unoccupied|vacant|empty|free)\b
+  - kind: reporter
+    group: "*"
+    name: ["{Description}", "{node} {group}"]
+    events:
+      range: ~\b(reporter|railcom|detector)\b
+  - kind: sensor
+    group: "*"
+    name: ["{Description}", "{node} {group}"]
+    events:
+      on: ~\b(on|active|activated|high|set|pressed|triggered)\b
+      off: ~\b(off|inactive|deactivated|low|reset|released|cleared)\b

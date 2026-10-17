@@ -12,9 +12,13 @@ links, and is itself a node on the bus.
 **Status:** early. Interlock joins the bus, finds and identifies nodes,
 reads their configuration descriptions, shows every message decoded, and
 lets you edit a node's configuration in a form generated from its CDI,
-with replicated groups as tabs and only changed values written. Entities,
-automations, throttles and firmware upgrades are still to come; see
-`docs/design.md` for the plan.
+with replicated groups as tabs and only changed values written. It turns
+the events a node's configuration names into entities (turnouts, blocks,
+RailCom reporters, sensors, switches) through YAML profiles, shipped for
+canbus-outpost and simple-dcc and guessed for other nodes, and shows them
+on an Entities page with live state and levers. Automations, throttles
+and firmware upgrades are still to come; see `docs/design.md` for the
+plan.
 
 ## Trying it without hardware
 

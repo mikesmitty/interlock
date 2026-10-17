@@ -1,0 +1,21 @@
+# simple-dcc: a DCC command station. It has no events of its own in its
+# configuration; it acts on the well-known emergency events, which make
+# two switches.
+name: simple-dcc
+description: DCC command station
+match:
+  manufacturer: simple-dcc
+  model: DCC Command Station
+entities:
+  - kind: switch
+    id: track_power
+    name: "{node} track power"
+    events:
+      on: 01.00.00.00.00.00.FF.FE   # Clear Emergency Off
+      off: 01.00.00.00.00.00.FF.FF  # Emergency Off
+  - kind: switch
+    id: emergency_stop
+    name: "{node} emergency stop"
+    events:
+      on: 01.00.00.00.00.00.FF.FD   # Emergency Stop
+      off: 01.00.00.00.00.00.FF.FC  # Clear Emergency Stop

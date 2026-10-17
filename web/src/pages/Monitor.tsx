@@ -1,11 +1,36 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { aliasHex, api, nodeName, type Endpoint, type MonitorEntry, type NodeInfo } from "../api";
+import { useEventLabels, type EventLabeler } from "../labels";
 import { Page } from "../components/Page";
 import { clockTime, plural } from "../format";
 import { bus, useBus } from "../store";
 
 const HOUSEKEEPING = new Set(["CID1", "CID2", "CID3", "CID4", "RID", "AMD", "AME", "AMR"]);
 const MAX_ROWS = 1000;
+const EVENT_ID_RE = /\b(?:[0-9A-F]{2}\.){7}[0-9A-F]{2}\b/g;
+
+/** The summary with every event ID it names followed by what it is. */
+function Annotated({ text, labels }: { text?: string; labels: EventLabeler }) {
+  if (!text) return null;
+  const parts: ReactNode[] = [];
+  let last = 0;
+  for (const m of text.matchAll(EVENT_ID_RE)) {
+    const label = labels(m[0]);
+    if (!label || m.index === undefined) continue;
+    const end = m.index + m[0].length;
+    parts.push(text.slice(last, end));
+    parts.push(
+      <span className="faint" key={end}>
+        {" "}
+        {label}
+      </span>,
+    );
+    last = end;
+  }
+  if (parts.length === 0) return <>{text}</>;
+  parts.push(text.slice(last));
+  return <>{parts}</>;
+}
 
 /** Name a node the way the nodes page does, falling back to ID or alias. */
 export function describeEndpoint(ep: Endpoint | undefined, nodes: Record<string, NodeInfo>): string {
@@ -39,6 +64,7 @@ function matchesFilter(e: MonitorEntry, needle: string, nodes: Record<string, No
 
 export function Monitor() {
   const { entries, nodes, links, lagged, connection } = useBus();
+  const labels = useEventLabels();
   const [paused, setPaused] = useState(false);
   const [frozen, setFrozen] = useState<MonitorEntry[]>([]);
   const [filter, setFilter] = useState("");
@@ -170,7 +196,9 @@ export function Monitor() {
                           <td>{e.dir === "out" && !d?.source?.id ? "this controller" : describeEndpoint(d?.source, nodes)}</td>
                           <td>{d?.dest ? describeEndpoint(d.dest, nodes) : <span className="faint">all</span>}</td>
                           <td className="cell-type">{d?.type ?? e.kind}</td>
-                          <td className="wrap">{d?.summary}</td>
+                          <td className="wrap">
+                          <Annotated text={d?.summary} labels={labels} />
+                        </td>
                         </tr>
                         {isOpen && (
                           <tr className="raw">

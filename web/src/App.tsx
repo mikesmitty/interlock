@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { NavLink, Navigate, Outlet, Route, Routes } from "react-router";
 import { StatusStrip } from "./components/StatusStrip";
+import { Entities } from "./pages/Entities";
 import { Monitor } from "./pages/Monitor";
 import { NodeDetail } from "./pages/NodeDetail";
 import { Nodes } from "./pages/Nodes";
@@ -20,6 +21,9 @@ function Shell() {
         </NavLink>
         <NavLink className="rail__link" to="/nodes">
           Nodes
+        </NavLink>
+        <NavLink className="rail__link" to="/entities">
+          Entities
         </NavLink>
         <NavLink className="rail__link" to="/monitor">
           Monitor
@@ -53,6 +57,7 @@ export default function App() {
         <Route index element={<Navigate to="/nodes" replace />} />
         <Route path="nodes" element={<Nodes />} />
         <Route path="nodes/:id" element={<NodeDetail />} />
+        <Route path="entities" element={<Entities />} />
         <Route path="monitor" element={<Monitor />} />
         <Route path="settings" element={<Settings />} />
         <Route path="*" element={<NotFound />} />

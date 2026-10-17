@@ -18,9 +18,12 @@ import (
 
 	"github.com/mikesmitty/interlock/internal/api"
 	"github.com/mikesmitty/interlock/internal/config"
+	"github.com/mikesmitty/interlock/internal/entity"
+	"github.com/mikesmitty/interlock/internal/eventtable"
 	"github.com/mikesmitty/interlock/internal/identity"
 	"github.com/mikesmitty/interlock/internal/monitor"
 	"github.com/mikesmitty/interlock/internal/nodeconfig"
+	"github.com/mikesmitty/interlock/internal/profile"
 	"github.com/mikesmitty/interlock/internal/registry"
 	"github.com/mikesmitty/interlock/internal/server"
 	"github.com/mikesmitty/interlock/internal/store"
@@ -141,6 +144,32 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	}
 	nodeCfg := nodeconfig.New(mem, reg, logger)
 
+	// The named event table and the entities built over it.
+	table := eventtable.New(nodeCfg, reg, st, logger)
+	nodeCfg.OnWritten(table.Invalidate)
+	table.Restore(ctx, reg.List())
+	profiles, err := profile.Load(filepath.Join(*dataDir, profile.DirName))
+	if err != nil {
+		return err
+	}
+	logger.Info("loaded node profiles", "count", len(profiles.List()))
+	entFile, err := entity.OpenFile(filepath.Join(*dataDir, entity.FileName))
+	if err != nil {
+		return err
+	}
+	entities := entity.New(entity.Options{
+		Bus: local, Nodes: reg, Layouts: reg, Values: table, Builder: profiles, File: entFile, Logger: logger,
+	})
+	reg.Subscribe(table.HandleNode)
+	reg.Subscribe(entities.HandleNode)
+	table.Subscribe(entities.Rebuild)
+	local.Observe(func(ev node.Event) {
+		if ev.Kind == node.EventMessage {
+			table.HandleMessage(ev.Message)
+			entities.HandleMessage(ev.Message)
+		}
+	})
+
 	for _, lc := range cfg.Links {
 		var dialer transport.Dialer
 		switch lc.Type {
@@ -171,7 +200,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	}
 
 	var wg sync.WaitGroup
-	wg.Add(2)
+	wg.Add(4)
 	go func() {
 		defer wg.Done()
 		if err := local.Run(ctx); err != nil {
@@ -184,6 +213,18 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			logger.Error("registry stopped", "error", err)
 		}
 	}()
+	go func() {
+		defer wg.Done()
+		if err := table.Run(ctx); err != nil {
+			logger.Error("event table stopped", "error", err)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		if err := entities.Run(ctx); err != nil {
+			logger.Error("entities stopped", "error", err)
+		}
+	}()
 
 	srv := server.New(server.Options{
 		Listen: cfg.Listen,
@@ -194,6 +235,9 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			Monitor:     mon,
 			Bus:         h,
 			Config:      nodeCfg,
+			Entities:    entities,
+			EventNames:  table,
+			Profiles:    profiles,
 			SerialPorts: transport.SerialPorts,
 			Logger:      logger,
 		}),

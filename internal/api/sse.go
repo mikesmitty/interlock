@@ -9,21 +9,25 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/mikesmitty/interlock/internal/entity"
 	"github.com/mikesmitty/interlock/internal/monitor"
 	"github.com/mikesmitty/interlock/internal/registry"
+	"github.com/mikesmitty/interlock/openlcb"
 )
 
 // The event stream at /api/v1/events uses server-sent events: one
 // long-lived GET per browser tab, with named events carrying JSON.
 //
-//	ready   {"seq": N}         sent first; N is the monitor's newest sequence
-//	node    registry.Info      a node appeared, changed or went offline
-//	links   {"links": [...]}   link status changed
-//	frame   monitor.Entry      bus traffic (topic "monitor")
-//	lagged  {}                 the client fell behind and entries were skipped
+//	ready        {"seq": N}         sent first; N is the monitor's newest sequence
+//	node         registry.Info      a node appeared, changed or went offline
+//	links        {"links": [...]}   link status changed
+//	frame        monitor.Entry      bus traffic (topic "monitor")
+//	entity       entity.Entity      an entity changed, appeared or was removed
+//	event_names  {"node": id}       a node's named events changed
+//	lagged       {}                 the client fell behind and entries were skipped
 //
 // The topics query parameter selects a comma separated subset of
-// nodes, links and monitor; the default is all of them.
+// nodes, links, monitor and entities; the default is all of them.
 
 const (
 	sseQueue     = 1024
@@ -41,7 +45,7 @@ func (a *API) events(w http.ResponseWriter, r *http.Request) {
 	flush := func() bool {
 		return rc.Flush() == nil
 	}
-	topics := map[string]bool{"nodes": true, "links": true, "monitor": true}
+	topics := map[string]bool{"nodes": true, "links": true, "monitor": true, "entities": true}
 	if s := r.URL.Query().Get("topics"); s != "" {
 		topics = map[string]bool{}
 		for _, t := range strings.Split(s, ",") {
@@ -64,6 +68,16 @@ func (a *API) events(w http.ResponseWriter, r *http.Request) {
 	}
 	if topics["monitor"] && a.deps.Monitor != nil {
 		unsubscribe := a.deps.Monitor.Subscribe(func(e monitor.Entry) { push(sseEvent{"frame", e}) })
+		defer unsubscribe()
+	}
+	if topics["entities"] && a.deps.Entities != nil {
+		unsubscribe := a.deps.Entities.Subscribe(func(e entity.Entity) { push(sseEvent{"entity", e}) })
+		defer unsubscribe()
+	}
+	if topics["entities"] && a.deps.EventNames != nil {
+		unsubscribe := a.deps.EventNames.Subscribe(func(id openlcb.NodeID) {
+			push(sseEvent{"event_names", map[string]openlcb.NodeID{"node": id}})
+		})
 		defer unsubscribe()
 	}
 
