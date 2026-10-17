@@ -100,6 +100,12 @@ func TestGridConnectLinkOverTCP(t *testing.T) {
 		t.Errorf("server received %q", got)
 	}
 
+	// The frame was read before the writer counted it; give the count a
+	// moment to catch up.
+	deadline := time.Now().Add(2 * time.Second)
+	for link.Status().FramesOut == 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
 	st := link.Status()
 	if !st.Connected || st.FramesIn != 1 || st.FramesOut != 1 || st.Kind != "tcp" {
 		t.Errorf("Status = %+v", st)

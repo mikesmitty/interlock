@@ -5,14 +5,21 @@ on:
 
 name: Release Please
 
+permissions:
+  contents: write
+  pull-requests: write
+
 jobs:
   release-please:
     runs-on: ubuntu-latest
     steps:
+      # A personal access token in RELEASE_PLEASE_TOKEN lets CI run on the
+      # release pull request; without one the workflow's own token still
+      # opens and merges it.
       - uses: googleapis/release-please-action@v4
         id: release-please
         with:
-          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
     outputs:
       release-created: ${{ steps.release-please.outputs.release_created }}
       tag-name: ${{ steps.release-please.outputs.tag_name }}

@@ -60,8 +60,33 @@ func TestRegistryFindsAndIdentifiesPeer(t *testing.T) {
 	r := New(local, Options{Interval: 0, LocalSNIP: localSNIP, LocalProtocols: openlcb.ProtocolSimple | openlcb.ProtocolDatagram,
 		Logger: slog.New(slog.DiscardHandler), Timeout: 2 * time.Second})
 
+	// Every published change is recorded, so a state the peer passes
+	// through only briefly (offline, then straight back online when it
+	// speaks again) is still seen.
+	var mu sync.Mutex
 	var updates []Info
-	r.Subscribe(func(info Info) { updates = append(updates, info) })
+	r.Subscribe(func(info Info) {
+		mu.Lock()
+		defer mu.Unlock()
+		updates = append(updates, info)
+	})
+	published := func(from int, pred func(Info) bool) func() bool {
+		return func() bool {
+			mu.Lock()
+			defer mu.Unlock()
+			for _, u := range updates[min(from, len(updates)):] {
+				if pred(u) {
+					return true
+				}
+			}
+			return false
+		}
+	}
+	count := func() int {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(updates)
+	}
 	go func() { _ = r.Run(ctx) }()
 
 	waitFor(t, "peer identification", func() bool {
@@ -89,21 +114,20 @@ func TestRegistryFindsAndIdentifiesPeer(t *testing.T) {
 	if list[0].SNIP == nil || *list[0].SNIP != localSNIP || !list[0].Online || list[0].Alias != local.Alias() {
 		t.Errorf("local entry = %+v", list[0])
 	}
-	if len(updates) == 0 {
+	if count() == 0 {
 		t.Error("no subscriber updates")
 	}
 
 	// A peer that withdraws its alias goes offline.
+	before := count()
 	local.HandleFrame(can.AMRFrame(peer.Alias(), peerID))
-	waitFor(t, "peer offline", func() bool {
-		info, _ := r.Get(peerID)
-		return !info.Online
-	})
+	waitFor(t, "peer offline", published(before, func(u Info) bool { return u.ID == peerID && !u.Online }))
 	// And comes back when it speaks again.
+	before = count()
 	local.HandleFrame(can.AMDFrame(peer.Alias(), peerID))
 	waitFor(t, "peer online again", func() bool {
 		info, _ := r.Get(peerID)
-		return info.Online
+		return info.Online && published(before, func(u Info) bool { return u.ID == peerID && u.Online })()
 	})
 
 	if err := r.RefreshNode(ctx, 0x050101019999); err == nil {
