@@ -76,6 +76,9 @@ type Deps struct {
 	Trains Trains
 	// Programmer reads and writes CVs; nil disables the programming endpoints.
 	Programmer Programmer
+	// Decoders reads the DCC decoder definitions; nil disables their
+	// endpoints.
+	Decoders Decoders
 	// Firmware upgrades nodes; nil disables the firmware endpoints.
 	Firmware Firmware
 	// Clock is the fast clock; nil disables the clock endpoints.
@@ -155,6 +158,10 @@ func New(deps Deps) *API {
 	a.mux.HandleFunc("POST /api/v1/programming/find", a.findProgrammingTrack)
 	a.mux.HandleFunc("POST /api/v1/programming/read", a.readCV)
 	a.mux.HandleFunc("POST /api/v1/programming/write", a.writeCV)
+	if deps.Decoders != nil {
+		a.mux.HandleFunc("GET /api/v1/decoders", a.decoderStatus)
+		a.mux.HandleFunc("GET /api/v1/decoders/index", a.decoderIndex)
+	}
 	if deps.Firmware != nil {
 		a.mux.HandleFunc("GET /api/v1/firmware", a.listFirmware)
 		a.mux.HandleFunc("GET /api/v1/nodes/{id}/firmware", a.getFirmware)

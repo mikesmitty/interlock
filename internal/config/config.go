@@ -12,6 +12,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/mikesmitty/interlock/internal/decoder"
 	"github.com/mikesmitty/interlock/openlcb"
 )
 
@@ -37,6 +38,8 @@ type Config struct {
 	Hub HubConfig `yaml:"hub"`
 	// Discovery controls how nodes on the bus are found and watched.
 	Discovery DiscoveryConfig `yaml:"discovery"`
+	// Decoders says where the DCC decoder definitions come from.
+	Decoders DecodersConfig `yaml:"decoders"`
 	// Log controls the server log.
 	Log LogConfig `yaml:"log"`
 }
@@ -102,6 +105,19 @@ type DiscoveryConfig struct {
 	Interval time.Duration `yaml:"interval"`
 }
 
+// DecodersConfig says where the DCC decoder definitions come from. They are
+// the JMRI project's and are not part of Interlock.
+type DecodersConfig struct {
+	// Source is github (each file fetched when first needed), archive (the
+	// whole set downloaded once) or folder.
+	Source string `yaml:"source"`
+	// Ref is the JMRI release tag, or a branch, for github and archive.
+	Ref string `yaml:"ref"`
+	// Path is a JMRI install, a checkout of the JMRI repository, or a zip
+	// of either, for source folder.
+	Path string `yaml:"path,omitempty"`
+}
+
 // LogConfig selects the log level and format.
 type LogConfig struct {
 	// Level is debug, info, warn or error.
@@ -118,6 +134,7 @@ func Default() Config {
 		Links:     []LinkConfig{},
 		Hub:       HubConfig{Listen: ":12021"},
 		Discovery: DiscoveryConfig{Interval: 30 * time.Second},
+		Decoders:  DecodersConfig{Source: decoder.SourceGitHub, Ref: decoder.DefaultRef},
 		Log:       LogConfig{Level: "info", Format: "text"},
 	}
 }
@@ -168,6 +185,19 @@ discovery:
   # How often every node is asked to check in. 0 turns the periodic check
   # off; nodes are still found when they announce themselves.
   interval: 30s
+
+# DCC decoder definitions, from the JMRI project. They are not part of
+# Interlock; it reads them from one of these sources:
+#   github   fetches each file from JMRI's repository the first time it is
+#            needed and keeps it in the data directory
+#   archive  downloads the repository at ref once (about 365 MB, of which
+#            75 MB is kept) so nothing is fetched later
+#   folder   reads path: a JMRI install, a checkout of the JMRI repository,
+#            or a zip of either
+decoders:
+  source: github
+  ref: v5.16
+  # path: /home/pi/JMRI
 
 log:
   # debug, info, warn or error
@@ -241,6 +271,9 @@ func (c Config) Validate() error {
 	if c.Discovery.Interval > 0 && c.Discovery.Interval < 5*time.Second {
 		return errors.New("config: discovery interval must be at least 5s")
 	}
+	if err := c.Decoders.validate(); err != nil {
+		return fmt.Errorf("config: decoders: %w", err)
+	}
 	switch c.Log.Level {
 	case "debug", "info", "warn", "error":
 	default:
@@ -276,6 +309,22 @@ func (l LinkConfig) validate() error {
 		}
 	default:
 		return fmt.Errorf("type %q must be serial, tcp, olcbtcp or socketcan", l.Type)
+	}
+	return nil
+}
+
+func (d DecodersConfig) validate() error {
+	switch d.Source {
+	case decoder.SourceGitHub, decoder.SourceArchive:
+		if !decoder.ValidRef(d.Ref) {
+			return fmt.Errorf("ref %q must be a JMRI tag or branch, such as %s", d.Ref, decoder.DefaultRef)
+		}
+	case decoder.SourceFolder:
+		if d.Path == "" {
+			return errors.New("source folder needs a path")
+		}
+	default:
+		return fmt.Errorf("source %q must be github, archive or folder", d.Source)
 	}
 	return nil
 }

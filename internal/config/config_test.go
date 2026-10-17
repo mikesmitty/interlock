@@ -117,6 +117,12 @@ func TestValidate(t *testing.T) {
 		{name: "discovery negative", mutate: func(c *Config) { c.Discovery.Interval = -time.Second }, wantErr: "discovery"},
 		{name: "bad level", mutate: func(c *Config) { c.Log.Level = "loud" }, wantErr: "log level"},
 		{name: "bad format", mutate: func(c *Config) { c.Log.Format = "xml" }, wantErr: "log format"},
+		{name: "decoders archive", mutate: func(c *Config) { c.Decoders.Source = "archive" }},
+		{name: "decoders branch", mutate: func(c *Config) { c.Decoders.Ref = "master" }},
+		{name: "decoders folder", mutate: func(c *Config) { c.Decoders = DecodersConfig{Source: "folder", Path: "/opt/JMRI"} }},
+		{name: "decoders folder without path", mutate: func(c *Config) { c.Decoders = DecodersConfig{Source: "folder"} }, wantErr: "path"},
+		{name: "decoders bad source", mutate: func(c *Config) { c.Decoders.Source = "ftp" }, wantErr: "decoders: source"},
+		{name: "decoders bad ref", mutate: func(c *Config) { c.Decoders.Ref = "../x" }, wantErr: "decoders: ref"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -21,6 +21,7 @@ import (
 	"github.com/mikesmitty/interlock/internal/backup"
 	"github.com/mikesmitty/interlock/internal/clock"
 	"github.com/mikesmitty/interlock/internal/config"
+	"github.com/mikesmitty/interlock/internal/decoder"
 	"github.com/mikesmitty/interlock/internal/entity"
 	"github.com/mikesmitty/interlock/internal/eventtable"
 	"github.com/mikesmitty/interlock/internal/firmware"
@@ -208,6 +209,16 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	reg.Subscribe(trains.HandleNode)
 	prog := programmer.New(programmer.Options{Bus: local, Memory: mem, Nodes: reg, Trains: trains, Logger: logger})
 	reg.Subscribe(prog.HandleNode)
+	decoders, err := decoder.Open(decoder.Options{
+		Source: cfg.Decoders.Source, Ref: cfg.Decoders.Ref, Path: cfg.Decoders.Path,
+		CacheDir:  filepath.Join(*dataDir, decoder.CacheDirName),
+		UserAgent: "interlock/" + version.Version,
+		Logger:    logger,
+	})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = decoders.Close() }()
 	upgrader := firmware.New(firmware.Options{Bus: local, Memory: mem, Nodes: reg, Logger: logger})
 
 	// The fast clock, broadcast on the bus.
@@ -287,7 +298,13 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	}
 
 	var wg sync.WaitGroup
-	wg.Add(7)
+	wg.Add(8)
+	go func() {
+		defer wg.Done()
+		if err := decoders.Download(ctx); err != nil && ctx.Err() == nil {
+			logger.Error("decoder definitions not downloaded", "error", err)
+		}
+	}()
 	go func() {
 		defer wg.Done()
 		if err := fast.Run(ctx); err != nil {
@@ -344,6 +361,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			Automations: engine,
 			Trains:      trains,
 			Programmer:  prog,
+			Decoders:    decoders,
 			Firmware:    upgrader,
 			Clock:       fast,
 			Backups:     &backup.Manager{Dir: *dataDir, DB: st, Version: version.Version},
