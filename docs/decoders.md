@@ -108,9 +108,11 @@ headlight, rear light, AUX1 and AUX2.
 
 A decoder in the [roster](./roster.md) opens from its locomotive's page
 with the values saved for it, so a page shows the decoder's settings
-without reading them first, marked as saved. Each value read or written
-is saved again, and writing a new address to the fitted decoder moves
-the locomotive to it. A decoder opened on its own can be kept with a
+without reading them first, marked as saved. Values imported from a JMRI
+roster show too, but count as not read until a read confirms them, and a
+change to part of an imported CV reads the decoder before it is written.
+Each value read or written is saved again, and writing a new address to
+the fitted decoder moves the locomotive to it. A decoder opened on its own can be kept with a
 locomotive from **Keep in the roster** at the bottom of its page.
 
 ## Without hardware

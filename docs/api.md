@@ -122,7 +122,7 @@ POST   /api/v1/trains/{id}/decoders          {name, file, family, model, identit
 PATCH  /api/v1/trains/{id}/decoders/{dec}    {name, file, family, model, identity}
 DELETE /api/v1/trains/{id}/decoders/{dec}    with its CV values
 POST   /api/v1/trains/{id}/install           {decoder} fit one ("" for none); address and labels swap
-GET    /api/v1/trains/{id}/decoders/{dec}/cvs      {cvs, updated, changes}
+GET    /api/v1/trains/{id}/decoders/{dec}/cvs      {cvs, imported, updated, changes}
 PATCH  /api/v1/trains/{id}/decoders/{dec}/cvs      {cvs} save these values
 PUT    /api/v1/trains/{id}/decoders/{dec}/cvs      {cvs} replace them all
 PUT    /api/v1/trains/{id}/decoders/{dec}/changes  {changes} keep the changes not written yet
@@ -147,7 +147,9 @@ locomotive (`new`, `decoder` with `into`, or `skip`); sending the files
 again with a plan carries it out. Changes are kept by CV as the bits
 they set: `{"29": {"value": 32, "bits": 32}}` sets bit 5 of CV 29. A
 change is dropped once a value read from or written to the decoder
-holds it. See [Trains](./trains.md) and [The roster](./roster.md).
+holds it. `imported` holds values from an imported roster that the
+decoder has not been read for since; saving a CV's value moves it to
+`cvs`, and replacing them all clears `imported`. See [Trains](./trains.md) and [The roster](./roster.md).
 
 ## Decoder definitions
 

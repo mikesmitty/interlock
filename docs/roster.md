@@ -61,9 +61,12 @@ changes:
   (functions JMRI marks as not latching become momentary), road name and
   number, manufacturer, model, owner and comment.
 - Its decoder comes in with the definition JMRI used and every CV value
-  the locomotive file holds. A decoder model that the definitions no
-  longer have is marked; choose its definition later on the locomotive's
-  page.
+  the locomotive file holds. Those values are marked as imported, not
+  read: the settings page shows them but counts them as not read yet
+  until a read confirms them, and a change to part of a CV (one bit of CV
+  29, say) reads the decoder before writing, so its other bits are what
+  the decoder holds. A decoder model that the definitions no longer have
+  is marked; choose its definition later on the locomotive's page.
 - Entries with the same address, road name and road number are offered
   as one locomotive with several decoders: the most recently changed
   one is fitted, and the others join it, named by what their names add
@@ -80,5 +83,6 @@ without its own file comes in without CV values.
 
 The roster is `trains.yaml` in the data directory; see
 [Trains](./trains.md#the-roster) for its fields. Each decoder's CV values
-are in `cvs/<decoder id>.yaml`, with the changes not written yet, which
-Interlock rewrites a second after values stop changing. Both are in [backups](./backup.md).
+are in `cvs/<decoder id>.yaml`, with imported values not read yet and
+the changes not written yet, which Interlock rewrites a second after
+values stop changing. Both are in [backups](./backup.md).
