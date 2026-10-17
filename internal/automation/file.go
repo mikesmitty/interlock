@@ -6,9 +6,10 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"reflect"
 	"sync"
+
+	"github.com/mikesmitty/interlock/internal/atomicfile"
 
 	"github.com/mikesmitty/interlock/internal/yamlstrict"
 
@@ -138,14 +139,7 @@ func (f *File) save() error {
 	if err != nil {
 		return fmt.Errorf("encode %s: %w", f.path, err)
 	}
-	if err := os.MkdirAll(filepath.Dir(f.path), 0o755); err != nil {
-		return fmt.Errorf("write %s: %w", f.path, err)
-	}
-	tmp := f.path + ".tmp"
-	if err := os.WriteFile(tmp, append([]byte(fileHeader), body...), 0o644); err != nil {
-		return fmt.Errorf("write %s: %w", f.path, err)
-	}
-	if err := os.Rename(tmp, f.path); err != nil {
+	if err := atomicfile.Write(f.path, append([]byte(fileHeader), body...), 0o644); err != nil {
 		return fmt.Errorf("write %s: %w", f.path, err)
 	}
 	return nil

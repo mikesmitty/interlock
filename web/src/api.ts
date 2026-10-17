@@ -485,6 +485,8 @@ export interface Health {
   status: string;
   version: string;
   commit?: string;
+  /** The server's operating system, as Go names it: linux, darwin, windows. */
+  os: string;
   node_id: string;
   alias: number;
   node_state: string;

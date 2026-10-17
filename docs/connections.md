@@ -30,7 +30,9 @@ links onto the same wire would echo every frame back and forth.
 **serial**: GridConnect text over a serial port. This is what
 canbus-outpost and simple-dcc offer over USB, and what most USB to CAN
 adapters for LCC do. `baud` may be set; USB devices ignore it. The
-Settings page lists the serial ports it can see.
+device is `/dev/cu.usbmodem…` on macOS, usually `/dev/ttyACM0` on Linux
+and a port name like `COM3` on Windows; the Settings page lists the
+serial ports it can see.
 
 **tcp**: GridConnect over TCP, as JMRI's and OpenMRN's hubs serve it.
 Interlock connects out to `address` and reconnects with backoff when the

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -197,6 +198,9 @@ func TestHealth(t *testing.T) {
 	}
 	if body["links_total"] != float64(2) || body["links_connected"] != float64(1) {
 		t.Errorf("link counts = %v", body)
+	}
+	if body["os"] != runtime.GOOS {
+		t.Errorf("os = %v, want %s", body["os"], runtime.GOOS)
 	}
 }
 

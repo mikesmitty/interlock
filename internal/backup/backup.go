@@ -19,6 +19,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/mikesmitty/interlock/internal/atomicfile"
 )
 
 // ManifestName is the file in the archive that describes it.
@@ -291,7 +293,7 @@ func Apply(dir string) (kept string, err error) {
 		if err := os.MkdirAll(filepath.Dir(to), 0o755); err != nil {
 			return err
 		}
-		return os.Rename(from, to)
+		return atomicfile.Rename(from, to)
 	}
 	for _, rel := range files {
 		current := filepath.Join(dir, rel)

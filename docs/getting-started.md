@@ -9,8 +9,22 @@ the bus.
 
 Download the build for your machine from the
 [releases](https://github.com/mikesmitty/interlock/releases): Linux on
-amd64, arm64 or arm (the Raspberry Pi family) and macOS. Put the file
-somewhere on your path and make it executable.
+amd64, arm64 or arm (the Raspberry Pi family), macOS on Apple silicon or
+Intel, and Windows on x64. On Linux and macOS, unpack the archive and put
+`interlock` somewhere on your path. On Windows, unzip it and run
+`interlock.exe` from a terminal.
+
+If macOS says it cannot check `interlock` for malicious software, the
+build you have was not notarized by Apple and the browser marked it as
+downloaded. Clear that mark and run it again:
+
+```bash
+xattr -d com.apple.quarantine interlock
+```
+
+Downloading with `curl` instead of a browser leaves no mark to clear. If
+Windows shows "Windows protected your PC", the build was not signed:
+choose **More info**, then **Run anyway**.
 
 To build it yourself you need Go (the version in `go.mod`) and Node 22.22 or
 newer:
@@ -21,18 +35,31 @@ cd interlock
 make build        # the web interface, then bin/interlock
 ```
 
+On Windows, `make` comes with Git Bash or MSYS2. Without it, run the two
+steps by hand:
+
+```powershell
+npm --prefix web ci
+npm --prefix web run build
+go build -o bin\interlock.exe ./cmd/interlock
+```
+
 ## First start
 
 ```bash
 interlock -data ~/interlock
 ```
 
+On Windows, `interlock.exe -data $HOME\interlock` does the same in
+PowerShell.
+
 The data directory holds everything Interlock keeps: `interlock.yaml`
 (written with defaults and comments on first start), the database, and
 the files the web interface edits: `entities.yaml`, `automations.yaml`,
 `trains.yaml` and your `profiles/`. Without `-data` it uses
 `$INTERLOCK_DATA`, else an `interlock` folder under your user
-configuration directory.
+configuration directory: `~/.config` on Linux, `~/Library/Application
+Support` on macOS and `%AppData%` on Windows.
 
 Open <http://localhost:8080>. With no links yet the Nodes page shows only
 Interlock's own node and the Settings page lists the serial ports it can
@@ -49,6 +76,10 @@ links:
     type: serial
     device: /dev/cu.usbmodem1234   # a canbus-outpost or simple-dcc USB port
 ```
+
+The device is the board's serial port: `/dev/cu.usbmodem…` on macOS,
+usually `/dev/ttyACM0` on Linux and a name like `COM3` on Windows. The
+Settings page lists the ones it can see.
 
 [Connections](./connections.md) describes the link types: serial and
 TCP GridConnect, OpenLCB TCP and SocketCAN. Interlock also serves a
@@ -104,3 +135,6 @@ WantedBy=multi-user.target
 Interlock restarts itself in place when asked to (after a restore, or
 from the Settings page), so the unit's `Restart=` setting only matters if
 it crashes.
+
+On Windows, a Task Scheduler task that runs `interlock.exe` at logon does
+the same job.

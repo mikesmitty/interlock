@@ -32,7 +32,7 @@ is a server-sent event stream; the default is every topic. Events:
 ## Controller
 
 ```
-GET  /api/v1/health          version, node ID, alias, uptime, counts
+GET  /api/v1/health          version, operating system, node ID, alias, uptime, counts
 GET  /api/v1/links           every link's status
 GET  /api/v1/serial-ports    serial devices on this machine
 GET  /api/v1/backup          a zip of the data directory (application/zip)

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"runtime"
 	"strconv"
 	"time"
 
@@ -199,6 +200,7 @@ type healthResponse struct {
 	Status         string         `json:"status"`
 	Version        string         `json:"version"`
 	Commit         string         `json:"commit,omitempty"`
+	OS             string         `json:"os"`
 	NodeID         openlcb.NodeID `json:"node_id"`
 	Alias          uint16         `json:"alias"`
 	NodeState      string         `json:"node_state"`
@@ -213,6 +215,7 @@ func (a *API) health(w http.ResponseWriter, _ *http.Request) {
 		Status:        "ok",
 		Version:       version.Version,
 		Commit:        version.Commit(),
+		OS:            runtime.GOOS,
 		UptimeSeconds: time.Since(a.started).Seconds(),
 	}
 	if a.deps.Node != nil {

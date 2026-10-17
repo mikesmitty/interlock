@@ -49,7 +49,7 @@ Requires Go (see `go.mod`) and Node 22.22 or newer.
 
 ```bash
 make build        # builds the web interface and bin/interlock
-bin/interlock     # serves on :8080 using ~/.config/interlock (or $INTERLOCK_DATA)
+bin/interlock     # serves on :8080 using your user config directory (or $INTERLOCK_DATA)
 ```
 
 `bin/interlock -data /path/to/dir` keeps everything in one directory:
@@ -61,7 +61,7 @@ the layout go in that file:
 links:
   - name: outpost
     type: serial
-    device: /dev/cu.usbmodem1234   # a canbus-outpost or simple-dcc USB port
+    device: /dev/cu.usbmodem1234   # a canbus-outpost or simple-dcc USB port; COM3 on Windows
   - name: jmri
     type: tcp
     address: 192.168.1.10:12021    # any GridConnect TCP server

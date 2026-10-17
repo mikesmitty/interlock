@@ -98,7 +98,7 @@ export function Settings() {
             No links yet. Add one to <code>interlock.yaml</code>, for example:
           </p>
           <pre className="mono" style={{ marginTop: "0.75rem" }}>
-            {"links:\n  - name: outpost\n    type: serial\n    device: " + (ports?.[0] ?? "/dev/cu.usbmodem1234")}
+            {"links:\n  - name: outpost\n    type: serial\n    device: " + (ports?.[0] ?? examplePort(health?.os))}
           </pre>
           <p>Other tools can also connect to this controller's hub port and will appear here as links.</p>
         </div>
@@ -176,6 +176,18 @@ export function Settings() {
       </div>
     </Page>
   );
+}
+
+/** A typical USB serial port name on the server's operating system. */
+function examplePort(os: string | undefined): string {
+  switch (os) {
+    case "windows":
+      return "COM3";
+    case "darwin":
+      return "/dev/cu.usbmodem1234";
+    default:
+      return "/dev/ttyACM0";
+  }
 }
 
 /** Download everything, or replace everything from an earlier download. */

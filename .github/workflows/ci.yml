@@ -25,6 +25,23 @@ jobs:
       - name: Test
         run: go test -race ./...
 
+  # The release ships a Windows build; run the tests there too. The race
+  # detector needs cgo on Windows, so the Linux job covers races.
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Test
+        run: go test ./...
+
+      - name: Build
+        run: go build -o bin/interlock.exe ./cmd/interlock
+
   lint:
     runs-on: ubuntu-latest
     steps:

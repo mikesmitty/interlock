@@ -115,6 +115,9 @@ applied at the next start; the replaced files go to `before-restore-*/`.
   restores staged in the data directory and applied at the next start.
 - `internal/yamlstrict` — unknown-field check for YAML documents with
   custom unmarshalers.
+- `internal/atomicfile` — write-then-rename for the YAML files the UI
+  edits; on Windows the rename retries while another program holds the
+  file open. Use it for any file Interlock rewrites.
 - `internal/monitor` — rolling log of frames with decoding for display.
 - `internal/api` — HTTP API under `/api/v1`; JSON errors for 404 and 405;
   server-sent events at `/api/v1/events`.
@@ -131,7 +134,10 @@ applied at the next start; the replaced files go to `before-restore-*/`.
 
 - Conventional commits (`feat(scope):`, `fix(scope):`, ...). Releases are
   cut by release-please; never bump versions by hand
-  (`internal/version/version.go` carries the marker).
+  (`internal/version/version.go` carries the marker). The release calls
+  `.github/workflows/binaries.yml`, which builds Linux, macOS and Windows
+  and signs the macOS and Windows builds once their credentials exist;
+  `docs/releasing.md` lists them.
 - US English spelling everywhere; `misspell` enforces it in Go.
 - Follow `~/.claude/languages/go.md`: `log/slog`, `context.Context` on
   anything that blocks, wrapped errors, table-driven tests, small

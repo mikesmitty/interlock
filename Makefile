@@ -1,5 +1,5 @@
-BIN     := interlock
 GO      ?= go
+BIN     := interlock$(shell $(GO) env GOEXE)
 GOFLAGS ?= -trimpath
 
 .PHONY: all build go web test lint fmt run dev docs docs-dev clean

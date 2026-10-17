@@ -24,6 +24,18 @@ func TestFilterSerialPorts(t *testing.T) {
 			goos:  "linux",
 			want:  []string{"/dev/ttyACM0", "/dev/ttyUSB0"},
 		},
+		{
+			name:  "linux numbers in order",
+			ports: []string{"/dev/ttyACM10", "/dev/ttyACM2", "/dev/ttyUSB0", "/dev/ttyACM1"},
+			goos:  "linux",
+			want:  []string{"/dev/ttyACM1", "/dev/ttyACM2", "/dev/ttyACM10", "/dev/ttyUSB0"},
+		},
+		{
+			name:  "windows numbers in order",
+			ports: []string{"COM10", "COM3", "COM1", "COM9"},
+			goos:  "windows",
+			want:  []string{"COM1", "COM3", "COM9", "COM10"},
+		},
 		{name: "empty", ports: nil, goos: "darwin", want: []string{}},
 	}
 	for _, tt := range tests {

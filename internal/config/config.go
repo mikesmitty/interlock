@@ -146,7 +146,7 @@ node:
 links: []
 #  - name: outpost
 #    type: serial
-#    device: /dev/cu.usbmodem1234
+#    device: /dev/cu.usbmodem1234   # COM3 on Windows, /dev/ttyACM0 on Linux
 #  - name: jmri
 #    type: tcp
 #    address: 192.168.1.10:12021

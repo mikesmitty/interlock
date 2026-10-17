@@ -1,0 +1,3 @@
+# Check text files out with LF endings everywhere, Windows included, so
+# embedded files and test fixtures read the same on every platform.
+* text=auto eol=lf
