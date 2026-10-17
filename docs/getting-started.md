@@ -110,7 +110,9 @@ upgrades and configuration writes like the real boards.
   new firmware on it.
 - [Entities](./entities.md): turnouts, blocks, reporters and sensors.
 - [Automations](./automations.md): when, only if, then.
-- [Trains](./trains.md): the roster, the throttle, CV programming.
+- [Trains](./trains.md): the throttle, CV programming.
+- [The roster](./roster.md): locomotives, their decoders, importing a
+  JMRI roster.
 - [Decoder settings](./decoders.md): a decoder's settings by name.
 - [The fast clock](./clock.md) and [Backup and restore](./backup.md).
 

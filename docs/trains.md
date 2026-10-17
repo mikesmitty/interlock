@@ -10,12 +10,14 @@ action; and the Programming page reads and writes CVs.
 ## The roster
 
 A roster entry gives a locomotive a name and remembers its function
-labels. The web interface writes the file; it can also be edited by hand
-(restart Interlock afterwards):
+labels, what it is, and its decoders with their saved CV values; the
+[Roster](./roster.md) page covers those and importing a JMRI roster. The
+web interface writes the file; it can also be edited by hand (restart
+Interlock afterwards):
 
 ```yaml
 trains:
-  - id: "4014"
+  - id: big-boy
     name: Big Boy
     address: 4014
     long: true
@@ -25,16 +27,27 @@ trains:
       2: Whistle
     momentary:
       - 2
+    road_name: Union Pacific
+    road_number: "4014"
+    decoders:
+      - id: tsunami2
+        file: SoundTraxx_Tsu2_Steam.xml
+        family: Tsunami2 Steam
+        model: TSU-2200 Steam
+    installed: tsunami2
 ```
 
 | Field | Meaning |
 |---|---|
-| `id` | The address as text: `"1234"`, `"3"`, or `"3l"` for a long address of 127 or less. Filled in from the address. |
+| `id` | The entry's ID, made from its name when it is added. Entries from before 0.2 have their address as their ID (`"1234"`, or `"3l"` for a long address of 127 or less) until their address changes. |
 | `name` | What the throttle shows. Defaults to the address. |
-| `address` | DCC address, 1 to 10239. |
+| `address` | DCC address, 1 to 10239. Several entries may share one. |
 | `long` | Address kind. Addresses above 127 are always long; below that, short unless set. |
 | `functions` | Labels for the function keys, by number. |
 | `momentary` | Functions that act only while held, such as a horn. |
+| `road_name`, `road_number`, `manufacturer`, `model`, `owner`, `comment` | What the locomotive is. |
+| `decoders` | Its decoders: `id` (unique in the roster; it names the decoder's CV file), `name`, the definition's `file`, `family` and `model`, the `identity` it reported, and for one not fitted the `address`, `long`, `functions` and `momentary` it brings back when it is. |
+| `installed` | The ID of the decoder fitted now; the address and labels above are its own. |
 
 A locomotive need not be in the roster to be driven: the throttle page
 accepts any address, and an automation names trains by address. Such a

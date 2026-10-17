@@ -111,13 +111,21 @@ The document's fields are in [Automations](./automations.md).
 
 ```
 GET    /api/v1/trains                        {trains, layout}
-POST   /api/v1/trains                        add to the roster {name, address, long, functions, momentary}
+POST   /api/v1/trains                        add to the roster {name, address, long, functions, momentary, ...}
 POST   /api/v1/trains/search                 {address, long} -> what answered on the bus
 GET    /api/v1/trains/layout                 {power_off, emergency_stop}
 POST   /api/v1/trains/layout                 {power} or {emergency_stop}
-GET    /api/v1/trains/{id}
-PATCH  /api/v1/trains/{id}
-DELETE /api/v1/trains/{id}
+GET    /api/v1/trains/{id}                   a roster ID, or an address ("1234", "3l")
+PATCH  /api/v1/trains/{id}                   any roster field but the decoders
+DELETE /api/v1/trains/{id}                   with its decoders' CV values
+POST   /api/v1/trains/{id}/decoders          {name, file, family, model, identity, install} -> {train, decoder}
+PATCH  /api/v1/trains/{id}/decoders/{dec}    {name, file, family, model, identity}
+DELETE /api/v1/trains/{id}/decoders/{dec}    with its CV values
+POST   /api/v1/trains/{id}/install           {decoder} fit one ("" for none); address and labels swap
+GET    /api/v1/trains/{id}/decoders/{dec}/cvs  {cvs, updated}
+PATCH  /api/v1/trains/{id}/decoders/{dec}/cvs  {cvs} save these values
+PUT    /api/v1/trains/{id}/decoders/{dec}/cvs  {cvs} replace them all
+POST   /api/v1/trains/import                 multipart: file (JMRI roster files or a zip), plan
 POST   /api/v1/trains/{id}/acquire           take control
 POST   /api/v1/trains/{id}/release
 POST   /api/v1/trains/{id}/speed             {speed, direction}
@@ -132,7 +140,11 @@ POST   /api/v1/programming/write             {cv, value}
 ```
 
 CV operations answer 200 with `ok` and, when it failed, `error` in plain
-words; 400 is for bad input. See [Trains](./trains.md).
+words; 400 is for bad input. An import without `plan` changes nothing and
+answers with the locomotives found and a suggested plan, one step per
+locomotive (`new`, `decoder` with `into`, or `skip`); sending the files
+again with a plan carries it out. See [Trains](./trains.md) and
+[The roster](./roster.md).
 
 ## Decoder definitions
 
@@ -140,15 +152,18 @@ words; 400 is for bad input. See [Trains](./trains.md).
 GET    /api/v1/decoders                      where the definitions come from {source, ref, path, archive}
 GET    /api/v1/decoders/index                every manufacturer, family and model
 GET    /api/v1/decoders/definition           ?file=&model= one model's settings and pages
-POST   /api/v1/programming/identify          {identity, manufacturer, candidates}
-POST   /api/v1/programming/decoder-cv        {file, model, cv, write, value, train} -> {cv, value, ok, error}
+POST   /api/v1/programming/identify          {identity, manufacturer, candidates, address, roster}
+POST   /api/v1/programming/decoder-cv        {file, model, cv, write, value, train, locomotive, decoder} -> {cv, value, ok, error}
 ```
 
 The index and definitions are large and sent gzipped when the client
 accepts it. `decoder-cv` takes a CV by the name the definition uses
 (`29`, `16.0.259`, `T2CV.1.05`) and does the index writes it needs; with
-`train` it writes on the main. It refuses CVs the definition marks
-read-only, write-only or for information only. See
+`train` it writes on the main; with a roster `locomotive` and one of its
+`decoder`s, the value is saved for that decoder. It refuses CVs the
+definition marks read-only, write-only or for information only.
+`identify` also reads the decoder's address and lists the roster
+decoders it could be. See
 [Decoder settings](./decoders.md).
 
 ## Clock

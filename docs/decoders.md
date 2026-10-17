@@ -38,7 +38,9 @@ Backups leave the fetched files out; they can always be fetched again.
 Put the locomotive on the programming track and choose **Identify the
 decoder**. Interlock reads the manufacturer (CV 8) and version (CV 7),
 then the product ID for makers that publish one (ESU, TCS, Zimo,
-SoundTraxx and others), and lists the definitions that fit. Some
+SoundTraxx and others), and lists the definitions that fit. It also
+reads the address the decoder answers to and names the roster
+locomotive whose decoder it is, when there is one. Some
 products share an ID: an ESU LokSound 5 and LokPilot 5 micro DCC Direct
 report the same one, so both are offered and you choose the one fitted.
 
@@ -75,14 +77,22 @@ To program on the main, choose the locomotive under **Program**. Writes
 go out as programming-on-the-main packets; reading on the main needs
 RailCom, which is not available yet.
 
+## With the roster
+
+A decoder in the [roster](./roster.md) opens from its locomotive's page
+with the values saved for it, so a page shows the decoder's settings
+without reading them first, marked as saved. Each value read or written
+is saved again, and writing a new address to the fitted decoder moves
+the locomotive to it. A decoder opened on its own can be kept with a
+locomotive from **Keep in the roster** at the bottom of its page.
+
 ## Not done yet
 
-- Settings are not kept with the locomotive yet, so open the page and
-  read it each time.
 - ESU decoders map functions to outputs and sounds in a table of their
   own, which the Function Map tab does not show yet. The Function Outputs
   and Function Settings tabs and the CVs tab cover the rest.
-- Importing a JMRI roster, with its decoder and CV values, comes next.
+- Settings changed but not written are not kept; write them, or they
+  are gone when the page closes.
 
 ## Without hardware
 

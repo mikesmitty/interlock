@@ -1,8 +1,8 @@
 # Backup and restore
 
 Everything Interlock keeps lives in its data directory: `interlock.yaml`,
-`entities.yaml`, `automations.yaml`, `trains.yaml`, your `profiles/` and
-the database (`interlock.db`, which holds the nodes it has seen, their
+`entities.yaml`, `automations.yaml`, `trains.yaml`, the roster's decoder
+CV values in `cvs/`, your `profiles/` and the database (`interlock.db`, which holds the nodes it has seen, their
 configuration descriptions, the named event table, automation traces,
 the fast clock and Interlock's own generated node ID).
 

@@ -413,9 +413,10 @@ models).
 - **Read and write by page.** Read what the page shows, write what
   changed, with progress. Values the definition marks read-only stay
   read-only.
-- **Values kept per locomotive.** A roster entry gains its decoder family
-  and model and the CV values last read or written, so opening a
-  locomotive needs no read.
+- **Values kept per locomotive.** A roster entry gains its decoders,
+  each with its definition and the CV values last read or written, so
+  opening a locomotive needs no read. One decoder is fitted at a time;
+  swapping brings back each decoder's own address and labels.
 - **Import.** JMRI roster files (decoder, CV values, function labels)
   import into the roster.
 
@@ -541,7 +542,9 @@ train reservation protocol, function description information (space 0xFA).
 - Decided in Phase 5: trains are their own domain rather than entities.
   An entity has one state word and parameterless commands; a train has a
   speed, a direction and functions, and is addressed by DCC address, not
-  by the node a command station happens to make for it. Automations reach
+  by the node a command station happens to make for it. (Phase 7 gave
+  roster entries IDs of their own; the train on the bus is still the
+  address's.) Automations reach
   trains through the `train` action; a train trigger and condition can
   come later on the same manager.
 - Deferred from Phase 5: consist building and listener registration (the
@@ -592,8 +595,19 @@ train reservation protocol, function description information (space 0xFA).
   station can hold an ESU LokSound 5 with paged CVs (`-decoder esu`).
   Verified against the simulator: identified, the LokSound 5 definition
   fetched from GitHub, acceleration changed by name and read back.
-- Still to do in Phase 7: values kept per locomotive in the roster, JMRI
-  roster import, ESU's own function map, reading on the main (RailCom).
+- Phase 7 roster (2026-10-17): roster entries are locomotives with IDs
+  of their own, so several may share an address (one train on the bus,
+  state shared); each has decoders, one fitted, whose address and
+  function labels swap in and out with it. Each decoder's CV values live
+  in `<data>/cvs/<decoder>.yaml`, saved as they are read or written and
+  backed up with the rest. Identify also reads the address and names the
+  roster decoder on the track. `internal/jmri` reads JMRI roster files
+  and zips; the import previews a plan (entries sharing an address and
+  road number become one locomotive with several decoders) and carries
+  it out. Verified with a real six-locomotive JMRI roster against the
+  simulator.
+- Still to do in Phase 7: ESU's own function map, keeping settings
+  changed but not written, reading on the main (RailCom).
 - Next: the rest of Phase 7, and hardware verification against
   canbus-outpost and simple-dcc.
 

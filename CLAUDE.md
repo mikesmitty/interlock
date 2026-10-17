@@ -26,7 +26,7 @@ make docs-dev   # serve it with live reload
 
 Run `bin/interlock -data <dir>`; the data directory holds `interlock.yaml`
 (created with defaults on first start), `interlock.db`, `entities.yaml`,
-`automations.yaml`, `trains.yaml` and user `profiles/`. Default: `$INTERLOCK_DATA`, else `interlock` under the user
+`automations.yaml`, `trains.yaml`, decoder CV values in `cvs/` and user `profiles/`. Default: `$INTERLOCK_DATA`, else `interlock` under the user
 config directory. A staged restore waits in `restore.pending/` and is
 applied at the next start; the replaced files go to `before-restore-*/`.
 
@@ -101,8 +101,14 @@ applied at the next start; the replaced files go to `before-restore-*/`.
   goroutine.
 - `internal/train` — the throttle side: the roster in `<data>/trains.yaml`,
   finding train nodes by Train Search, controller assign, speed and
-  function commands, the layout's emergency events. Trains are keyed by
-  DCC address, not node ID.
+  function commands, the layout's emergency events. Roster entries are
+  locomotives with IDs of their own and may share an address; the state
+  on the bus belongs to the address (`train` in the manager) and every
+  entry there shows it. Each entry has decoders, one fitted, whose
+  address and labels swap with it; `CVStore` keeps each decoder's CV
+  values in `<data>/cvs/`. The JMRI import is planned and applied here.
+- `internal/jmri` — reads JMRI roster files (roster.xml, the locomotive
+  files, zips of them) into imports for the roster.
 - `internal/programmer` — CV reads and writes: service mode through space
   0xF8 of the programming track's node, POM through a train node's.
 - `internal/decoder` — JMRI's DCC decoder definitions (GPL-2.0-only, so
