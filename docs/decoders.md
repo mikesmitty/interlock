@@ -21,8 +21,8 @@ decoders:
 
 - **github** (the default) fetches each file from JMRI's repository the
   first time it is needed and keeps it in `decoders/` in the data
-  directory. The first look at a decoder takes a few seconds; after that
-  it needs no connection.
+  directory. The first look at a decoder fetches its files several at a
+  time, which takes under a second; after that it needs no connection.
 - **archive** downloads the whole repository at that release once, in
   the background, and keeps only the decoder files (about 75 MB of a
   365 MB download). Until it finishes, files are fetched one at a time as
@@ -54,16 +54,25 @@ Motor, Speed Table, Function Outputs and so on, with each decoder's own
 pages after the standard ones. Values start at the definition's
 defaults, marked as not read yet.
 
-- **Read page** reads every CV the tab shows.
+- **Read page** reads every CV the tab shows. Changes not written yet
+  stay; the rest of their CV comes from the decoder.
 - **Write changes** writes only the CVs you changed. A setting that
   shares its CV with others is written without disturbing them: if that
   CV was never read, Interlock reads it first.
 - **Write page** writes every CV on the tab that has a value, for setting
   up a new decoder from the defaults.
+- **Discard changes** puts the tab's changed settings back as they were.
 
-Changed settings carry a brass mark until they are written. Reads and
-writes go one CV at a time; the toolbar shows how far it has got and
-**Stop** ends it after the current CV.
+Changed settings carry a brass mark until they are written, and so do
+the tabs that have them. Reads and writes go one CV at a time; the
+toolbar shows how far it has got and **Stop** ends it after the current
+CV.
+
+Changes to a decoder in the [roster](./roster.md) are kept until they
+are written or discarded: close the page, or open it on another device,
+and they are still there, marked. A decoder opened on its own keeps
+nothing: the browser asks before you close or reload its page with
+changes, and **Keep in the roster** takes them along.
 
 The address field takes the address you want: 1 to 127 is a short
 address, anything higher a long one, and CV 29 is set to match.
@@ -77,6 +86,24 @@ To program on the main, choose the locomotive under **Program**. Writes
 go out as programming-on-the-main packets; reading on the main needs
 RailCom, which is not available yet.
 
+## ESU function mapping
+
+ESU decoders decide what each function key does with a table of their
+own rather than the usual function map: 72 rows on a LokSound 5 (40 on
+earlier ones), each switching some outputs, logical functions (such as
+shunting mode or momentum off) and sounds on while all of its
+conditions hold. A condition is a function key on or off, moving or
+stopped, forward or reverse, or a sensor.
+
+The Function Map tab lists the rows with what each one does: "Forward,
+F0" and "Headlight [1]" is the headlight in forward with F0 on. Choose a
+row's number to change it: set each condition to either, on or off, and
+tick what it switches on. Outputs and sound slots the model lacks are
+left out, and function keys show their roster labels. **Read row** reads
+just that row, much quicker than the whole table, and **Clear row**
+empties it. Outputs marked [2] are the second configuration of the
+headlight, rear light, AUX1 and AUX2.
+
 ## With the roster
 
 A decoder in the [roster](./roster.md) opens from its locomotive's page
@@ -85,14 +112,6 @@ without reading them first, marked as saved. Each value read or written
 is saved again, and writing a new address to the fitted decoder moves
 the locomotive to it. A decoder opened on its own can be kept with a
 locomotive from **Keep in the roster** at the bottom of its page.
-
-## Not done yet
-
-- ESU decoders map functions to outputs and sounds in a table of their
-  own, which the Function Map tab does not show yet. The Function Outputs
-  and Function Settings tabs and the CVs tab cover the rest.
-- Settings changed but not written are not kept; write them, or they
-  are gone when the page closes.
 
 ## Without hardware
 

@@ -606,8 +606,14 @@ train reservation protocol, function description information (space 0xFA).
   road number become one locomotive with several decoders) and carries
   it out. Verified with a real six-locomotive JMRI roster against the
   simulator.
-- Still to do in Phase 7: ESU's own function map, keeping settings
-  changed but not written, reading on the main (RailCom).
+- Phase 7 (2026-10-17): ESU's own function map (rows of conditions and
+  outputs, logical functions and sounds, laid out by the server and
+  edited a row at a time), changes not written yet kept with a roster
+  decoder's values and kept through reads, and a definition's files
+  fetched several at a time on first use (a cold LokSound 5 in about
+  0.15 s instead of 0.75 s). Verified against the simulator.
+- Still to do in Phase 7: reading on the main, which needs RailCom
+  support in `simple-dcc`.
 - Next: the rest of Phase 7, and hardware verification against
   canbus-outpost and simple-dcc.
 

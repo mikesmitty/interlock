@@ -21,7 +21,8 @@ the right address and function names for each.
 
 **Settings** on a decoder opens its settings page with the saved values
 already in place, so nothing has to be read before you look. Every value
-read or written there is saved for that decoder. A page shows when the
+read or written there is saved for that decoder, and changes not written
+yet are kept until they are written or discarded. A page shows when the
 values were last saved; read it again if the decoder may have been
 changed elsewhere since.
 
@@ -79,5 +80,5 @@ without its own file comes in without CV values.
 
 The roster is `trains.yaml` in the data directory; see
 [Trains](./trains.md#the-roster) for its fields. Each decoder's CV values
-are in `cvs/<decoder id>.yaml`, which Interlock rewrites a second after
-values stop changing. Both are in [backups](./backup.md).
+are in `cvs/<decoder id>.yaml`, with the changes not written yet, which
+Interlock rewrites a second after values stop changing. Both are in [backups](./backup.md).

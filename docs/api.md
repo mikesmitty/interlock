@@ -122,9 +122,10 @@ POST   /api/v1/trains/{id}/decoders          {name, file, family, model, identit
 PATCH  /api/v1/trains/{id}/decoders/{dec}    {name, file, family, model, identity}
 DELETE /api/v1/trains/{id}/decoders/{dec}    with its CV values
 POST   /api/v1/trains/{id}/install           {decoder} fit one ("" for none); address and labels swap
-GET    /api/v1/trains/{id}/decoders/{dec}/cvs  {cvs, updated}
-PATCH  /api/v1/trains/{id}/decoders/{dec}/cvs  {cvs} save these values
-PUT    /api/v1/trains/{id}/decoders/{dec}/cvs  {cvs} replace them all
+GET    /api/v1/trains/{id}/decoders/{dec}/cvs      {cvs, updated, changes}
+PATCH  /api/v1/trains/{id}/decoders/{dec}/cvs      {cvs} save these values
+PUT    /api/v1/trains/{id}/decoders/{dec}/cvs      {cvs} replace them all
+PUT    /api/v1/trains/{id}/decoders/{dec}/changes  {changes} keep the changes not written yet
 POST   /api/v1/trains/import                 multipart: file (JMRI roster files or a zip), plan
 POST   /api/v1/trains/{id}/acquire           take control
 POST   /api/v1/trains/{id}/release
@@ -143,8 +144,10 @@ CV operations answer 200 with `ok` and, when it failed, `error` in plain
 words; 400 is for bad input. An import without `plan` changes nothing and
 answers with the locomotives found and a suggested plan, one step per
 locomotive (`new`, `decoder` with `into`, or `skip`); sending the files
-again with a plan carries it out. See [Trains](./trains.md) and
-[The roster](./roster.md).
+again with a plan carries it out. Changes are kept by CV as the bits
+they set: `{"29": {"value": 32, "bits": 32}}` sets bit 5 of CV 29. A
+change is dropped once a value read from or written to the decoder
+holds it. See [Trains](./trains.md) and [The roster](./roster.md).
 
 ## Decoder definitions
 
@@ -163,8 +166,10 @@ accepts it. `decoder-cv` takes a CV by the name the definition uses
 `decoder`s, the value is saved for that decoder. It refuses CVs the
 definition marks read-only, write-only or for information only.
 `identify` also reads the decoder's address and lists the roster
-decoders it could be. See
-[Decoder settings](./decoders.md).
+decoders it could be. An ESU decoder's function map comes as an
+`esu_map` node: its rows and blocks of items, from which each item's CV
+and bits follow (see `internal/decoder/esumap.go`); its CVs are in the
+definition's list. See [Decoder settings](./decoders.md).
 
 ## Clock
 

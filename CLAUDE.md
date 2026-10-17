@@ -106,7 +106,8 @@ applied at the next start; the replaced files go to `before-restore-*/`.
   on the bus belongs to the address (`train` in the manager) and every
   entry there shows it. Each entry has decoders, one fitted, whose
   address and labels swap with it; `CVStore` keeps each decoder's CV
-  values in `<data>/cvs/`. The JMRI import is planned and applied here.
+  values, and the settings page's changes not written yet, in
+  `<data>/cvs/`. The JMRI import is planned and applied here.
 - `internal/jmri` — reads JMRI roster files (roster.xml, the locomotive
   files, zips of them) into imports for the roster.
 - `internal/programmer` — CV reads and writes: service mode through space
@@ -115,7 +116,8 @@ applied at the next start; the replaced files go to `before-restore-*/`.
   fetched, never bundled): sources (GitHub file by file, the repository
   archive, a folder or zip), the index, Identify and matching, the
   definition of one model (variables walked as JMRI walks them, value
-  types reduced to CV parts and masks, panes merged and pruned), CV name
+  types reduced to CV parts and masks, panes merged and pruned, ESU's
+  function map laid out in `esumap.go`), CV name
   plans (index CVs, TCS four-CV access) and a session that skips repeated
   index writes. `docs/decoders.md` is the user guide; the browser does
   the value math in `web/src/decoder/values.ts`.
