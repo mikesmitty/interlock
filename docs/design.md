@@ -3,7 +3,8 @@
 Interlock is an LCC (OpenLCB) layout controller: a single Go binary with a web
 interface that discovers the nodes on a layout, lets you configure them without
 knowing what a memory space is, and runs Home Assistant style automations on
-top of them. It aims to replace JMRI for LCC-first layouts.
+top of them. It is meant to be the whole control system for a layout built
+around LCC.
 
 This document records the architecture and the phased plan. It is a living
 document; decisions marked **Decision** are settled, items marked **Open** are
@@ -11,7 +12,7 @@ not.
 
 ## Goals
 
-- Friendlier than JMRI. Nodes, turnouts, blocks and trains appear by their
+- Easy to use. Nodes, turnouts, blocks and trains appear by their
   names. Configuration is a form, not a memory map. Automations are built in
   the UI from triggers, conditions and actions.
 - Full LCC coverage over time: CAN frame transfer, message network, events,
