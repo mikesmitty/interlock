@@ -5,8 +5,8 @@
 // run the tests without a build.
 import type { Choice, DecoderDefinition, DecoderVariable, Part, Qualifier } from "./types";
 
-/** Where a CV's value came from. */
-export type CVState = "unknown" | "fromfile" | "edited" | "read" | "stored";
+/** Where a CV's value came from: "saved" is the roster's copy. */
+export type CVState = "unknown" | "fromfile" | "edited" | "read" | "stored" | "saved";
 
 export interface CVCell {
   value: number;
@@ -323,6 +323,20 @@ export function merge(cell: CVCell, fromDecoder: number): number {
   return ((fromDecoder & ~cell.edited) | (cell.value & cell.edited)) >>> 0;
 }
 
+/** A copy of the table with a roster decoder's saved values, which count as known. */
+export function withSaved(t: CVTable, cvs: Record<string, number>): CVTable {
+  const out = { ...t };
+  for (const [cv, value] of Object.entries(cvs)) out[cv] = { value, state: "saved", known: true, edited: 0 };
+  return out;
+}
+
+/** The values the decoder is known to hold, for saving to the roster. */
+export function knownValues(t: CVTable): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const [cv, cell] of Object.entries(t)) if (cell.known && cell.state !== "edited") out[cv] = cell.value;
+  return out;
+}
+
 /** The CV table a definition starts with: its defaults, from the file. */
 export function initialTable(def: DecoderDefinition): CVTable {
   let t: CVTable = {};
@@ -450,9 +464,14 @@ export function addressItems(vars: Map<string, DecoderVariable>): AddressItems {
 
 /** The decoder's address as it is set now, long or short by CV 29. */
 export function currentAddress(a: AddressItems, t: CVTable, vars: Map<string, DecoderVariable>): number | undefined {
-  const useLong = a.long && (!a.format || numericValue(a.format, t, vars) === 1);
+  return addressOf(a, t, vars)?.address;
+}
+
+/** The address the decoder answers to and whether it is a long one. */
+export function addressOf(a: AddressItems, t: CVTable, vars: Map<string, DecoderVariable>): { address: number; long: boolean } | undefined {
+  const useLong = !!a.long && (!a.format || numericValue(a.format, t, vars) === 1);
   const v = useLong ? a.long : a.short;
-  return v ? (decode(v, t) as number) : undefined;
+  return v ? { address: decode(v, t) as number, long: useLong } : undefined;
 }
 
 /**

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { useNavigate, useParams } from "react-router";
+import { Link, useNavigate, useParams } from "react-router";
 import { api, type Direction, type FoundTrain, type Train } from "../api";
 import { Lamp, Status, type LampColor } from "../components/Lamp";
 import { Empty, Page } from "../components/Page";
@@ -328,9 +328,8 @@ function Cab({
   onMessage: (m?: string) => void;
 }) {
   const now = useNow();
+  const navigate = useNavigate();
   const [busy, setBusy] = useState<string>();
-  const [editing, setEditing] = useState(false);
-  const [confirmRemove, setConfirmRemove] = useState(false);
   const [draft, setDraft] = useState<number>();
   const pending = useRef<{ timer?: number; value?: number; inFlight: boolean }>({ inFlight: false });
   const lamp = trainLamp(t, nodeNames);
@@ -425,13 +424,27 @@ function Cab({
           >
             Refresh
           </button>
-          <button className="btn btn--quiet" onClick={() => setEditing((v) => !v)} aria-pressed={editing}>
-            {editing ? "Done" : t.roster ? "Edit" : "Add to roster"}
-          </button>
+          {t.roster ? (
+            <Link className="btn btn--quiet" to={`/roster/${encodeURIComponent(t.id)}`}>
+              Roster entry
+            </Link>
+          ) : (
+            <button
+              className="btn btn--quiet"
+              onClick={() =>
+                void act("Add to roster", async () => {
+                  const added = await api.createTrain({ address: t.address, long: t.long });
+                  navigate(`/roster/${encodeURIComponent(added.id)}`);
+                })
+              }
+              disabled={!!busy}
+            >
+              Add to roster
+            </button>
+          )}
         </div>
       </div>
       <div className="thr-cab__body">
-        {editing && <EditTrain train={t} onDone={() => setEditing(false)} onMessage={onMessage} />}
         <div className="thr-speed">
           <div className={["thr-speed__readout", t.estop ? "is-estop" : ""].join(" ")}>
             {t.estop ? "STOP" : Math.round(speed)}
@@ -521,116 +534,9 @@ function Cab({
           {t.known
             ? `State read from the train; updated ${relativeTime(t.updated, now)}.`
             : "Not read from the train yet; the first command finds it and takes control."}
-          {!t.roster && " This locomotive is not in the roster; add it to keep a name and function labels."}
+          {!t.roster && " This locomotive is not in the roster; add it to keep a name, function labels and its decoder's settings."}
         </p>
-        {t.roster && (
-          <p className="thr-note">
-            {confirmRemove ? (
-              <>
-                Remove {t.name} from the roster?{" "}
-                <button className="linklike" onClick={() => void act("Remove", () => api.deleteTrain(t.id))}>
-                  Yes, remove it
-                </button>{" "}
-                <button className="linklike" onClick={() => setConfirmRemove(false)}>
-                  Keep it
-                </button>
-              </>
-            ) : (
-              <button className="linklike" onClick={() => setConfirmRemove(true)}>
-                Remove from the roster…
-              </button>
-            )}
-          </p>
-        )}
       </div>
     </div>
-  );
-}
-
-/** The roster fields: name, function labels and which ones are momentary. */
-function EditTrain({
-  train: t,
-  onDone,
-  onMessage,
-}: {
-  train: Train;
-  onDone: () => void;
-  onMessage: (m?: string) => void;
-}) {
-  const [name, setName] = useState(t.roster ? t.name : "");
-  const [labels, setLabels] = useState<Record<string, string>>({
-    ...(t.functions ?? {}),
-  });
-  const [momentary, setMomentary] = useState<Set<number>>(new Set(t.momentary ?? []));
-  const [busy, setBusy] = useState(false);
-
-  async function save(e: FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    onMessage(undefined);
-    const functions: Record<string, string> = {};
-    for (const [k, v] of Object.entries(labels)) if (v.trim()) functions[k] = v.trim();
-    const entry = {
-      name,
-      functions,
-      momentary: [...momentary].sort((a, b) => a - b),
-    };
-    try {
-      if (t.roster) await api.updateTrain(t.id, entry);
-      else await api.createTrain({ ...entry, address: t.address, long: t.long });
-      onDone();
-    } catch (err) {
-      onMessage(`Could not save: ${describe(err)}`);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <form className="thr-edit" onSubmit={(e) => void save(e)}>
-      <div className="thr-edit__row">
-        <label className="auto-field">
-          <span>Name</span>
-          <input
-            className="input"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder={addressText(t)}
-          />
-        </label>
-        <button className="btn btn--primary" type="submit" disabled={busy}>
-          {t.roster ? "Save" : "Add to roster"}
-        </button>
-        <button className="btn btn--quiet" type="button" onClick={onDone}>
-          Cancel
-        </button>
-      </div>
-      <div className="thr-fn-edit">
-        {Array.from({ length: FUNCTION_COUNT }, (_, i) => i).map((fn) => (
-          <label key={fn}>
-            <span className="thr-fn__num">F{fn}</span>
-            <input
-              className="input"
-              value={labels[String(fn)] ?? ""}
-              onChange={(e) => setLabels({ ...labels, [String(fn)]: e.target.value })}
-              placeholder="label"
-            />
-            <input
-              type="checkbox"
-              checked={momentary.has(fn)}
-              title="Acts while held"
-              aria-label={`F${fn} acts while held`}
-              onChange={(e) => {
-                const next = new Set(momentary);
-                if (e.target.checked) next.add(fn);
-                else next.delete(fn);
-                setMomentary(next);
-              }}
-            />
-          </label>
-        ))}
-      </div>
-      <p className="thr-note">Tick a function that should act only while its key is held, such as a horn.</p>
-    </form>
   );
 }

@@ -1,23 +1,28 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router";
-import { api } from "../api";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router";
+import { api, type RosterIdentity } from "../api";
 import { Status } from "../components/Lamp";
 import { Page } from "../components/Page";
+import { rosterSettingsLink } from "../components/decoder/DecoderPicker";
 import { PaneNodes, type PaneContext } from "../components/decoder/PaneView";
 import type { DecoderDefinition, DecoderPane, DecoderVariable } from "../decoder/types";
+import { relativeTime, useNow } from "../format";
 import {
   addressItems,
+  addressOf,
   applyUpdates,
   cvsOf,
   encode,
   initialTable,
   isEdited,
   isKnown,
+  knownValues,
   merge,
   qualified,
   setAddress,
   settle,
   variableMap,
+  withSaved,
   type CVTable,
   type CVUpdate,
   type EncodeResult,
@@ -55,11 +60,26 @@ function paneCVs(pane: DecoderPane, def: DecoderDefinition, vars: Map<string, De
   return cvsOf(items, vars);
 }
 
+/** The identity the Identify button read, carried in the address. */
+function identityParam(params: URLSearchParams): RosterIdentity | undefined {
+  const mfg = Number(params.get("mfg"));
+  if (!params.get("mfg") || !Number.isInteger(mfg)) return undefined;
+  const pid = params.get("pid");
+  return { manufacturer: mfg, version: Number(params.get("ver") ?? 0), product_id: pid ? Number(pid) : undefined };
+}
+
 export function DecoderSettings() {
   const [params] = useSearchParams();
-  const file = params.get("file") ?? "";
-  const model = params.get("model") ?? "";
-  const { trains } = useBus();
+  const { trains, loaded } = useBus();
+  // A roster locomotive's decoder, or a definition on its own.
+  const loco = params.get("loco") ?? "";
+  const decoderID = params.get("decoder") ?? "";
+  const entry = loco ? trains[loco] : undefined;
+  const rosterDecoder = entry?.decoders?.find((d) => d.id === decoderID);
+  const file = loco ? (rosterDecoder?.file ?? "") : (params.get("file") ?? "");
+  const model = loco ? (rosterDecoder?.model ?? "") : (params.get("model") ?? "");
+  const now = useNow();
+  const [savedAt, setSavedAt] = useState<string>();
   const [def, setDef] = useState<DecoderDefinition>();
   const [loadError, setLoadError] = useState<string>();
   const [table, setTableState] = useState<CVTable>({});
@@ -71,6 +91,7 @@ export function DecoderSettings() {
   const stopRef = useRef(false);
   const [train, setTrain] = useState(params.get("train") ?? "");
   const [message, setMessage] = useState<string>();
+  const navigate = useNavigate();
 
   const setTable = (t: CVTable) => {
     tableRef.current = t;
@@ -81,24 +102,51 @@ export function DecoderSettings() {
     if (!file || !model) return;
     setDef(undefined);
     setLoadError(undefined);
-    api
-      .decoderDefinition(file, model)
-      .then((d) => {
+    setSavedAt(undefined);
+    const saved = loco && decoderID ? api.savedCVs(loco, decoderID) : Promise.resolve(undefined);
+    Promise.all([api.decoderDefinition(file, model), saved])
+      .then(([d, values]) => {
         setDef(d);
-        setTable(initialTable(d));
+        setTable(values ? withSaved(initialTable(d), values.cvs) : initialTable(d));
+        setSavedAt(values && Object.keys(values.cvs).length > 0 ? values.updated : undefined);
         setTab(0);
       })
       .catch((err) => setLoadError(describe(err)));
-  }, [file, model]);
+  }, [file, model, loco, decoderID]);
 
   const vars = useMemo(() => (def ? variableMap(def) : new Map<string, DecoderVariable>()), [def]);
   const cvInfo = useMemo(() => new Map((def?.cvs ?? []).map((c) => [c.name, c])), [def]);
 
-  const back = (
+  const back = loco ? (
+    <Link className="page__back" to={`/roster/${encodeURIComponent(loco)}`}>
+      {entry?.name ?? "Roster"}
+    </Link>
+  ) : (
     <Link className="page__back" to="/programming">
       Programming
     </Link>
   );
+  if (loco && !loaded) {
+    return (
+      <Page title="Decoder settings" back={back} lead="Loading…">
+        {null}
+      </Page>
+    );
+  }
+  if (loco && !rosterDecoder) {
+    return (
+      <Page title="Decoder settings" back={back}>
+        <p className="note">{entry ? `${entry.name} has no such decoder.` : "That locomotive is not in the roster."}</p>
+      </Page>
+    );
+  }
+  if (loco && (!file || !model)) {
+    return (
+      <Page title={entry!.name} back={back}>
+        <p className="note">This decoder has no definition yet. Choose one for it on the locomotive's roster page.</p>
+      </Page>
+    );
+  }
   if (!file || !model) {
     return (
       <Page title="Decoder settings" back={back}>
@@ -155,7 +203,31 @@ export function DecoderSettings() {
   };
 
   async function cvCall(cv: string, write?: number) {
-    return api.decoderCV({ file, model, cv, write: write !== undefined, value: write, train: train || undefined });
+    return api.decoderCV({
+      file,
+      model,
+      cv,
+      write: write !== undefined,
+      value: write,
+      train: train || undefined,
+      locomotive: loco || undefined,
+      decoder: loco ? decoderID : undefined,
+    });
+  }
+
+  /** After writes, the roster follows a new address on the fitted decoder. */
+  async function followAddress() {
+    if (!entry || entry.installed !== decoderID) return;
+    const a = addressOf(addressItems(vars), tableRef.current, vars);
+    if (!a || !isKnown(vars.get(a.long ? "Long Address" : "Short Address")!, tableRef.current)) return;
+    const long = a.long || a.address > 127;
+    if (a.address === entry.address && long === entry.long) return;
+    try {
+      await api.updateTrain(entry.id, { address: a.address, long });
+      setMessage((m) => `${m ? `${m} ` : ""}${entry.name} now drives at address ${a.address}.`);
+    } catch (err) {
+      setMessage(`The decoder's address changed, but the roster could not follow: ${describe(err)}`);
+    }
   }
 
   async function run(kind: Job["kind"], cvs: string[], step: (cv: string) => Promise<string | undefined>) {
@@ -186,8 +258,10 @@ export function DecoderSettings() {
       if (stopRef.current) setMessage("Stopped.");
       else if (failed > 0) setMessage(`${failed} of ${cvs.length} CVs could not be ${verb}.`);
       else if (cvs.length === 0) setMessage(kind === "read" ? "This page has nothing to read." : "Nothing on this page needs writing.");
-      else setMessage(`${cvs.length} CV${cvs.length === 1 ? "" : "s"} ${verb}.`);
+      else setMessage(`${cvs.length} CV${cvs.length === 1 ? "" : "s"} ${verb}${loco ? " and saved" : ""}.`);
+      if (loco && failed < cvs.length) setSavedAt(new Date().toISOString());
     }
+    if (kind === "write") await followAddress();
   }
 
   async function readCV(cv: string): Promise<string | undefined> {
@@ -229,26 +303,38 @@ export function DecoderSettings() {
   const allChanged = def.cvs.filter((c) => !c.info_only && !c.read_only && table[c.name]?.state === "edited").map((c) => c.name);
   const unread = pane ? pane.items.map((i) => vars.get(i)).filter((v): v is DecoderVariable => !!v && v.type !== "constant" && !isKnown(v, table)).length : 0;
   const changedSettings = pane ? pane.items.filter((i) => { const v = vars.get(i); return v && isEdited(v, table); }).length : 0;
-  const roster = Object.values(trains).sort((a, b) => a.name.localeCompare(b.name));
+  const roster = Object.values(trains)
+    .filter((t) => t.roster)
+    .sort((a, b) => a.name.localeCompare(b.name));
   const programmable = def.programming.no_decoder !== true && !(def.programming.modes ?? []).some((m) => m.startsWith("LOCONET"));
 
+  const decoderTitle = rosterDecoder?.name || def.model;
+  const lead = entry
+    ? `${decoderTitle === def.model ? def.model : `${decoderTitle}: ${def.model}`}, ${def.family}. ${
+        savedAt ? `Saved values from ${relativeTime(savedAt, now)}; reading a page replaces them.` : "No values saved yet; read a page to start."
+      }`
+    : `${def.family}, ${def.manufacturer}. Settings come from the JMRI project's decoder definitions.`;
+
   return (
-    <Page
-      title={def.model}
-      back={back}
-      lead={`${def.family}, ${def.manufacturer}. Settings come from the JMRI project's decoder definitions.`}
-    >
+    <Page title={entry ? entry.name : def.model} back={back} lead={lead}>
       {!programmable && <p className="note">This device is not programmed through DCC, so Interlock can show its settings but not read or write them.</p>}
+      {entry && entry.installed !== decoderID && (
+        <p className="note">This decoder is not the one fitted in {entry.name}. Programming on the main reaches whichever decoder answers at {entry.address}.</p>
+      )}
       <div className="panel dec-target">
         <label className="dec-target__pick">
           <span>Program</span>
           <select className="input input--select" value={train} disabled={busy} onChange={(e) => setTrain(e.target.value)}>
             <option value="">on the programming track</option>
-            {roster.map((t) => (
-              <option key={t.id} value={t.id}>
-                on the main: {t.name || `#${t.address}`}
-              </option>
-            ))}
+            {entry ? (
+              <option value={entry.id}>on the main, at address {entry.address}</option>
+            ) : (
+              roster.map((t) => (
+                <option key={t.id} value={t.id}>
+                  on the main: {t.name || `#${t.address}`}
+                </option>
+              ))
+            )}
           </select>
         </label>
         {onMain && <span className="dim">Writes only: reading on the main needs RailCom.</span>}
@@ -333,6 +419,16 @@ export function DecoderSettings() {
         </div>
       )}
 
+      {!loco && (
+        <AddToRoster
+          def={def}
+          identity={identityParam(params)}
+          address={addressOf(addressItems(vars), table, vars)}
+          values={() => knownValues(tableRef.current)}
+          onAdded={(t, d) => navigate(rosterSettingsLink(t, d), { replace: true })}
+        />
+      )}
+
       {((def.problems?.length ?? 0) > 0 || (def.missing?.length ?? 0) > 0) && (
         <details className="note dec-problems">
           <summary>Parts of this definition Interlock could not use</summary>
@@ -343,5 +439,97 @@ export function DecoderSettings() {
         </details>
       )}
     </Page>
+  );
+}
+
+/** Keeps a decoder opened on its own in the roster, with the values read so far. */
+function AddToRoster({
+  def,
+  identity,
+  address,
+  values,
+  onAdded,
+}: {
+  def: DecoderDefinition;
+  identity?: RosterIdentity;
+  address?: { address: number; long: boolean };
+  values: () => Record<string, number>;
+  onAdded: (train: string, decoder: string) => void;
+}) {
+  const { trains } = useBus();
+  const roster = Object.values(trains)
+    .filter((t) => t.roster)
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const [into, setInto] = useState("");
+  const [name, setName] = useState("");
+  const [addr, setAddr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  const known = address && address.address > 0 ? address.address : undefined;
+  const n = Number(addr || known || 0);
+
+  async function add(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(undefined);
+    try {
+      let id = into;
+      if (!id) {
+        const t = await api.createTrain({ name, address: n, long: n > 127 || (address?.long ?? false) });
+        id = t.id;
+      }
+      const r = await api.addDecoder(id, { file: def.file, family: def.family, model: def.model, identity, install: !into || !trains[into]?.installed });
+      const cvs = values();
+      if (Object.keys(cvs).length > 0) await api.saveCVs(id, r.decoder.id, cvs, true);
+      onAdded(id, r.decoder.id);
+    } catch (err) {
+      setError(describe(err));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form className="panel dec-keep" onSubmit={(e) => void add(e)}>
+      <h2>Keep in the roster</h2>
+      <p className="dim">Save this decoder with a locomotive, with the values read so far, so its settings open without reading them again.</p>
+      <div className="dec-keep__row">
+        <label className="auto-field">
+          <span>Locomotive</span>
+          <select className="input input--select" value={into} onChange={(e) => setInto(e.target.value)}>
+            <option value="">A new locomotive</option>
+            {roster.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        {!into && (
+          <>
+            <label className="auto-field">
+              <span>Name</span>
+              <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder={def.model} />
+            </label>
+            <label className="auto-field">
+              <span>DCC address</span>
+              <input
+                className="input"
+                type="number"
+                min={1}
+                max={10239}
+                value={addr}
+                placeholder={known ? String(known) : ""}
+                onChange={(e) => setAddr(e.target.value)}
+                required={!known}
+              />
+            </label>
+          </>
+        )}
+        <button className="btn btn--primary" type="submit" disabled={busy || (!into && !(n > 0))}>
+          {into ? "Add to the locomotive" : "Add to the roster"}
+        </button>
+      </div>
+      {error && <p className="field__error">{error}</p>}
+    </form>
   );
 }

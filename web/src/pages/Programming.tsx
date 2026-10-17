@@ -58,7 +58,9 @@ export function Programming() {
     }
   }
 
-  const roster = Object.values(trains).sort((a, b) => a.name.localeCompare(b.name));
+  const roster = Object.values(trains)
+    .filter((t) => t.roster)
+    .sort((a, b) => a.name.localeCompare(b.name));
   const trackLead = !track
     ? "Looking for the programming track…"
     : track.node
@@ -277,15 +279,17 @@ function OnTheMain({
   roster,
   onOp,
 }: {
-  roster: { id: string; name: string; address: number }[];
+  roster: { id: string; name: string; address: number; long: boolean }[];
   onOp: (op: CVOp) => void;
 }) {
+  // Locomotives are named by address here: that is what a write on the main reaches.
+  const addressID = (t: { address: number; long: boolean }) => (t.long && t.address <= 127 ? `${t.address}l` : String(t.address));
   const [train, setTrain] = useState("");
   const [cv, setCV] = useState("3");
   const [value, setValue] = useState<number>();
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<CVOp>();
-  const id = train || roster[0]?.id || "";
+  const id = train || (roster[0] ? addressID(roster[0]) : "");
 
   async function write(e: FormEvent) {
     e.preventDefault();
@@ -331,7 +335,7 @@ function OnTheMain({
           />
           <datalist id="pom-trains">
             {roster.map((t) => (
-              <option key={t.id} value={t.id}>
+              <option key={t.id} value={addressID(t)}>
                 {t.name}
               </option>
             ))}

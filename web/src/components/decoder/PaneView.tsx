@@ -363,6 +363,7 @@ const STATE_WORDS: Record<string, string> = {
   edited: "Changed",
   read: "Read",
   stored: "Written",
+  saved: "Saved",
 };
 
 function CVTableView({ ctx }: { ctx: PaneContext }) {

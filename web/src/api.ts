@@ -399,6 +399,97 @@ export interface TrainEntry {
   long: boolean;
   functions?: Record<string, string>;
   momentary?: number[];
+  road_name?: string;
+  road_number?: string;
+  manufacturer?: string;
+  model?: string;
+  owner?: string;
+  comment?: string;
+  /** The decoders the locomotive has, fitted or not. */
+  decoders?: RosterDecoder[];
+  /** The ID of the decoder fitted now. */
+  installed?: string;
+}
+
+/** What a decoder reports about itself: CV 8, CV 7 and a product ID. */
+export interface RosterIdentity {
+  manufacturer: number;
+  version: number;
+  product_id?: number;
+}
+
+/** One of a locomotive's decoders. */
+export interface RosterDecoder {
+  id: string;
+  name?: string;
+  file?: string;
+  family?: string;
+  model?: string;
+  identity?: RosterIdentity;
+  /** What a decoder that is not fitted brings back when it is. */
+  address?: number;
+  long?: boolean;
+  functions?: Record<string, string>;
+  momentary?: number[];
+}
+
+/** A decoder's saved CV values by the names its definition uses. */
+export interface SavedCVs {
+  cvs: Record<string, number>;
+  updated?: string;
+}
+
+/** A roster decoder that could be the one on the programming track. */
+export interface DecoderMatch {
+  train: string;
+  decoder?: string;
+  installed: boolean;
+  identity: boolean;
+}
+
+export type ImportAction = "new" | "decoder" | "skip";
+
+export interface ImportStep {
+  key: string;
+  action: ImportAction;
+  into?: string;
+  install?: boolean;
+  name?: string;
+  decoder_name?: string;
+  note?: string;
+}
+
+/** A locomotive found in a JMRI roster. */
+export interface ImportItem {
+  key: string;
+  entry: TrainEntry;
+  decoder?: RosterDecoder;
+  updated?: string;
+  cv_count: number;
+  /** Whether the decoder definitions have its decoder. */
+  definition: boolean;
+}
+
+export interface ImportPreview {
+  locomotives: ImportItem[];
+  plan: ImportStep[];
+  problems: string[];
+}
+
+export interface ImportResult {
+  result: { trains: Train[]; decoders: number; cvs: number; skipped: number };
+  problems: string[];
+  error?: string;
+}
+
+/** What Identify found on the programming track. */
+export interface IdentifyResult {
+  identity: DecoderIdentity;
+  manufacturer?: string;
+  candidates: DecoderCandidate[];
+  note?: string;
+  address?: { address: number; long: boolean };
+  roster: DecoderMatch[];
 }
 
 export interface Train extends TrainEntry {
@@ -541,6 +632,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 async function upload<T>(path: string, field: string, file: File): Promise<T> {
   const form = new FormData();
   form.append(field, file, file.name);
+  return sendForm<T>(path, form);
+}
+
+async function sendForm<T>(path: string, form: FormData): Promise<T> {
   const res = await fetch(path, { method: "POST", body: form, headers: { Accept: "application/json" } });
   const text = await res.text();
   let data: unknown;
@@ -724,6 +819,41 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ function: fn, on }),
     }),
+  addDecoder: (id: string, d: Partial<RosterDecoder> & { install?: boolean }) =>
+    request<{ train: Train; decoder: RosterDecoder }>(`${trainPath(id)}/decoders`, {
+      method: "POST",
+      body: JSON.stringify(d),
+    }),
+  updateDecoder: (id: string, decoder: string, d: Partial<RosterDecoder>) =>
+    request<Train>(`${trainPath(id)}/decoders/${encodeURIComponent(decoder)}`, {
+      method: "PATCH",
+      body: JSON.stringify(d),
+    }),
+  removeDecoder: (id: string, decoder: string) =>
+    request<Train>(`${trainPath(id)}/decoders/${encodeURIComponent(decoder)}`, { method: "DELETE" }),
+  installDecoder: (id: string, decoder: string) =>
+    request<Train>(`${trainPath(id)}/install`, {
+      method: "POST",
+      body: JSON.stringify({ decoder }),
+    }),
+  savedCVs: (id: string, decoder: string) =>
+    request<SavedCVs>(`${trainPath(id)}/decoders/${encodeURIComponent(decoder)}/cvs`),
+  saveCVs: (id: string, decoder: string, cvs: Record<string, number>, replace = false) =>
+    request<SavedCVs>(`${trainPath(id)}/decoders/${encodeURIComponent(decoder)}/cvs`, {
+      method: replace ? "PUT" : "PATCH",
+      body: JSON.stringify({ cvs }),
+    }),
+  importRoster: (files: File[]) => {
+    const form = new FormData();
+    for (const f of files) form.append("file", f, f.name);
+    return sendForm<ImportPreview>("/api/v1/trains/import", form);
+  },
+  applyImport: (files: File[], plan: ImportStep[]) => {
+    const form = new FormData();
+    for (const f of files) form.append("file", f, f.name);
+    form.append("plan", JSON.stringify(plan));
+    return sendForm<ImportResult>("/api/v1/trains/import", form);
+  },
   writePOM: (id: string, cv: number, value: number) =>
     request<CVOp>(`${trainPath(id)}/cv`, {
       method: "POST",
@@ -751,12 +881,17 @@ export const api = {
   decoderIndex: () => request<DecoderIndex>("/api/v1/decoders/index"),
   decoderDefinition: (file: string, model: string) =>
     request<DecoderDefinition>(`/api/v1/decoders/definition?${new URLSearchParams({ file, model }).toString()}`),
-  identifyDecoder: () =>
-    request<{ identity: DecoderIdentity; manufacturer?: string; candidates: DecoderCandidate[]; note?: string }>(
-      "/api/v1/programming/identify",
-      { method: "POST" },
-    ),
-  decoderCV: (body: { file: string; model: string; cv: string; write?: boolean; value?: number; train?: string }) =>
+  identifyDecoder: () => request<IdentifyResult>("/api/v1/programming/identify", { method: "POST" }),
+  decoderCV: (body: {
+    file: string;
+    model: string;
+    cv: string;
+    write?: boolean;
+    value?: number;
+    train?: string;
+    locomotive?: string;
+    decoder?: string;
+  }) =>
     request<{ cv: string; value: number; ok: boolean; error?: string }>("/api/v1/programming/decoder-cv", {
       method: "POST",
       body: JSON.stringify(body),

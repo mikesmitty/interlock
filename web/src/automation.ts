@@ -67,11 +67,14 @@ export interface Names {
   train: (address: number, long: boolean) => string;
 }
 
-/** The roster name for an address, else "locomotive 1234". */
+/** The roster name for an address (every name, when locomotives share it), else "locomotive 1234". */
 export function trainName(trains: Record<string, Train>, address: number, long: boolean): string {
-  const id = long && address <= 127 ? `${address}l` : String(address);
-  const t = trains[id];
-  if (t?.roster) return t.name;
+  const isLong = long || address > 127;
+  const names = Object.values(trains)
+    .filter((t) => t.roster && t.address === address && (t.long || t.address > 127) === isLong)
+    .map((t) => t.name)
+    .sort();
+  if (names.length > 0) return names.join(" / ");
   if (address > 127) return `locomotive ${address}`;
   return `locomotive ${address} (${long ? "long" : "short"})`;
 }

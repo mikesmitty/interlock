@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import type { DecoderDefinition, DecoderVariable } from "./types.ts";
 import {
   addressItems,
+  addressOf,
   applyUpdates,
   choicesFor,
   compositeIndex,
@@ -12,6 +13,7 @@ import {
   encode,
   field,
   initialTable,
+  knownValues,
   merge,
   qualified,
   setAddress,
@@ -19,6 +21,7 @@ import {
   settle,
   variableMap,
   withField,
+  withSaved,
   type CVTable,
 } from "./values.ts";
 
@@ -225,4 +228,18 @@ test("an edit to a never-read CV merges with what the decoder holds", () => {
   assert.equal(merge(t["29"], 0x06), 0x26);
   t = settle(t, "29", 0x26, "stored");
   assert.deepEqual(t["29"], { value: 0x26, state: "stored", known: true, edited: 0 });
+});
+
+test("saved values count as known and are saved back", () => {
+  const short = v({ item: "Short Address", type: "short_address", parts: [{ cv: "1", mask: 0x7f, shift: 0, width: 7 }], max: 127 });
+  const format = v({ item: "Address Format", type: "enum", parts: [{ cv: "29", mask: 0x20, shift: 5, width: 1 }], choices: [{ label: "Short", value: 0 }, { label: "Long", value: 1 }] });
+  const long = v({ item: "Long Address", type: "long_address", parts: [{ cv: "17", mask: 0x3f, shift: 0, width: 6 }, { cv: "18", mask: 0xff, shift: 0, width: 8 }] });
+  const vars = new Map([short, format, long].map((x) => [x.item, x]));
+  let t: CVTable = { "1": { value: 0, state: "unknown", known: false, edited: 0 } };
+  t = withSaved(t, { "1": 3, "29": 0x26, "17": 0xd9, "18": 0xf1 });
+  assert.equal(t["1"].state, "saved");
+  assert.equal(t["1"].known, true);
+  assert.deepEqual(addressOf(addressItems(vars), t, vars), { address: 6641, long: true });
+  t = applyUpdates(t, [{ cv: "1", value: 5, bits: 0x7f }], "edited");
+  assert.deepEqual(knownValues(t), { "29": 0x26, "17": 0xd9, "18": 0xf1 });
 });

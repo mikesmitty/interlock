@@ -1,0 +1,194 @@
+/* The roster: the locomotive list, a locomotive's page with its decoders,
+   and the JMRI import. */
+
+.ros-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem;
+  padding: 1rem 1.25rem;
+  margin-bottom: var(--gutter);
+}
+
+.ros-add .field__error {
+  flex-basis: 100%;
+}
+
+.ros-import,
+.ros-details,
+.ros-decoders,
+.ros-functions,
+.dec-keep {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem 1.25rem;
+}
+
+.ros-import {
+  margin-bottom: var(--gutter);
+}
+
+.ros-import h2,
+.ros-details h2,
+.ros-decoders h2,
+.ros-functions h2,
+.dec-keep h2 {
+  margin: 0;
+  font-size: var(--fs-lg);
+}
+
+.ros-import p,
+.dec-keep p {
+  margin: 0;
+}
+
+.ros-import__table td {
+  vertical-align: top;
+}
+
+.ros-import__step {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.ros-import__step .input {
+  min-width: 0;
+  max-width: 16rem;
+}
+
+.ros-import__actions,
+.ros-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.ros-import__done ul {
+  margin: 0.5rem 0;
+  padding-left: 1.25rem;
+}
+
+.ros-warn {
+  color: var(--lamp-amber);
+}
+
+.ros-layout {
+  display: grid;
+  gap: var(--gutter);
+  max-width: 60rem;
+}
+
+.ros-fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem 1rem;
+}
+
+.ros-fields__check {
+  padding-bottom: 0.4rem;
+}
+
+.ros-notes {
+  width: 100%;
+  resize: vertical;
+  font: inherit;
+}
+
+.ros-decoders__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.ros-decoder {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--enamel-line);
+}
+
+.ros-decoder:first-child {
+  padding-top: 0;
+}
+
+.ros-decoder__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.75rem;
+}
+
+.ros-decoder__rename {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.ros-decoder__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.ros-decoder .dec-picker {
+  margin: 0.5rem 0 0;
+  border-color: var(--enamel-line);
+  background: var(--enamel);
+}
+
+.ros-confirm {
+  font-size: var(--fs-sm);
+  color: var(--ivory-dim);
+}
+
+.dec-picker__roster {
+  margin: 0;
+  padding-left: 1.25rem;
+  display: grid;
+  gap: 0.2rem;
+}
+
+.dec-picker__add {
+  margin-left: 0.6rem;
+}
+
+.dec-keep {
+  margin-top: var(--gutter);
+  max-width: 48rem;
+}
+
+.dec-keep__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem;
+}
+
+.ros-decoders {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.ros-decoder > * {
+  min-width: 0;
+}
+
+.ros-decoder .cell-title,
+.ros-import__table .cell-title {
+  white-space: normal;
+}
+
+@media (max-width: 720px) {
+  .ros-col-road {
+    display: none;
+  }
+}
+
+.ros-decoder .cell-sub,
+.ros-import__table .cell-sub,
+.ros-table .cell-sub {
+  white-space: normal;
+}
