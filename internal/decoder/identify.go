@@ -289,3 +289,48 @@ func (m Model) covers(f Family, version int) bool {
 	}
 	return false
 }
+
+// Address is the DCC address a decoder answers to.
+type Address struct {
+	Address int  `json:"address"`
+	Long    bool `json:"long"`
+}
+
+// ReadAddress reads the address a decoder answers to on the programming
+// track: CV 29 says whether that is the long address in CVs 17 and 18 or
+// the short one in CV 1.
+func ReadAddress(ctx context.Context, bus CVBus) (Address, error) {
+	read := func(cv int) (int, error) {
+		var err error
+		for range identifyAttempts {
+			var v int
+			if v, err = bus.ReadCV(ctx, cv); err == nil {
+				return v, nil
+			}
+			if ctx.Err() != nil {
+				return 0, ctx.Err()
+			}
+		}
+		return 0, fmt.Errorf("read CV %d: %w", cv, err)
+	}
+	cv29, err := read(29)
+	if err != nil {
+		return Address{}, err
+	}
+	if cv29&0x20 == 0 {
+		cv1, err := read(1)
+		if err != nil {
+			return Address{}, err
+		}
+		return Address{Address: cv1 & 0x7F}, nil
+	}
+	cv17, err := read(17)
+	if err != nil {
+		return Address{}, err
+	}
+	cv18, err := read(18)
+	if err != nil {
+		return Address{}, err
+	}
+	return Address{Address: (cv17&0x3F)<<8 | cv18, Long: true}, nil
+}

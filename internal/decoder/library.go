@@ -300,7 +300,8 @@ func exists(fsys fs.FS, name string) bool {
 }
 
 // Definition returns a model's resolved definition from its family file.
-// Only files and models in the index can be read.
+// Only files and models in the index can be read; the family's own name
+// stands for the family as a whole.
 func (l *Library) Definition(file, model string) (*Definition, error) {
 	idx, err := l.Index()
 	if err != nil {
@@ -308,7 +309,7 @@ func (l *Library) Definition(file, model string) (*Definition, error) {
 	}
 	known := false
 	for _, f := range idx.Families {
-		if f.File == file && slices.ContainsFunc(f.Models, func(m Model) bool { return m.Name == model }) {
+		if f.File == file && (f.Name == model || slices.ContainsFunc(f.Models, func(m Model) bool { return m.Name == model })) {
 			known = true
 			break
 		}

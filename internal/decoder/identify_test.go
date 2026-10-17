@@ -102,6 +102,34 @@ func TestIdentify(t *testing.T) {
 	}
 }
 
+func TestReadAddress(t *testing.T) {
+	tests := []struct {
+		name string
+		cvs  map[int]int
+		want Address
+		ops  string
+	}{
+		{"short", map[int]int{29: 0x06, 1: 3, 17: 0xC0, 18: 0}, Address{Address: 3}, "R29 R1"},
+		{"long", map[int]int{29: 0x26, 17: 0xD9, 18: 0xF1}, Address{Address: 6641, Long: true}, "R29 R17 R18"},
+		{"long under 128", map[int]int{29: 0x22, 17: 0xC0, 18: 5}, Address{Address: 5, Long: true}, "R29 R17 R18"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bus := &fakeBus{cvs: tt.cvs}
+			got, err := ReadAddress(context.Background(), bus)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != tt.want {
+				t.Errorf("ReadAddress = %+v, want %+v", got, tt.want)
+			}
+			if ops := strings.Join(bus.log, " "); ops != tt.ops {
+				t.Errorf("operations = %s, want %s", ops, tt.ops)
+			}
+		})
+	}
+}
+
 func TestMatch(t *testing.T) {
 	idx, err := parseIndex(strings.NewReader(testIndex))
 	if err != nil {

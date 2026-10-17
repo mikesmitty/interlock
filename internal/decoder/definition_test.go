@@ -2,6 +2,8 @@ package decoder
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -203,6 +205,39 @@ func TestDefinitionVariables(t *testing.T) {
 	variable(t, a2, "Third output")
 	if q := variable(t, a2, "Delay").Qualifiers; len(q) != 1 {
 		t.Errorf("A2 Delay qualifiers = %+v", q)
+	}
+}
+
+func TestDefinitionWholeFamily(t *testing.T) {
+	// A family's own name loads the family as a whole: nothing is left
+	// out for its outputs or functions, and include lists see the family
+	// name and the first model's product ID.
+	d := loadTest(t, "Acme")
+	if d.Model != "Acme" || d.NumOuts != -1 || d.NumFns != -1 {
+		t.Errorf("definition = %s, %d outputs, %d functions", d.Model, d.NumOuts, d.NumFns)
+	}
+	variable(t, d, "Third output")
+	for _, v := range d.Variables {
+		if v.Item == "Volume" {
+			t.Error("Volume is for A2 only")
+		}
+	}
+	dir := t.TempDir()
+	for name, f := range testDefinitionFS() {
+		p := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, f.Data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	lib, err := Open(Options{Source: SourceFolder, Path: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lib.Definition("Acme.xml", "Acme"); err != nil {
+		t.Errorf("Definition(Acme) = %v", err)
 	}
 }
 

@@ -307,12 +307,25 @@ func loadDefinition(t *treeLoader, file, model, programmer string) (*Definition,
 			break
 		}
 	}
+	// The family as a whole is a model too, as JMRI offers it: the first
+	// model stands in for it, without that model's outputs and functions,
+	// so nothing is left out for having too few.
+	whole := mod == nil && model == fam.attr("name")
+	if whole {
+		mod = fam.child("model")
+		if mod == nil {
+			mod = &element{Name: "model"}
+		}
+	}
 	if mod == nil {
 		return nil, fmt.Errorf("%s has no model %q", file, model)
 	}
 	d := &Definition{
 		File: file, Family: fam.attr("name"), Manufacturer: fam.attr("mfg"), Model: model,
 		NumOuts: number(mod.attr("numOuts"), -1), NumFns: number(mod.attr("numFns"), -1), MaxFnNum: number(mod.attr("maxFnNum"), 28),
+	}
+	if whole {
+		d.NumOuts, d.NumFns = -1, -1
 	}
 	if ids := mod.attr("productID"); ids != "" {
 		d.ProductIDs = strings.Split(ids, ",")

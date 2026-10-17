@@ -97,7 +97,7 @@ func (t *treeLoader) loadDepth(name string, depth int) (*element, error) {
 // history) are dropped.
 func (t *treeLoader) parse(r io.Reader, name string, depth int) (*element, error) {
 	dec := xml.NewDecoder(r)
-	dec.CharsetReader = charsetReader
+	dec.CharsetReader = CharsetReader
 	var stack []*element
 	var root *element
 	skip := 0
@@ -214,9 +214,10 @@ func validTarget(p string) (string, bool) {
 	return p, fs.ValidPath(p) && p != "."
 }
 
-// charsetReader decodes the encodings the definition files declare besides
-// UTF-8: a few say ISO-8859-1, whose bytes are the first 256 code points.
-func charsetReader(charset string, input io.Reader) (io.Reader, error) {
+// CharsetReader decodes, for encoding/xml, the encodings JMRI's files
+// declare besides UTF-8: a few say ISO-8859-1, whose bytes are the first
+// 256 code points.
+func CharsetReader(charset string, input io.Reader) (io.Reader, error) {
 	switch strings.ToLower(charset) {
 	case "iso-8859-1", "iso8859-1", "latin1", "latin-1":
 		return &latin1Reader{r: input}, nil
