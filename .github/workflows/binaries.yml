@@ -1,0 +1,259 @@
+# Builds the release binaries, signs them where signing is set up, and
+# attaches them to a release. release-please.yml calls it for each new
+# release. Run it by hand ("Run workflow" on the Actions tab) for a dry
+# run that keeps the files as a workflow artifact instead of publishing
+# them, for example to check new signing credentials. docs/releasing.md
+# lists the secrets and variables that turn signing on.
+name: Binaries
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Version number for the file names.
+        required: true
+        type: string
+      tag:
+        description: Release tag to attach the files to.
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version number for the file names. A dry run publishes nothing.
+        default: 0.0.0-dev
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      sign-macos: ${{ steps.signing.outputs.macos }}
+      sign-windows: ${{ steps.signing.outputs.windows }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build web interface
+        run: make web
+
+      # Pure Go (no cgo), so every target cross compiles from one runner.
+      - name: Build binaries
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          for target in linux/amd64 linux/arm64 linux/arm darwin/arm64 darwin/amd64 windows/amd64; do
+            export GOOS="${target%/*}" GOARCH="${target#*/}" CGO_ENABLED=0
+            go build -trimpath -ldflags "-s -w" \
+              -o "dist/interlock-${VERSION}-${GOOS}-${GOARCH}/interlock$(go env GOEXE)" ./cmd/interlock
+          done
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: unsigned
+          path: dist
+          if-no-files-found: error
+
+      # Each platform is signed only once its credentials are in place;
+      # until then its build ships unsigned.
+      - name: Check the signing setup
+        id: signing
+        env:
+          MACOS: ${{ secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_NOTARY_KEY != '' }}
+          WINDOWS: ${{ secrets.AZURE_CLIENT_SECRET != '' && vars.AZURE_SIGNING_ENDPOINT != '' }}
+        run: |
+          echo "macos=$MACOS" >> "$GITHUB_OUTPUT"
+          echo "windows=$WINDOWS" >> "$GITHUB_OUTPUT"
+          echo "Signing macOS builds: $MACOS, Windows builds: $WINDOWS"
+
+  # Developer ID signature with the hardened runtime, then notarization.
+  # A bare executable cannot carry the notarization ticket, so Gatekeeper
+  # looks it up online the first time the program runs.
+  sign-macos:
+    needs: build
+    if: needs.build.outputs.sign-macos == 'true'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: unsigned
+          path: dist
+
+      - name: Sign and notarize
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_NOTARY_KEY: ${{ secrets.APPLE_NOTARY_KEY }}
+          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          APPLE_NOTARY_ISSUER: ${{ secrets.APPLE_NOTARY_ISSUER }}
+        run: |
+          set -euo pipefail
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          keychain_password="$(openssl rand -base64 24)"
+          echo "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" -f pkcs12 -A -t cert
+          security set-key-partition-list -S apple-tool:,apple: -k "$keychain_password" "$keychain" > /dev/null
+          keychains=("$keychain")
+          while IFS= read -r line; do
+            keychains+=("$(sed -e 's/^ *"//' -e 's/" *$//' <<< "$line")")
+          done < <(security list-keychains -d user)
+          security list-keychains -d user -s "${keychains[@]}"
+          identity="$(security find-identity -v -p codesigning "$keychain" | awk '/Developer ID Application/ { print $2; exit }')"
+          if [ -z "$identity" ]; then
+            echo "::error::APPLE_CERTIFICATE holds no Developer ID Application certificate"
+            exit 1
+          fi
+
+          mkdir signed
+          for dir in dist/*-darwin-*; do
+            chmod +x "$dir/interlock"
+            codesign --force --sign "$identity" --keychain "$keychain" \
+              --options runtime --timestamp "$dir/interlock"
+            codesign --verify --strict --verbose=2 "$dir/interlock"
+            cp -R "$dir" signed/
+          done
+
+          printf '%s' "$APPLE_NOTARY_KEY" > "$RUNNER_TEMP/notary.p8"
+          notary=(--key "$RUNNER_TEMP/notary.p8" --key-id "$APPLE_NOTARY_KEY_ID" --issuer "$APPLE_NOTARY_ISSUER")
+          ditto -c -k --keepParent signed "$RUNNER_TEMP/notarize.zip"
+          result="$(xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" "${notary[@]}" --wait --output-format json)"
+          echo "$result"
+          if [ "$(jq -r .status <<< "$result")" != "Accepted" ]; then
+            xcrun notarytool log "$(jq -r .id <<< "$result")" "${notary[@]}" || true
+            echo "::error::Apple did not accept the binaries for notarization"
+            exit 1
+          fi
+
+      - name: Remove the keychain
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/signing.keychain-db" || true
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: signed-macos
+          path: signed
+          if-no-files-found: error
+
+  # Authenticode signature through Azure Artifact Signing, whose action
+  # runs only on Windows.
+  sign-windows:
+    needs: build
+    if: needs.build.outputs.sign-windows == 'true'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: unsigned
+          path: dist
+
+      - name: Collect the Windows build
+        shell: bash
+        run: mkdir signed && cp -R dist/*-windows-* signed/
+
+      - uses: Azure/artifact-signing-action@v2
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.AZURE_CERTIFICATE_PROFILE }}
+          files-folder: ${{ github.workspace }}\signed
+          files-folder-filter: exe
+          files-folder-recurse: true
+          description: Interlock
+          description-url: ${{ github.server_url }}/${{ github.repository }}
+
+      - name: Check the signature
+        shell: pwsh
+        run: |
+          Get-ChildItem signed -Recurse -Filter *.exe | ForEach-Object {
+            $sig = Get-AuthenticodeSignature $_.FullName
+            if ($sig.Status -ne 'Valid') { throw "$($_.Name): $($sig.Status) $($sig.StatusMessage)" }
+            "$($_.Name) is signed by $($sig.SignerCertificate.Subject)"
+          }
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: signed-windows
+          path: signed
+          if-no-files-found: error
+
+  publish:
+    needs: [build, sign-macos, sign-windows]
+    # A skipped signing job means that platform ships unsigned; a failed
+    # one stops the release rather than publish an unsigned build by
+    # surprise.
+    if: ${{ !cancelled() && needs.build.result == 'success' && needs.sign-macos.result != 'failure' && needs.sign-windows.result != 'failure' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: unsigned
+          path: dist
+
+      - if: needs.sign-macos.result == 'success'
+        uses: actions/download-artifact@v8
+        with:
+          name: signed-macos
+          path: dist
+
+      - if: needs.sign-windows.result == 'success'
+        uses: actions/download-artifact@v8
+        with:
+          name: signed-windows
+          path: dist
+
+      # Artifacts drop the executable bit, so it is set again here.
+      # Windows gets interlock.exe in a zip; the rest get a tarball.
+      - name: Package
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          cd dist
+          for dir in interlock-*/; do
+            name="${dir%/}"
+            case "$name" in
+              *-windows-*) zip -qr "${name}.zip" "$name" ;;
+              *) chmod +x "$name/interlock"; tar -czf "${name}.tar.gz" "$name" ;;
+            esac
+          done
+          sha256sum -- *.tar.gz *.zip > "interlock-${VERSION}-checksums.txt"
+          cat "interlock-${VERSION}-checksums.txt"
+
+      - name: Upload to the release
+        if: ${{ inputs.tag }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ inputs.tag }}
+        run: gh release upload "$TAG_NAME" dist/*.tar.gz dist/*.zip dist/*-checksums.txt --repo "$GITHUB_REPOSITORY"
+
+      - name: Keep the files (dry run)
+        if: ${{ !inputs.tag }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-files
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/*-checksums.txt

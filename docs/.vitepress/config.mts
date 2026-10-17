@@ -33,6 +33,7 @@ export default defineConfig({
         text: "Reference",
         items: [
           { text: "HTTP API", link: "/api" },
+          { text: "Releasing", link: "/releasing" },
           { text: "Design", link: "/design" },
           { text: "Design language", link: "/design-language" },
         ],
