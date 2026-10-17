@@ -138,8 +138,8 @@ func (b *fakeBus) WriteCV(_ context.Context, cv, value int) error {
 	return nil
 }
 
-func newTestSession(bus *fakeBus) *Session {
-	s := NewSession(bus)
+func newTestSession() *Session {
+	s := NewSession()
 	s.sleep = func(context.Context, time.Duration) error { return nil }
 	return s
 }
@@ -147,7 +147,7 @@ func newTestSession(bus *fakeBus) *Session {
 func TestSessionIndexCache(t *testing.T) {
 	esu := Programming{Index: &Indexing{PI: 31, SI: 32, Cache: true}}
 	bus := &fakeBus{cvs: map[int]int{259: 7, 260: 9}}
-	s := newTestSession(bus)
+	s := newTestSession()
 	ctx := context.Background()
 	read := func(name string, cache bool) int {
 		t.Helper()
@@ -155,7 +155,7 @@ func TestSessionIndexCache(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		v, err := s.Read(ctx, a, cache)
+		v, err := s.Read(ctx, bus, a, cache)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -171,7 +171,7 @@ func TestSessionIndexCache(t *testing.T) {
 	read("16.1.261", false)
 	// A plain write to an index CV means the decoder no longer holds what
 	// the session wrote there.
-	if err := s.Write(ctx, Access{Name: "32", CV: 32}, 5, true); err != nil {
+	if err := s.Write(ctx, bus, Access{Name: "32", CV: 32}, 5, true); err != nil {
 		t.Fatal(err)
 	}
 	read("16.1.261", true)
@@ -190,7 +190,7 @@ func TestSessionIndexCache(t *testing.T) {
 	// A failed index write stops the access and forgets the index.
 	bus.log, bus.fail = nil, map[string]bool{"W32=2": true}
 	a, _ := esu.Resolve("16.2.300")
-	if _, err := s.Read(ctx, a, true); err == nil || !strings.Contains(err.Error(), "index CV 32") {
+	if _, err := s.Read(ctx, bus, a, true); err == nil || !strings.Contains(err.Error(), "index CV 32") {
 		t.Fatalf("failed index write = %v", err)
 	}
 	bus.fail = nil
@@ -210,22 +210,22 @@ func TestSessionTCS(t *testing.T) {
 			bus.cvs[203], bus.cvs[204] = 0x04, 0x7C
 		}
 	}
-	s := newTestSession(bus)
+	s := newTestSession()
 	ctx := context.Background()
 	a, _ := tcs.Resolve("T2CV.1.05")
-	v, err := s.Read(ctx, a, true)
+	v, err := s.Read(ctx, bus, a, true)
 	if err != nil || v != 0x047C {
 		t.Fatalf("T2CV read = %d, %v", v, err)
 	}
-	if err := s.Write(ctx, a, 1148, true); err != nil {
+	if err := s.Write(ctx, bus, a, 1148, true); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := tcs.Resolve("T3CV.6.0.1")
 	bus.cvs[202] = 45
-	if v, err := s.Read(ctx, b, true); err != nil || v != 45 {
+	if v, err := s.Read(ctx, bus, b, true); err != nil || v != 45 {
 		t.Fatalf("T3CV read = %d, %v", v, err)
 	}
-	if err := s.Write(ctx, b, 50, true); err != nil {
+	if err := s.Write(ctx, bus, b, 50, true); err != nil {
 		t.Fatal(err)
 	}
 	want := []string{
@@ -237,7 +237,7 @@ func TestSessionTCS(t *testing.T) {
 	if !slices.Equal(bus.log, want) {
 		t.Errorf("operations:\n got %v\nwant %v", bus.log, want)
 	}
-	if err := s.Write(ctx, a, 70000, true); err == nil {
+	if err := s.Write(ctx, bus, a, 70000, true); err == nil {
 		t.Error("a 17-bit TCS value was written")
 	}
 }

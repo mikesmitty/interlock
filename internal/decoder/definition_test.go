@@ -76,10 +76,10 @@ const testDecoder = `<?xml version="1.0" encoding="utf-8"?>
 
 func testDefinitionFS() fstest.MapFS {
 	return fstest.MapFS{
-		"decoderIndex.xml":                {Data: []byte(`<decoderIndex-config><decoderIndex version="1"><mfgList><manufacturer mfg="Acme Co" mfgID="13"/></mfgList><familyList><family name="Acme" mfg="Acme Co" lowVersionID="1" highVersionID="9" file="Acme.xml"><model model="A1"/><model model="A2"/></family></familyList></decoderIndex></decoderIndex-config>`)},
-		"programmers/Comprehensive.xml":   {Data: []byte(testProgrammer)},
-		"decoders/Acme.xml":               {Data: []byte(testDecoder)},
-		"decoders/parts/enum-NoYes.xml":   {Data: []byte(`<enumVal><enumChoice choice="No"/><enumChoice choice="Yes"/></enumVal>`)},
+		"decoderIndex.xml":              {Data: []byte(`<decoderIndex-config><decoderIndex version="1"><mfgList><manufacturer mfg="Acme Co" mfgID="13"/></mfgList><familyList><family name="Acme" mfg="Acme Co" lowVersionID="1" highVersionID="9" file="Acme.xml"><model model="A1"/><model model="A2"/></family></familyList></decoderIndex></decoderIndex-config>`)},
+		"programmers/Comprehensive.xml": {Data: []byte(testProgrammer)},
+		"decoders/Acme.xml":             {Data: []byte(testDecoder)},
+		"decoders/parts/enum-NoYes.xml": {Data: []byte(`<enumVal><enumChoice choice="No"/><enumChoice choice="Yes"/></enumVal>`)},
 		"decoders/nmra/address.xml": {Data: []byte(`<variables>
   <variable CV="1" item="Short Address" default="03"><shortAddressVal><shortAddressChanges cv="19"/></shortAddressVal><label>Primary Address</label></variable>
   <variable CV="29" mask="XXVXXXXX" item="Address Format"><enumVal><enumChoice choice="Short"/><enumChoice choice="Long"/></enumVal></variable>

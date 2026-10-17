@@ -94,9 +94,10 @@ type Deps struct {
 
 // API holds what the handlers need.
 type API struct {
-	deps    Deps
-	started time.Time
-	mux     *http.ServeMux
+	deps     Deps
+	started  time.Time
+	mux      *http.ServeMux
+	sessions decoderSessions
 }
 
 // New returns an API over deps.
@@ -161,6 +162,9 @@ func New(deps Deps) *API {
 	if deps.Decoders != nil {
 		a.mux.HandleFunc("GET /api/v1/decoders", a.decoderStatus)
 		a.mux.HandleFunc("GET /api/v1/decoders/index", a.decoderIndex)
+		a.mux.HandleFunc("GET /api/v1/decoders/definition", a.decoderDefinition)
+		a.mux.HandleFunc("POST /api/v1/programming/identify", a.identifyDecoder)
+		a.mux.HandleFunc("POST /api/v1/programming/decoder-cv", a.decoderCV)
 	}
 	if deps.Firmware != nil {
 		a.mux.HandleFunc("GET /api/v1/firmware", a.listFirmware)

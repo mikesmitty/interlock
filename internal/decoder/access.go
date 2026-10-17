@@ -22,11 +22,10 @@ const indexWindow = time.Second
 // tcsPause separates the steps of the TCS four-CV protocol.
 const tcsPause = 10 * time.Millisecond
 
-// Session runs planned accesses against one decoder. It remembers the
-// index CVs it last wrote, so a page of indexed CVs costs one index write
-// instead of one per CV.
+// Session runs planned accesses against one decoder, through whichever
+// bus reaches it. It remembers the index CVs it last wrote, so a page of
+// indexed CVs costs one index write instead of one per CV.
 type Session struct {
-	bus   CVBus
 	sleep func(context.Context, time.Duration) error
 
 	mu     sync.Mutex
@@ -34,9 +33,9 @@ type Session struct {
 	lastAt time.Time
 }
 
-// NewSession starts a session on a bus.
-func NewSession(bus CVBus) *Session {
-	return &Session{bus: bus, sleep: sleepCtx}
+// NewSession starts a session.
+func NewSession() *Session {
+	return &Session{sleep: sleepCtx}
 }
 
 // Forget drops what the session knows about the index CVs, after
@@ -48,25 +47,25 @@ func (s *Session) Forget() {
 }
 
 // Read reads the value a CV name holds.
-func (s *Session) Read(ctx context.Context, a Access, cache bool) (int, error) {
+func (s *Session) Read(ctx context.Context, bus CVBus, a Access, cache bool) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	switch a.Kind {
 	case AccessTCS16:
 		steps := []IndexWrite{{tcsIndex1, a.TCS[0] + 100}, {tcsIndex2, a.TCS[1]}}
-		if err := s.writes(ctx, steps); err != nil {
+		if err := s.writes(ctx, bus, steps); err != nil {
 			return 0, err
 		}
 		// The strobe write may be refused; TCS decoders answer anyway.
-		_ = s.bus.WriteCV(ctx, tcsLSB, 0)
+		_ = bus.WriteCV(ctx, tcsLSB, 0)
 		if err := s.sleep(ctx, tcsPause); err != nil {
 			return 0, err
 		}
-		msb, err := s.bus.ReadCV(ctx, tcsMSB)
+		msb, err := bus.ReadCV(ctx, tcsMSB)
 		if err != nil {
 			return 0, err
 		}
-		lsb, err := s.bus.ReadCV(ctx, tcsLSB)
+		lsb, err := bus.ReadCV(ctx, tcsLSB)
 		if err != nil {
 			return 0, err
 		}
@@ -74,16 +73,16 @@ func (s *Session) Read(ctx context.Context, a Access, cache bool) (int, error) {
 		return msb<<8 | lsb, nil
 	case AccessTCS8:
 		steps := []IndexWrite{{tcsIndex1, a.TCS[0] + 100}, {tcsMSB, a.TCS[1]}, {tcsLSB, a.TCS[2]}}
-		if err := s.writes(ctx, steps); err != nil {
+		if err := s.writes(ctx, bus, steps); err != nil {
 			return 0, err
 		}
 		s.last = nil
-		return s.bus.ReadCV(ctx, tcsIndex2)
+		return bus.ReadCV(ctx, tcsIndex2)
 	}
-	if err := s.index(ctx, a, cache); err != nil {
+	if err := s.index(ctx, bus, a, cache); err != nil {
 		return 0, err
 	}
-	v, err := s.bus.ReadCV(ctx, a.CV)
+	v, err := bus.ReadCV(ctx, a.CV)
 	if err != nil {
 		s.last = nil
 		return 0, err
@@ -93,7 +92,7 @@ func (s *Session) Read(ctx context.Context, a Access, cache bool) (int, error) {
 }
 
 // Write writes a value to a CV name.
-func (s *Session) Write(ctx context.Context, a Access, value int, cache bool) error {
+func (s *Session) Write(ctx context.Context, bus CVBus, a Access, value int, cache bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	switch a.Kind {
@@ -102,21 +101,21 @@ func (s *Session) Write(ctx context.Context, a Access, value int, cache bool) er
 			return fmt.Errorf("CV %s: %d does not fit in 16 bits", a.Name, value)
 		}
 		s.last = nil
-		return s.writes(ctx, []IndexWrite{{tcsIndex1, a.TCS[0]}, {tcsIndex2, a.TCS[1]}, {tcsMSB, value >> 8}, {tcsLSB, value & 0xFF}})
+		return s.writes(ctx, bus, []IndexWrite{{tcsIndex1, a.TCS[0]}, {tcsIndex2, a.TCS[1]}, {tcsMSB, value >> 8}, {tcsLSB, value & 0xFF}})
 	case AccessTCS8:
 		if value < 0 || value > 0xFF {
 			return fmt.Errorf("CV %s: %d does not fit in a byte", a.Name, value)
 		}
 		s.last = nil
-		return s.writes(ctx, []IndexWrite{{tcsIndex1, a.TCS[0]}, {tcsIndex2, value}, {tcsMSB, a.TCS[1]}, {tcsLSB, a.TCS[2]}})
+		return s.writes(ctx, bus, []IndexWrite{{tcsIndex1, a.TCS[0]}, {tcsIndex2, value}, {tcsMSB, a.TCS[1]}, {tcsLSB, a.TCS[2]}})
 	}
 	if value < 0 || value > 0xFF {
 		return fmt.Errorf("CV %s: %d does not fit in a byte", a.Name, value)
 	}
-	if err := s.index(ctx, a, cache); err != nil {
+	if err := s.index(ctx, bus, a, cache); err != nil {
 		return err
 	}
-	if err := s.bus.WriteCV(ctx, a.CV, value); err != nil {
+	if err := bus.WriteCV(ctx, a.CV, value); err != nil {
 		s.last = nil
 		return err
 	}
@@ -126,7 +125,7 @@ func (s *Session) Write(ctx context.Context, a Access, value int, cache bool) er
 
 // index writes the index CVs an access needs, unless the same values
 // went to the same CVs moments ago.
-func (s *Session) index(ctx context.Context, a Access, cache bool) error {
+func (s *Session) index(ctx context.Context, bus CVBus, a Access, cache bool) error {
 	if len(a.Index) == 0 {
 		return nil
 	}
@@ -134,7 +133,7 @@ func (s *Session) index(ctx context.Context, a Access, cache bool) error {
 		return nil
 	}
 	s.last = nil
-	if err := s.writes(ctx, a.Index); err != nil {
+	if err := s.writes(ctx, bus, a.Index); err != nil {
 		return err
 	}
 	s.last = slices.Clone(a.Index)
@@ -156,14 +155,14 @@ func (s *Session) touched(a Access) {
 	}
 }
 
-func (s *Session) writes(ctx context.Context, steps []IndexWrite) error {
+func (s *Session) writes(ctx context.Context, bus CVBus, steps []IndexWrite) error {
 	for i, w := range steps {
 		if i > 0 && w.CV >= tcsIndex1 && w.CV <= tcsLSB {
 			if err := s.sleep(ctx, tcsPause); err != nil {
 				return err
 			}
 		}
-		if err := s.bus.WriteCV(ctx, w.CV, w.Value); err != nil {
+		if err := bus.WriteCV(ctx, w.CV, w.Value); err != nil {
 			s.last = nil
 			return fmt.Errorf("write index CV %d: %w", w.CV, err)
 		}
