@@ -1,7 +1,7 @@
 # Interlock
 
 An LCC (OpenLCB) layout controller for model railroads, built to be
-friendlier than JMRI: nodes show up by name, configuration is a form instead
+easy to use: nodes show up by name, configuration is a form instead
 of a memory map, and automations are built in the browser from triggers,
 conditions and actions, the way Home Assistant does it.
 
