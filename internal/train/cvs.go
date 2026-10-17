@@ -9,6 +9,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"time"
 
@@ -25,20 +26,44 @@ const CVDirName = "cvs"
 const cvSaveDelay = time.Second
 
 const cvHeader = `# CV values of one decoder, as Interlock last read them from it or wrote
-# them to it. Interlock rewrites this file; trains.yaml says which
-# locomotive the decoder belongs to.
+# them to it, and changes made on its settings page that are not written
+# yet. Interlock rewrites this file; trains.yaml says which locomotive the
+# decoder belongs to.
 `
 
 type cvDoc struct {
-	Updated time.Time      `yaml:"updated"`
-	CVs     map[string]int `yaml:"cvs"`
+	Updated time.Time           `yaml:"updated"`
+	CVs     map[string]int      `yaml:"cvs"`
+	Changes map[string]CVChange `yaml:"changes,omitempty"`
 }
 
 // CVValues are a decoder's saved CV values by the names its definition
-// uses for them ("29", "16.0.259").
+// uses for them ("29", "16.0.259"), and the changes not written to it
+// yet.
 type CVValues struct {
-	CVs     map[string]int `json:"cvs"`
-	Updated time.Time      `json:"updated,omitzero"`
+	CVs     map[string]int      `json:"cvs"`
+	Updated time.Time           `json:"updated,omitzero"`
+	Changes map[string]CVChange `json:"changes,omitempty"`
+}
+
+// CVChange is a change to a CV that is not written yet: the bits it
+// sets and their new values. The CV's other bits are whatever the
+// decoder holds.
+type CVChange struct {
+	Value int `yaml:"value" json:"value"`
+	Bits  int `yaml:"bits" json:"bits"`
+}
+
+// heldBy reports whether a CV value already has the change.
+func (c CVChange) heldBy(value int) bool { return value&c.Bits == c.Value&c.Bits }
+
+// MarshalYAML writes a change on one line.
+func (c CVChange) MarshalYAML() (any, error) {
+	n := &yaml.Node{Kind: yaml.MappingNode, Style: yaml.FlowStyle}
+	for _, kv := range [][2]string{{"value", strconv.Itoa(c.Value)}, {"bits", strconv.Itoa(c.Bits)}} {
+		n.Content = append(n.Content, &yaml.Node{Kind: yaml.ScalarNode, Value: kv[0]}, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!int", Value: kv[1]})
+	}
+	return n, nil
 }
 
 // CVStore keeps decoders' CV values in a folder, a file per decoder named
@@ -100,7 +125,7 @@ func (s *CVStore) Get(decoder string) (CVValues, error) {
 	if err != nil {
 		return CVValues{}, err
 	}
-	return CVValues{CVs: maps.Clone(d.CVs), Updated: d.Updated}, nil
+	return CVValues{CVs: maps.Clone(d.CVs), Updated: d.Updated, Changes: maps.Clone(d.Changes)}, nil
 }
 
 // Set records values for a decoder, keeping the others it has.
@@ -136,7 +161,42 @@ func (s *CVStore) change(decoder string, values map[string]int, replace bool, at
 		d.CVs = make(map[string]int, len(values))
 	}
 	maps.Copy(d.CVs, values)
+	// A change the decoder now holds is no longer waiting to be written.
+	for cv, v := range values {
+		if c, ok := d.Changes[cv]; ok && c.heldBy(v) {
+			delete(d.Changes, cv)
+		}
+	}
 	d.Updated = at.UTC().Truncate(time.Second)
+	s.markLocked(decoder)
+	return nil
+}
+
+// SetChanges makes changes the decoder's changes not written yet; none
+// clears them.
+func (s *CVStore) SetChanges(decoder string, changes map[string]CVChange) error {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	d, err := s.loadLocked(decoder)
+	if err != nil {
+		return err
+	}
+	if maps.Equal(d.Changes, changes) || (len(d.Changes) == 0 && len(changes) == 0) {
+		return nil
+	}
+	d.Changes = maps.Clone(changes)
+	if len(d.Changes) == 0 {
+		d.Changes = nil
+	}
+	s.markLocked(decoder)
+	return nil
+}
+
+// markLocked saves a decoder's file a moment from now.
+func (s *CVStore) markLocked(decoder string) {
 	s.dirty[decoder] = true
 	if s.timer == nil {
 		s.timer = time.AfterFunc(cvSaveDelay, func() {
@@ -145,7 +205,6 @@ func (s *CVStore) change(decoder string, values map[string]int, replace bool, at
 			}
 		})
 	}
-	return nil
 }
 
 // Delete forgets a decoder's values and removes its file.

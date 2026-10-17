@@ -18,13 +18,18 @@ import (
 //	PATCH  /api/v1/trains/{id}/decoders/{decoder}          any of {name, file, family, model, identity} -> train
 //	DELETE /api/v1/trains/{id}/decoders/{decoder}          forgets its CV values too -> train
 //	POST   /api/v1/trains/{id}/install                     {decoder} fits it ("" for none) -> train
-//	GET    /api/v1/trains/{id}/decoders/{decoder}/cvs      {cvs, updated}
+//	GET    /api/v1/trains/{id}/decoders/{decoder}/cvs      {cvs, updated, changes}
 //	PATCH  /api/v1/trains/{id}/decoders/{decoder}/cvs      {cvs} saves these values, keeping the others
 //	PUT    /api/v1/trains/{id}/decoders/{decoder}/cvs      {cvs} replaces them all
+//	PUT    /api/v1/trains/{id}/decoders/{decoder}/changes  {changes} keeps the changes not written yet
 //	POST   /api/v1/trains/import                           multipart: file (JMRI roster files or zips), plan
 //
 // Without a plan the import answers with what it found and a suggested
 // plan, changing nothing; with one it carries the plan out.
+//
+// Changes are by CV: {"29": {"value": 34, "bits": 32}} sets bit 5 of CV
+// 29 and leaves the rest to the decoder. A change is dropped once a value
+// read from or written to the decoder holds it.
 
 // maxImportSize bounds an import upload; a JMRI roster file for a sound
 // decoder is under a megabyte.
@@ -185,6 +190,26 @@ func (a *API) setDecoderCVs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSONCompressed(w, r, values)
+}
+
+// setDecoderChanges keeps the settings page's changes that are not
+// written yet, replacing those kept before.
+func (a *API) setDecoderChanges(w http.ResponseWriter, r *http.Request) {
+	if !a.trainsReady(w) {
+		return
+	}
+	var body struct {
+		Changes map[string]train.CVChange `json:"changes"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<20)).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "body must be JSON with changes")
+		return
+	}
+	if err := a.deps.Trains.SetChanges(r.PathValue("id"), r.PathValue("decoder"), body.Changes); err != nil {
+		a.trainError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // importItem is one locomotive found in an import, for the preview.

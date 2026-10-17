@@ -61,6 +61,24 @@ func TestRosterDecoderEndpoints(t *testing.T) {
 		t.Errorf("PUT cvs = %d %v", rec.Code, body)
 	}
 
+	// Changes not written yet are kept until a write puts them in the
+	// decoder.
+	if rec, _ = ta.do(t, http.MethodPut, "/api/v1/trains/gp40/decoders/loksound-5/changes", `{"changes": {"29": {"value": 0, "bits": 32}}}`); rec.Code != http.StatusNoContent {
+		t.Errorf("PUT changes = %d", rec.Code)
+	}
+	if rec, _ = ta.do(t, http.MethodPut, "/api/v1/trains/gp40/decoders/loksound-5/changes", `{"changes": {"29": {"value": 0, "bits": 0}}}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("PUT a change of no bits = %d", rec.Code)
+	}
+	if _, body = ta.do(t, http.MethodGet, "/api/v1/trains/gp40/decoders/loksound-5/cvs", ""); body["changes"].(map[string]any)["29"].(map[string]any)["bits"] != float64(32) {
+		t.Errorf("GET cvs with changes = %v", body)
+	}
+	if rec, body := ta.do(t, http.MethodPost, "/api/v1/programming/decoder-cv", `{`+def+`"cv":"29","write":true,"value":6}`); rec.Code != http.StatusOK || body["ok"] != true {
+		t.Fatalf("write = %d %v", rec.Code, body)
+	}
+	if _, body = ta.do(t, http.MethodGet, "/api/v1/trains/gp40/decoders/loksound-5/cvs", ""); body["changes"] != nil {
+		t.Errorf("changes after writing them = %v", body["changes"])
+	}
+
 	// Identify names the roster decoder on the track.
 	prog.cvs[29], prog.cvs[17], prog.cvs[18] = 0x26, 0xD9, 0xF1
 	rec, body = ta.do(t, http.MethodPost, "/api/v1/programming/identify", "")

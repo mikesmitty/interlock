@@ -154,6 +154,25 @@ func (m *Manager) SetCVs(id, decoder string, values map[string]int, replace bool
 	return m.opts.CVs.Set(decoder, values)
 }
 
+// SetChanges keeps the changes made to one of a locomotive's decoders
+// that are not written to it yet, replacing those kept before. Only the
+// bits each change sets are kept.
+func (m *Manager) SetChanges(id, decoder string, changes map[string]CVChange) error {
+	values := make(map[string]int, len(changes))
+	kept := make(map[string]CVChange, len(changes))
+	for cv, c := range changes {
+		if c.Bits <= 0 || c.Bits > 0xFFFF {
+			return invalid("the change to CV %q sets no bits", cv)
+		}
+		values[cv] = c.Value
+		kept[cv] = CVChange{Value: c.Value & c.Bits, Bits: c.Bits}
+	}
+	if err := m.checkCVs(id, decoder, values); err != nil {
+		return err
+	}
+	return m.opts.CVs.SetChanges(decoder, kept)
+}
+
 func (m *Manager) checkCVs(id, decoder string, values map[string]int) error {
 	if err := m.hasDecoder(id, decoder); err != nil {
 		return err

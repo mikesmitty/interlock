@@ -292,6 +292,45 @@ func TestDecoders(t *testing.T) {
 	if got, err := reopened.Get(esu.ID); err != nil || len(got.CVs) != 3 || got.CVs["1"] != 3 || got.Updated.IsZero() {
 		t.Errorf("reopened = %+v, %v", got, err)
 	}
+	// Changes not written yet are kept until the decoder holds them.
+	if err := m.SetChanges(p42.ID, esu.ID, map[string]train.CVChange{"29": {Value: 0xFF, Bits: 0x20}, "3": {Value: 9, Bits: 0xFF}}); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := m.CVs(p42.ID, esu.ID); got.Changes["29"] != (train.CVChange{Value: 0x20, Bits: 0x20}) || len(got.Changes) != 2 {
+		t.Errorf("changes = %+v", got.Changes)
+	}
+	if err := m.SetCVs(p42.ID, esu.ID, map[string]int{"29": 2}, false); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := m.CVs(p42.ID, esu.ID); len(got.Changes) != 2 {
+		t.Errorf("a read without the change dropped it: %+v", got.Changes)
+	}
+	if err := m.SetCVs(p42.ID, esu.ID, map[string]int{"29": 34}, false); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := m.CVs(p42.ID, esu.ID); len(got.Changes) != 1 || got.Changes["3"].Value != 9 {
+		t.Errorf("after writing CV 29, changes = %+v", got.Changes)
+	}
+	if err := store.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	if data, _ := os.ReadFile(filepath.Join(cvDir, "esu.yaml")); !strings.Contains(string(data), `"3": {value: 9, bits: 255}`) {
+		t.Errorf("CV file = %s", data)
+	}
+	if got, _ := train.OpenCVStore(cvDir, nil).Get(esu.ID); got.Changes["3"] != (train.CVChange{Value: 9, Bits: 0xFF}) {
+		t.Errorf("reopened changes = %+v", got.Changes)
+	}
+	var bad *train.InvalidError
+	if err := m.SetChanges(p42.ID, esu.ID, map[string]train.CVChange{"3": {Value: 9}}); !errors.As(err, &bad) {
+		t.Errorf("a change of no bits = %v", err)
+	}
+	if err := m.SetChanges(p42.ID, esu.ID, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := m.CVs(p42.ID, esu.ID); got.Changes != nil {
+		t.Errorf("cleared changes = %+v", got.Changes)
+	}
+
 	if err := m.SetCVs(p42.ID, esu.ID, map[string]int{"8": 151}, true); err != nil {
 		t.Fatal(err)
 	}

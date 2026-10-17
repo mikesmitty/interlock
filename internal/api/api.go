@@ -162,6 +162,7 @@ func New(deps Deps) *API {
 	a.mux.HandleFunc("GET /api/v1/trains/{id}/decoders/{decoder}/cvs", a.decoderCVs)
 	a.mux.HandleFunc("PATCH /api/v1/trains/{id}/decoders/{decoder}/cvs", a.setDecoderCVs)
 	a.mux.HandleFunc("PUT /api/v1/trains/{id}/decoders/{decoder}/cvs", a.setDecoderCVs)
+	a.mux.HandleFunc("PUT /api/v1/trains/{id}/decoders/{decoder}/changes", a.setDecoderChanges)
 	a.mux.HandleFunc("POST /api/v1/trains/import", a.importTrains)
 	a.mux.HandleFunc("GET /api/v1/programming", a.programming)
 	a.mux.HandleFunc("POST /api/v1/programming/find", a.findProgrammingTrack)
