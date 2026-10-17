@@ -2,6 +2,7 @@ package decoder
 
 import (
 	"context"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
@@ -111,4 +112,77 @@ func (g *githubFS) download(name, local string) error {
 		return errors.New("fetch from GitHub: file too large")
 	}
 	return atomicfile.Write(local, data, 0o644)
+}
+
+// prefetchLimit is how many files are fetched from GitHub at once.
+const prefetchLimit = 8
+
+// prefetch fetches files that are not cached yet, and everything they
+// include, several at a time: a definition's first load then waits for a
+// few round trips rather than one per file. Failures are left for the
+// load itself to report.
+func (g *githubFS) prefetch(names ...string) {
+	var (
+		mu   sync.Mutex
+		seen = make(map[string]bool)
+		wg   sync.WaitGroup
+		sem  = make(chan struct{}, prefetchLimit)
+	)
+	var visit func(name string)
+	visit = func(name string) {
+		mu.Lock()
+		defer mu.Unlock()
+		if seen[name] {
+			return
+		}
+		seen[name] = true
+		wg.Go(func() {
+			sem <- struct{}{}
+			hrefs, err := g.includes(name)
+			<-sem
+			if err != nil {
+				return
+			}
+			for _, href := range hrefs {
+				if target, ok := resolveHref(name, href); ok {
+					visit(target)
+				}
+			}
+		})
+	}
+	for _, name := range names {
+		if _, err := os.Stat(filepath.Join(g.cache, filepath.FromSlash(name))); errors.Is(err, fs.ErrNotExist) {
+			visit(name)
+		}
+	}
+	wg.Wait()
+}
+
+// includes opens a file, fetching it if needed, and lists the files it
+// includes.
+func (g *githubFS) includes(name string) ([]string, error) {
+	f, err := g.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	dec := xml.NewDecoder(f)
+	dec.CharsetReader = CharsetReader
+	var hrefs []string
+	for {
+		tok, err := dec.Token()
+		if errors.Is(err, io.EOF) {
+			return hrefs, nil
+		}
+		if err != nil {
+			return hrefs, err
+		}
+		if st, ok := tok.(xml.StartElement); ok && st.Name.Space == xincludeNS && st.Name.Local == "include" {
+			for _, a := range st.Attr {
+				if a.Name.Space == "" && a.Name.Local == "href" {
+					hrefs = append(hrefs, a.Value)
+				}
+			}
+		}
+	}
 }

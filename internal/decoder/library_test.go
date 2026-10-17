@@ -13,9 +13,12 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 const testIndex = `<?xml version="1.0" encoding="UTF-8"?>
@@ -350,5 +353,64 @@ func writeFile(t *testing.T, path, body string) {
 	}
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestGitHubPrefetch(t *testing.T) {
+	files := map[string]string{
+		"decoders/a.xml": `<decoder-config xmlns:xi="http://www.w3.org/2001/XInclude">
+  <xi:include href="http://jmri.org/xml/decoders/parts/b.xml"/>
+  <xi:include href="http://jmri.org/xml/decoders/parts/c.xml"/>
+  <xi:include href="parts/d.xml"/>
+  <!-- <xi:include href="http://jmri.org/xml/decoders/never.xml"/> -->
+</decoder-config>`,
+		"decoders/parts/b.xml": `<variables xmlns:xi="http://www.w3.org/2001/XInclude"><xi:include href="http://jmri.org/xml/decoders/parts/e.xml"/></variables>`,
+		"decoders/parts/c.xml": `<pane/>`,
+		"decoders/parts/d.xml": `<pane/>`,
+		"decoders/parts/e.xml": `<enumVal/>`,
+	}
+	var (
+		mu             sync.Mutex
+		inflight, most int
+		asked          []string
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		inflight++
+		most = max(most, inflight)
+		name := strings.TrimPrefix(r.URL.Path, "/xml/")
+		asked = append(asked, name)
+		mu.Unlock()
+		time.Sleep(20 * time.Millisecond)
+		mu.Lock()
+		inflight--
+		mu.Unlock()
+		body, ok := files[name]
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = io.WriteString(w, body)
+	}))
+	defer srv.Close()
+	cache := t.TempDir()
+	g := newGitHubFS(srv.URL+"/xml/", cache, srv.Client(), "")
+	g.prefetch("decoders/a.xml", "programmers/missing.xml")
+	for name := range files {
+		if _, err := os.Stat(filepath.Join(cache, filepath.FromSlash(name))); err != nil {
+			t.Errorf("%s was not fetched: %v", name, err)
+		}
+	}
+	if most < 2 {
+		t.Errorf("at most %d requests at once, want several", most)
+	}
+	if slices.Contains(asked, "decoders/never.xml") || len(asked) != len(files)+1 {
+		t.Errorf("asked for %v", asked)
+	}
+	// Cached files are not walked again.
+	asked = nil
+	g.prefetch("decoders/a.xml")
+	if len(asked) != 0 {
+		t.Errorf("a cached definition asked for %v", asked)
 	}
 }

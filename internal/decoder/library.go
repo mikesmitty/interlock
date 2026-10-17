@@ -326,6 +326,9 @@ func (l *Library) Definition(file, model string) (*Definition, error) {
 		}
 	}
 	l.mu.Unlock()
+	if g, ok := l.fsys.(*githubFS); ok {
+		g.prefetch(path.Join("decoders", file), path.Join("programmers", DefaultProgrammer))
+	}
 	d, err := loadDefinition(&treeLoader{fsys: l.fsys}, file, model)
 	if err != nil {
 		return nil, fmt.Errorf("decoder definition: %w", err)
