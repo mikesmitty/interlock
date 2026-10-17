@@ -26,8 +26,9 @@ not.
 
 ## Non-goals (for now)
 
-- Decoder definition database and a DecoderPro clone. Raw CV read and write
-  comes first; decoder files can come later.
+- A decoder definition database of our own. Interlock reads the
+  definitions the JMRI project maintains (Phase 7) rather than keeping a
+  second set.
 - Panel editor (track diagram). Automations and entity dashboards come first.
 - Being a general purpose home automation hub. Interlock talks LCC; it can
   expose itself to Home Assistant later (MQTT or a native integration).
@@ -281,8 +282,8 @@ traces, RailCom sightings. `modernc.org/sqlite` keeps the build cgo free.
   waits on RailCom support in `simple-dcc`.
 - Service mode: find the node producing the "is programming track" event,
   then read and write space 0xF8 on it at `CV - 1`, honoring reply-pending
-  and the DCC error codes. UI: a CV read and write tool first; decoder
-  definition support is a later phase.
+  and the DCC error codes. UI: a CV read and write tool first; named
+  settings from decoder definitions are Phase 7.
 
 ### Firmware upgrade
 
@@ -386,9 +387,44 @@ Firmware upgrade flow and UI against `canbus-outpost`. OpenLCB TCP link.
 SocketCAN link. Broadcast time clock. Backup and restore of the config
 directory. Documentation site.
 
+### Phase 7: decoder programming
+
+Named decoder settings instead of CV numbers, from the decoder
+definitions the JMRI project maintains (about 880 families and 3,800
+models).
+
+- **Fetched, not bundled.** The definitions are GPL-2.0-only and
+  Interlock is GPL-3.0, so the binary carries none of them. Three
+  sources, set in `interlock.yaml`: a folder on disk (a JMRI install, a
+  checkout of the JMRI repository, or a zip of either), GitHub file by
+  file as they are needed (at a pinned release tag, cached in
+  `<data>/decoders/`), or the repository archive at that tag downloaded
+  once with only its `xml/` folder kept.
+- **Read on demand.** `decoderIndex.xml` is read once; a family's file
+  and the files it includes are read when a locomotive needs them and
+  resolved on the server into one compact definition. The browser lays
+  it out, so a Raspberry Pi only serves data and talks to the bus.
+- **Identify.** CV 8 and CV 7, then the product ID CVs of manufacturers
+  that have them, matched against the index.
+- **Settings pages.** Numbers, choices, bits, split values, addresses
+  and speed tables in the panes the definition gives, with its
+  qualifiers; indexed CVs through CV 31 and 32 and the other index
+  schemes the files declare.
+- **Read and write by page.** Read what the page shows, write what
+  changed, with progress. Values the definition marks read-only stay
+  read-only.
+- **Values kept per locomotive.** A roster entry gains its decoder family
+  and model and the CV values last read or written, so opening a
+  locomotive needs no read.
+- **Import.** JMRI roster files (decoder, CV values, function labels)
+  import into the roster.
+
+Milestone: identify a decoder on the programming track, change its
+acceleration by name, and see the change after a fresh read.
+
 ### Later
 
-Decoder definitions, panel editor, Home Assistant integration, multi-user
+Panel editor, Home Assistant integration, multi-user
 auth, accessory decoder turnouts once `simple-dcc` sends accessory packets,
 train reservation protocol, function description information (space 0xFA).
 
@@ -546,8 +582,8 @@ train reservation protocol, function description information (space 0xFA).
   other path; both boards use datagrams), following an external clock,
   fragmented OpenLCB TCP messages, SocketCAN on a machine to test it,
   and the documentation site's screenshots.
-- Next: hardware verification against canbus-outpost and simple-dcc,
-  then the "Later" list.
+- Next: Phase 7 (decoder programming), and hardware verification
+  against canbus-outpost and simple-dcc.
 
 ## References
 
