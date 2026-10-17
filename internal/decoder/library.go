@@ -234,6 +234,9 @@ func openFolder(p string) (fs.FS, io.Closer, error) {
 		return nil, nil, errors.New("decoder definitions: no path for the folder source")
 	}
 	info, err := os.Stat(p)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil, fmt.Errorf("decoder definitions: %s does not exist", p)
+	}
 	if err != nil {
 		return nil, nil, fmt.Errorf("decoder definitions: %w", err)
 	}

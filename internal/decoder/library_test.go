@@ -96,7 +96,7 @@ func TestFolderSourceErrors(t *testing.T) {
 		want string
 	}{
 		{"no path", "", "no path"},
-		{"missing", filepath.Join(empty, "nope"), "no such file"},
+		{"missing", filepath.Join(empty, "nope"), "does not exist"},
 		{"no index", empty, "no decoderIndex.xml"},
 		{"not a zip", notZip, "neither a folder nor a zip"},
 	}
