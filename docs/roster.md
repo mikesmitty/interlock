@@ -24,7 +24,9 @@ already in place, so nothing has to be read before you look. Every value
 read or written there is saved for that decoder, and changes not written
 yet are kept until they are written or discarded. A page shows when the
 values were last saved; read it again if the decoder may have been
-changed elsewhere since.
+changed elsewhere since. Values read or written in the current
+[session](./decoders.md#sessions) carry green lamps; older ones have no
+lamp.
 
 To add a decoder, choose **Add a decoder** and identify it on the
 programming track or search for the model. A decoder opened from the

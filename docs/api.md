@@ -122,10 +122,11 @@ POST   /api/v1/trains/{id}/decoders          {name, file, family, model, identit
 PATCH  /api/v1/trains/{id}/decoders/{dec}    {name, file, family, model, identity}
 DELETE /api/v1/trains/{id}/decoders/{dec}    with its CV values
 POST   /api/v1/trains/{id}/install           {decoder} fit one ("" for none); address and labels swap
-GET    /api/v1/trains/{id}/decoders/{dec}/cvs      {cvs, imported, updated, changes}
+GET    /api/v1/trains/{id}/decoders/{dec}/cvs      {cvs, imported, updated, changes, session}
 PATCH  /api/v1/trains/{id}/decoders/{dec}/cvs      {cvs} save these values
 PUT    /api/v1/trains/{id}/decoders/{dec}/cvs      {cvs} replace them all
 PUT    /api/v1/trains/{id}/decoders/{dec}/changes  {changes} keep the changes not written yet
+DELETE /api/v1/trains/{id}/decoders/{dec}/session  end the session on it
 POST   /api/v1/trains/import                 multipart: file (JMRI roster files or a zip), plan
 POST   /api/v1/trains/{id}/acquire           take control
 POST   /api/v1/trains/{id}/release
@@ -149,7 +150,11 @@ they set: `{"29": {"value": 32, "bits": 32}}` sets bit 5 of CV 29. A
 change is dropped once a value read from or written to the decoder
 holds it. `imported` holds values from an imported roster that the
 decoder has not been read for since; saving a CV's value moves it to
-`cvs`, and replacing them all clears `imported`. See [Trains](./trains.md) and [The roster](./roster.md).
+`cvs`, and replacing them all clears `imported`. `session`, when there
+is one, is `{started, last, read, written}`: the CVs read from and
+written to the decoder through `/programming/decoder-cv` since it
+began. It ends two hours after `last`, when `/programming/identify`
+finds a decoder, when it is deleted, or when Interlock restarts. See [Trains](./trains.md) and [The roster](./roster.md).
 
 ## Decoder definitions
 

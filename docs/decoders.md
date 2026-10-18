@@ -71,6 +71,38 @@ the tabs that have them. Reads and writes go one CV at a time; the
 toolbar shows how far it has got and **Stop** ends it after the current
 CV.
 
+A lamp in front of each setting says where its value came from, and the
+key at the top of each tab repeats it:
+
+| Lamp | Means |
+|---|---|
+| Green | Read from the decoder in this session |
+| Green ring | Written to the decoder in this session, not read back |
+| Amber | Imported from a JMRI roster, not read since |
+| Amber ring | The definition's default, not read |
+| Unlit | Not read, and no value to show |
+| None | Saved from before this session |
+
+A setting that spans several CVs shows the least certain of them. The
+ESU function map's rows and the CVs tab carry the same lamps.
+
+### Sessions
+
+For a decoder in the roster, a session is a spell of work on it: it
+starts with the first read or write and is shown above the tabs with an
+**End session** button. Its values keep their green lamps when the page
+is reloaded or opened on another device. A session ends:
+
+- after two hours without a read, a write or a change on the page;
+- when **Identify** finds a decoder on the programming track, since the
+  locomotive there may have been swapped or changed elsewhere;
+- with **End session**;
+- when Interlock restarts.
+
+Its values stay saved and show without a lamp from then on. A decoder
+opened on its own, outside the roster, keeps its lamps until the page
+closes.
+
 Changes to a decoder in the [roster](./roster.md) are kept until they
 are written or discarded: close the page, or open it on another device,
 and they are still there, marked. A decoder opened on its own keeps
