@@ -112,11 +112,12 @@ export function Roster() {
   );
 }
 
-function AddLocomotive({ onCancel }: { onCancel: () => void }) {
+/** The form that adds a locomotive, with the address filled in when it is known already. */
+export function AddLocomotive({ onCancel, start }: { onCancel: () => void; start?: { address: number; long: boolean } }) {
   const navigate = useNavigate();
   const [name, setName] = useState("");
-  const [address, setAddress] = useState("");
-  const [long, setLong] = useState(false);
+  const [address, setAddress] = useState(start ? String(start.address) : "");
+  const [long, setLong] = useState(start?.long ?? false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const n = Number(address);

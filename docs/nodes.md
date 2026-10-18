@@ -13,6 +13,14 @@ message is noted. A node's page shows what it said about itself, the
 entities built from it, its configuration, its firmware and the recent
 traffic to and from it.
 
+Train nodes, the nodes a command station makes to stand in for
+locomotives, are listed apart. The command station rarely names them, so
+Interlock names each for the [roster](./roster.md) locomotive at its DCC
+address, else for the address. A train node's page shows that roster
+entry (road, model, fitted decoder, function labels) with a link to
+change it and a **Drive** button; for an address not in the roster it
+offers to add one.
+
 ## Configuration
 
 A node that offers a configuration description (CDI) gets a form. The

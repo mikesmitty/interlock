@@ -13,6 +13,7 @@ import {
   type CdiStatus,
   type MonitorEntry,
   type NodeInfo,
+  type Train,
 } from "../api";
 import { ConfigForm } from "../components/ConfigForm";
 import { EntityRows } from "../components/EntityRows";
@@ -22,6 +23,7 @@ import { Empty, Page } from "../components/Page";
 import { clockTime, relativeTime, useNow } from "../format";
 import { useBus } from "../store";
 import { describeEndpoint } from "./Monitor";
+import { AddLocomotive, fittedText, roadText } from "./Roster";
 
 export function NodeDetail() {
   const { id = "" } = useParams();
@@ -131,18 +133,8 @@ export function NodeDetail() {
           </dd>
           {locomotive && (
             <>
-              <dt>Locomotive</dt>
-              <dd>
-                {atAddress.map((t, i) => (
-                  <span key={t.id}>
-                    {i > 0 && ", "}
-                    <Link to={`/roster/${encodeURIComponent(t.id)}`}>{t.name}</Link>
-                  </span>
-                ))}
-                {atAddress.length > 0 ? ", address " : "Address "}
-                {addressName(locomotive.address, locomotive.long)}
-                {atAddress.length === 0 && <span className="muted">, not in the roster</span>}
-              </dd>
+              <dt>DCC address</dt>
+              <dd>{addressName(locomotive.address, locomotive.long)}</dd>
             </>
           )}
           <dt>Node ID</dt>
@@ -179,6 +171,8 @@ export function NodeDetail() {
           )}
         </dl>
       </div>
+
+      {locomotive && <RosterEntries address={locomotive} trains={atAddress} />}
 
       {!node.local && <NodeEntities nodeId={node.id} entities={Object.values(entities)} />}
 
@@ -224,6 +218,100 @@ export function NodeDetail() {
         </div>
       )}
     </Page>
+  );
+}
+
+/** The roster's locomotives at a train node's address, or a way to add one. */
+function RosterEntries({ address, trains }: { address: { address: number; long: boolean }; trains: Train[] }) {
+  const [adding, setAdding] = useState(false);
+  return (
+    <>
+      <div className="cfg-segment__head" style={{ marginTop: "1.75rem" }}>
+        <h2>Roster</h2>
+        <span className="cfg-segment__status">
+          <Link to="/roster">all locomotives</Link>
+        </span>
+      </div>
+      <div style={{ display: "grid", gap: "var(--gutter)" }}>
+        {trains.map((t) => (
+          <RosterSummary key={t.id} train={t} />
+        ))}
+        {trains.length === 0 &&
+          (adding ? (
+            <AddLocomotive start={address} onCancel={() => setAdding(false)} />
+          ) : (
+            <div className="panel ros-details">
+              <p className="dim">No locomotive in the roster has address {addressName(address.address, address.long)}.</p>
+              <div>
+                <button className="btn" onClick={() => setAdding(true)}>
+                  Add it to the roster
+                </button>
+              </div>
+            </div>
+          ))}
+      </div>
+    </>
+  );
+}
+
+/** What the roster says about a locomotive; its page changes it. */
+function RosterSummary({ train: t }: { train: Train }) {
+  const held = new Set(t.momentary ?? []);
+  const labels = Object.entries(t.functions ?? {})
+    .filter(([, label]) => label)
+    .map(([fn, label]) => ({ fn: Number(fn), label }))
+    .sort((a, b) => a.fn - b.fn);
+  const road = roadText(t);
+  const made = [t.manufacturer, t.model].filter(Boolean).join(" ");
+  return (
+    <div className="panel">
+      <dl className="plate">
+        <dt>Locomotive</dt>
+        <dd>
+          <Link to={`/roster/${encodeURIComponent(t.id)}`}>{t.name}</Link>
+        </dd>
+        {road && (
+          <>
+            <dt>Road</dt>
+            <dd>{road}</dd>
+          </>
+        )}
+        {made && (
+          <>
+            <dt>Model</dt>
+            <dd>{made}</dd>
+          </>
+        )}
+        {t.owner && (
+          <>
+            <dt>Owner</dt>
+            <dd>{t.owner}</dd>
+          </>
+        )}
+        <dt>Decoder</dt>
+        <dd>{fittedText(t) || <span className="faint">none</span>}</dd>
+        <dt>Functions</dt>
+        <dd>
+          {labels.length === 0 ? (
+            <span className="faint">no labels</span>
+          ) : (
+            labels.map(({ fn, label }, i) => (
+              <span key={fn}>
+                {i > 0 && ", "}
+                <span className="dim">F{fn}</span> {label}
+                {held.has(fn) && <span className="faint"> (while held)</span>}
+              </span>
+            ))
+          )}
+        </dd>
+        {t.comment && (
+          <>
+            <dt>Notes</dt>
+            <dd style={{ whiteSpace: "pre-wrap" }}>{t.comment}</dd>
+          </>
+        )}
+      </dl>
+    </div>
   );
 }
 
