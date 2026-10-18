@@ -421,6 +421,10 @@ type Layout struct {
 	// PowerOff is set after Emergency Off, which command stations answer
 	// by cutting track power, until Clear Emergency Off.
 	PowerOff bool `json:"power_off"`
+	// PowerKnown is set once Interlock has seen track power switched, or
+	// the command stations have said whether it is on, and while what
+	// they said agrees.
+	PowerKnown bool `json:"power_known"`
 	// EmergencyStop is set after Emergency Stop until it is cleared.
 	EmergencyStop bool      `json:"emergency_stop"`
 	Updated       time.Time `json:"updated"`

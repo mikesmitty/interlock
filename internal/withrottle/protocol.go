@@ -166,11 +166,10 @@ func turnoutState(e entity.Entity) int {
 	return turnoutUnknown
 }
 
-// powerState numbers the layout's track power: unknown until Interlock
-// has seen or sent one of the emergency off events.
+// powerState numbers the layout's track power.
 func powerState(l train.Layout) int {
 	switch {
-	case l.Updated.IsZero():
+	case !l.PowerKnown:
 		return powerUnknown
 	case l.PowerOff:
 		return powerOff

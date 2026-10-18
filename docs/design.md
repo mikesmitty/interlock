@@ -635,7 +635,13 @@ counterpart.
   has its trains emergency stopped; one that reconnects with the same
   device ID replaces its old connection. Announced by mDNS
   (`_withrottle._tcp`). Verified with a scripted client against the
-  simulator; not yet with the apps.
+  simulator and with Engine Driver on a phone.
+- Track power state (2026-10-18): simple-dcc says in its Consumer
+  Identified replies for Emergency Off and Clear Emergency Off whether
+  main track power is on, and announces them at boot (power off). The
+  train manager asks with Identify Consumer when nodes arrive, follows
+  each station's reply, and shows the power as unknown while none has
+  said or two disagree; the simulator does the same as the firmware.
 - Next: the rest of Phase 7, and hardware verification against
   canbus-outpost and simple-dcc.
 

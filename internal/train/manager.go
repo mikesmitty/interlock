@@ -18,6 +18,7 @@ import (
 // Bus is what the manager needs from Interlock's node.
 type Bus interface {
 	ID() openlcb.NodeID
+	Send(ctx context.Context, msg openlcb.Message) error
 	SendEvent(ctx context.Context, id openlcb.EventID) error
 	TractionCommand(ctx context.Context, train openlcb.NodeID, payload []byte, reply bool) ([]byte, error)
 	Producers(ctx context.Context, ev openlcb.EventID, window time.Duration, alsoReport bool) ([]node.Producer, error)
@@ -57,6 +58,10 @@ type LayoutSubscriber func(Layout)
 // answer one does not hold a throttle for long.
 const queryTimeout = 750 * time.Millisecond
 
+// powerQueryDelay gathers the nodes that come onto the bus together, as
+// at start, into one question about track power.
+const powerQueryDelay = 500 * time.Millisecond
+
 // train is a locomotive address on the bus: the train node there and
 // what Interlock set or read back. Its Entry is the bare address; roster
 // entries at the address share the train.
@@ -79,8 +84,15 @@ type Manager struct {
 	// roster entry has one.
 	trains map[string]*train
 	// roster is the roster entries by ID.
-	roster     map[string]Entry
-	layout     Layout
+	roster map[string]Entry
+	layout Layout
+	// stations is whether track power is on as each command station or
+	// booster last said, by node; nodes that do not say are left out.
+	stations map[openlcb.NodeID]bool
+	// online is which other nodes are on the bus, to ask about track
+	// power when one arrives.
+	online     map[openlcb.NodeID]bool
+	asking     bool
 	subs       map[int]Subscriber
 	layoutSubs map[int]LayoutSubscriber
 	nextSub    int
@@ -99,6 +111,8 @@ func New(opts Options) *Manager {
 		fns:        opts.Functions,
 		trains:     make(map[string]*train),
 		roster:     make(map[string]Entry),
+		stations:   make(map[openlcb.NodeID]bool),
+		online:     make(map[openlcb.NodeID]bool),
 		subs:       make(map[int]Subscriber),
 		layoutSubs: make(map[int]LayoutSubscriber),
 	}
@@ -188,9 +202,11 @@ func (m *Manager) viewFor(id string, tr *train) Train {
 
 // --- following the bus ---------------------------------------------------
 
-// HandleNode follows the registry: train nodes coming and going.
+// HandleNode follows the registry: train nodes coming and going, and the
+// other nodes, which may say whether track power is on.
 func (m *Manager) HandleNode(info registry.Info) {
 	if _, _, ok := traction.DCCAddress(info.ID); !ok {
+		m.followNode(info)
 		return
 	}
 	m.mu.Lock()
@@ -216,21 +232,34 @@ func (m *Manager) HandleNode(info registry.Info) {
 	}
 }
 
-// HandleMessage watches the bus for the emergency events. It runs on the
-// node goroutine and must not block.
+// HandleMessage watches the bus for the emergency events, and for command
+// stations saying whether track power is on: Emergency Off is valid at a
+// station whose power is off, Clear Emergency Off at one whose power is
+// on. It runs on the node goroutine and must not block.
 func (m *Manager) HandleMessage(msg *openlcb.Message) {
-	if msg.MTI != openlcb.MTIEventReport {
-		return
-	}
 	ev, ok := msg.EventID()
 	if !ok {
 		return
 	}
+	switch msg.MTI {
+	case openlcb.MTIEventReport:
+	case openlcb.MTIConsumerIdentifiedValid, openlcb.MTIConsumerIdentifiedInvalid:
+		valid := msg.MTI == openlcb.MTIConsumerIdentifiedValid
+		switch ev {
+		case openlcb.EventEmergencyOff:
+			m.powerReported(msg.Source.ID, !valid)
+		case openlcb.EventClearEmergencyOff:
+			m.powerReported(msg.Source.ID, valid)
+		}
+		return
+	default:
+		return
+	}
 	switch ev {
 	case openlcb.EventEmergencyOff:
-		m.setLayout(func(l *Layout) { l.PowerOff = true })
+		m.powerSwitched(false)
 	case openlcb.EventClearEmergencyOff:
-		m.setLayout(func(l *Layout) { l.PowerOff = false })
+		m.powerSwitched(true)
 	case openlcb.EventEmergencyStop:
 		m.setLayout(func(l *Layout) { l.EmergencyStop = true })
 		m.stopAll()
@@ -1012,7 +1041,94 @@ func (m *Manager) SetPower(ctx context.Context, on bool) (Layout, error) {
 	if err := m.opts.Bus.SendEvent(ctx, ev); err != nil {
 		return m.Layout(), err
 	}
-	return m.setLayout(func(l *Layout) { l.PowerOff = !on }), nil
+	return m.powerSwitched(on), nil
+}
+
+// powerSwitched follows an Emergency Off or Clear Emergency Off, which
+// every command station obeys.
+func (m *Manager) powerSwitched(on bool) Layout {
+	return m.setLayout(func(l *Layout) {
+		for id := range m.stations {
+			m.stations[id] = on
+		}
+		l.PowerOff, l.PowerKnown = !on, true
+	})
+}
+
+// powerReported follows a command station saying whether its track power
+// is on.
+func (m *Manager) powerReported(station openlcb.NodeID, on bool) {
+	m.setLayout(func(l *Layout) {
+		m.stations[station] = on
+		m.powerFromStationsLocked(l)
+	})
+}
+
+// powerFromStationsLocked sets the layout's power from what the command
+// stations said: unknown when they disagree or none is left. The caller
+// holds m.mu.
+func (m *Manager) powerFromStationsLocked(l *Layout) {
+	l.PowerKnown = false
+	seen, on := false, false
+	for _, s := range m.stations {
+		if seen && s != on {
+			return
+		}
+		seen, on = true, s
+	}
+	if seen {
+		l.PowerOff, l.PowerKnown = !on, true
+	}
+}
+
+// followNode asks about track power when a node arrives, and forgets what
+// a node said about it when the node leaves.
+func (m *Manager) followNode(info registry.Info) {
+	if info.Local || info.ID == m.opts.Bus.ID() {
+		return
+	}
+	online := info.Online && !info.Forgotten
+	m.mu.Lock()
+	arrived := online && !m.online[info.ID]
+	_, said := m.stations[info.ID]
+	if online {
+		m.online[info.ID] = true
+	} else {
+		delete(m.online, info.ID)
+	}
+	m.mu.Unlock()
+	if !online && said {
+		m.setLayout(func(l *Layout) {
+			delete(m.stations, info.ID)
+			m.powerFromStationsLocked(l)
+		})
+	}
+	if arrived {
+		m.askPower()
+	}
+}
+
+// askPower asks every command station whether track power is on, once
+// for the nodes arriving together.
+func (m *Manager) askPower() {
+	m.mu.Lock()
+	if m.asking {
+		m.mu.Unlock()
+		return
+	}
+	m.asking = true
+	m.mu.Unlock()
+	time.AfterFunc(powerQueryDelay, func() {
+		m.mu.Lock()
+		m.asking = false
+		m.mu.Unlock()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		msg := openlcb.Message{MTI: openlcb.MTIIdentifyConsumer, Payload: openlcb.EventEmergencyOff.AsSlice()}
+		if err := m.opts.Bus.Send(ctx, msg); err != nil {
+			m.log.Debug("asking about track power failed", "error", err)
+		}
+	})
 }
 
 // SetEmergencyStop produces Emergency Stop, which stops every train, or
@@ -1053,7 +1169,8 @@ func (m *Manager) setLayout(change func(*Layout)) Layout {
 	m.mu.Lock()
 	before := m.layout
 	change(&m.layout)
-	if m.layout.PowerOff == before.PowerOff && m.layout.EmergencyStop == before.EmergencyStop && !before.Updated.IsZero() {
+	if m.layout.PowerOff == before.PowerOff && m.layout.PowerKnown == before.PowerKnown &&
+		m.layout.EmergencyStop == before.EmergencyStop && !before.Updated.IsZero() {
 		m.mu.Unlock()
 		return before
 	}

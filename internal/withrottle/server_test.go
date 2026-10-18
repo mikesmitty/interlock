@@ -52,28 +52,30 @@ func newBench(t *testing.T, opts withrottle.Options) *bench {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	t.Cleanup(cancel)
-	b.ctx = ctx
-	go func() { _ = local.Run(ctx) }()
-	go func() { _ = b.station.Run(ctx) }()
-	deadline := time.Now().Add(2 * time.Second)
-	for local.State() != node.StateInitialized || b.station.State() != node.StateInitialized {
-		if time.Now().After(deadline) {
-			t.Fatal("nodes did not initialize")
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
 	f, err := train.OpenFile(filepath.Join(t.TempDir(), "trains.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The trains follow the bus from the start, so they hear the station
+	// say its power is off.
 	b.trains = train.New(train.Options{Bus: local, File: f, Logger: logger, SearchWindow: 150 * time.Millisecond, Functions: 5})
 	local.Observe(func(ev node.Event) {
 		if ev.Kind == node.EventMessage {
 			b.trains.HandleMessage(ev.Message)
 		}
 	})
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	t.Cleanup(cancel)
+	b.ctx = ctx
+	go func() { _ = local.Run(ctx) }()
+	go func() { _ = b.station.Run(ctx) }()
+	deadline := time.Now().Add(2 * time.Second)
+	for local.State() != node.StateInitialized || b.station.State() != node.StateInitialized || !b.trains.Layout().PowerKnown {
+		if time.Now().After(deadline) {
+			t.Fatal("nodes did not initialize")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
 	if _, err := b.trains.Create(train.Entry{Name: "Challenger", Address: 1234,
 		Functions: map[int]string{0: "Headlight", 1: "Bell", 2: "Horn"}, Momentary: []int{2}}); err != nil {
 		t.Fatal(err)
@@ -235,7 +237,7 @@ func TestGreeting(t *testing.T) {
 		"HTInterlock",
 		"HtInterlock 1.2.3",
 		"RL1]\\[Challenger}|{1234}|{L",
-		"PPA2",
+		"PPA0",
 		"PTT]\\[Turnouts}|{Turnout]\\[Closed}|{2]\\[Thrown}|{4]\\[Unknown}|{1]\\[Inconsistent}|{8",
 		"PTL]\\[t1}|{Yard lead}|{2",
 		"PW8080",

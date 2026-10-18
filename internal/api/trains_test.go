@@ -28,6 +28,7 @@ type fakeTrainBus struct {
 
 func (b *fakeTrainBus) ID() openlcb.NodeID                               { return 0x0A0000000001 }
 func (b *fakeTrainBus) SendEvent(context.Context, openlcb.EventID) error { return nil }
+func (b *fakeTrainBus) Send(context.Context, openlcb.Message) error      { return nil }
 func (b *fakeTrainBus) HandleTraction(h node.TractionHandler)            { b.handler = h }
 func (b *fakeTrainBus) VerifyAlias(context.Context, openlcb.Alias) (openlcb.NodeID, error) {
 	return 0, errors.New("unknown")

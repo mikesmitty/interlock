@@ -77,6 +77,13 @@ stopping every locomotive or cutting track power. Interlock watches for
 the same events from anyone else, so a stop pressed on a hardware
 throttle shows here too.
 
+Whether track power is on comes from the command stations: Interlock
+asks them when they come onto the bus, and simple-dcc also says so
+whenever it starts, with its power off. The page shows the power as
+unknown until a command station has said, or when two of them disagree;
+a command station that does not say leaves it unknown until power is
+switched from Interlock or another throttle.
+
 ## Throttle apps
 
 Throttle apps that speak WiThrottle can drive trains through Interlock:
@@ -94,8 +101,9 @@ The app sees:
   its F2 (the horn on most decoders) is momentary;
 - the turnouts, to throw and close, except hidden ones and guesses not
   confirmed on the Entities page;
-- track power, which switches it with Emergency Off and Clear Emergency
-  Off as the Throttle page does;
+- track power, which it switches with Emergency Off and Clear Emergency
+  Off as the Throttle page does, and shows as the command stations
+  report it;
 - the fast clock;
 - the web interface, in Engine Driver's Web tab.
 

@@ -66,7 +66,7 @@ type Programmer interface {
 //	GET    /api/v1/trains                     {trains, layout}
 //	POST   /api/v1/trains                     add to the roster {name, address, long, functions, momentary, ...}
 //	POST   /api/v1/trains/search              {query} -> {trains: [found]}
-//	GET    /api/v1/trains/layout              {power_off, emergency_stop}
+//	GET    /api/v1/trains/layout              {power_off, power_known, emergency_stop}
 //	POST   /api/v1/trains/layout              {power} or {emergency_stop} -> layout
 //	GET    /api/v1/trains/{id}                id is a roster ID, or an address: "1234", "3", or "3l" for a long address under 128
 //	PATCH  /api/v1/trains/{id}                any of {name, address, long, functions, momentary, road_name, road_number,

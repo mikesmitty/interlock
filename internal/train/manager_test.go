@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mikesmitty/interlock/internal/registry"
 	"github.com/mikesmitty/interlock/internal/train"
 	"github.com/mikesmitty/interlock/openlcb"
 	"github.com/mikesmitty/interlock/openlcb/can"
@@ -563,6 +564,54 @@ func TestLayoutAndNotices(t *testing.T) {
 	if n == 0 {
 		t.Error("no train changes were published")
 	}
+}
+
+func TestTrackPower(t *testing.T) {
+	b := newBench(t)
+	known := func(off bool) func() bool {
+		return func() bool { l := b.m.Layout(); return l.PowerKnown && l.PowerOff == off }
+	}
+	// A command station arriving is asked, and says its power is off, as
+	// it is at boot.
+	b.m.HandleNode(registry.Info{ID: stationID, Online: true})
+	eventually(t, "power known off", known(true))
+	if _, err := b.m.SetPower(b.ctx, true); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "power known on", known(false))
+	eventually(t, "station powered", b.station.Power)
+
+	// A second station that disagrees leaves the power unknown until it
+	// goes.
+	other := openlcb.NodeID(0x0A0000000088)
+	b.m.HandleNode(registry.Info{ID: other, Online: true})
+	b.m.HandleMessage(&openlcb.Message{MTI: openlcb.MTIConsumerIdentifiedValid,
+		Source: openlcb.NodeHandle{ID: other}, Payload: openlcb.EventEmergencyOff.AsSlice()})
+	if l := b.m.Layout(); l.PowerKnown {
+		t.Fatalf("stations disagree, layout = %+v", l)
+	}
+	b.m.HandleNode(registry.Info{ID: other})
+	if !known(false)() {
+		t.Fatalf("after the other station left, layout = %+v", b.m.Layout())
+	}
+	// Switching power brings them all into line.
+	b.m.HandleMessage(&openlcb.Message{MTI: openlcb.MTIConsumerIdentifiedInvalid,
+		Source: openlcb.NodeHandle{ID: other}, Payload: openlcb.EventClearEmergencyOff.AsSlice()})
+	if l := b.m.Layout(); l.PowerKnown {
+		t.Fatalf("stations disagree again, layout = %+v", l)
+	}
+	b.m.HandleMessage(&openlcb.Message{MTI: openlcb.MTIEventReport, Payload: openlcb.EventEmergencyOff.AsSlice()})
+	if !known(true)() {
+		t.Fatalf("after Emergency Off, layout = %+v", b.m.Layout())
+	}
+	// With no station left to say, the power is unknown.
+	b.m.HandleNode(registry.Info{ID: stationID})
+	b.m.HandleNode(registry.Info{ID: other})
+	if l := b.m.Layout(); l.PowerKnown {
+		t.Fatalf("no stations, layout = %+v", l)
+	}
+	// Interlock's own node is not asked about.
+	b.m.HandleNode(registry.Info{ID: localID, Online: true, Local: true})
 }
 
 func TestImport(t *testing.T) {

@@ -585,6 +585,8 @@ export interface FoundTrain {
 
 export interface LayoutState {
   power_off: boolean;
+  /** False until track power was seen switched or the command stations said, and while they disagree. */
+  power_known: boolean;
   emergency_stop: boolean;
   updated?: string;
 }

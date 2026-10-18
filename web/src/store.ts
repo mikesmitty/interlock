@@ -73,7 +73,7 @@ class BusStore {
     automations: {},
     liveTraces: [],
     trains: {},
-    layout: { power_off: false, emergency_stop: false },
+    layout: { power_off: false, power_known: false, emergency_stop: false },
     firmware: {},
   };
   private listeners = new Set<Listener>();

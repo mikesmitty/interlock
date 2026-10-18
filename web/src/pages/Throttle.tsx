@@ -44,6 +44,8 @@ export function Throttle() {
   const roster = list.filter((t) => t.roster);
   const driving = list.filter((t) => t.controlled).length;
   const selected = id ? trains[id] : undefined;
+  // Whether track power is on, when the command stations have said.
+  const powerOn = layout.power_known ? !layout.power_off : undefined;
 
   useEffect(() => {
     if (!id && loaded && list.length > 0)
@@ -95,11 +97,11 @@ export function Throttle() {
               Stop all trains
             </button>
           )}
-          <Status color={layout.power_off ? "red" : "green"}>
-            {layout.power_off ? "Track power off" : "Track power on"}
+          <Status color={!layout.power_known ? "off" : layout.power_off ? "red" : "green"}>
+            {!layout.power_known ? "Track power unknown" : layout.power_off ? "Track power off" : "Track power on"}
           </Status>
-          <button className="btn btn--quiet" onClick={() => void setPower(layout.power_off)}>
-            {layout.power_off ? "Power on" : "Power off"}
+          <button className="btn btn--quiet" onClick={() => void setPower(powerOn !== true)}>
+            {powerOn === true ? "Power off" : "Power on"}
           </button>
         </div>
       }

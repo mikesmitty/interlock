@@ -101,8 +101,9 @@ func TestStates(t *testing.T) {
 		want   int
 	}{
 		{train.Layout{}, powerUnknown},
-		{train.Layout{Updated: now}, powerOn},
-		{train.Layout{PowerOff: true, Updated: now}, powerOff},
+		{train.Layout{Updated: now}, powerUnknown},
+		{train.Layout{PowerKnown: true, Updated: now}, powerOn},
+		{train.Layout{PowerOff: true, PowerKnown: true, Updated: now}, powerOff},
 	} {
 		if got := powerState(tt.layout); got != tt.want {
 			t.Errorf("powerState(%+v) = %d, want %d", tt.layout, got, tt.want)

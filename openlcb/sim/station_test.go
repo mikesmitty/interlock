@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"maps"
 	"sync"
 	"testing"
 	"time"
@@ -22,6 +23,13 @@ const stationID = openlcb.NodeID(0x0A0000000077)
 // one locomotive on the programming track.
 func simStation(t *testing.T) (*node.Node, *memconfig.Client, *sim.Station, context.Context) {
 	t.Helper()
+	return simStationWatched(t, nil)
+}
+
+// simStationWatched is simStation with obs seeing the local node's events
+// from the start.
+func simStationWatched(t *testing.T, obs node.Observer) (*node.Node, *memconfig.Client, *sim.Station, context.Context) {
+	t.Helper()
 	logger := slog.New(slog.DiscardHandler)
 	var mu sync.Mutex
 	var local *node.Node
@@ -37,6 +45,9 @@ func simStation(t *testing.T) (*node.Node, *memconfig.Client, *sim.Station, cont
 		t.Fatal(err)
 	}
 	client := memconfig.NewClient(local, memconfig.WithLogger(logger), memconfig.WithReplyTimeout(500*time.Millisecond))
+	if obs != nil {
+		local.Observe(obs)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	t.Cleanup(cancel)
 	go func() { _ = local.Run(ctx) }()
@@ -201,6 +212,62 @@ func TestStationProgrammingTrack(t *testing.T) {
 	}
 	if !station.Power() {
 		t.Fatal("power still off after Clear Emergency Off")
+	}
+}
+
+func TestStationPowerState(t *testing.T) {
+	var mu sync.Mutex
+	said := map[openlcb.EventID]openlcb.MTI{}
+	heard := func() map[openlcb.EventID]openlcb.MTI {
+		mu.Lock()
+		defer mu.Unlock()
+		return maps.Clone(said)
+	}
+	local, _, _, ctx := simStationWatched(t, func(ev node.Event) {
+		if ev.Kind != node.EventMessage {
+			return
+		}
+		switch ev.Message.MTI {
+		case openlcb.MTIConsumerIdentifiedValid, openlcb.MTIConsumerIdentifiedInvalid, openlcb.MTIConsumerIdentifiedUnknown:
+			if id, ok := ev.Message.EventID(); ok {
+				mu.Lock()
+				said[id] = ev.Message.MTI
+				mu.Unlock()
+			}
+		}
+	})
+	waitFor := func(what string, ok func(map[openlcb.EventID]openlcb.MTI) bool) {
+		t.Helper()
+		deadline := time.Now().Add(time.Second)
+		for !ok(heard()) {
+			if time.Now().After(deadline) {
+				t.Fatalf("timed out waiting for %s; heard %v", what, heard())
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}
+	// On the bus, the station says its power is off, as the firmware does
+	// at boot; an emergency stop has no state to say.
+	waitFor("the announcement", func(h map[openlcb.EventID]openlcb.MTI) bool {
+		return h[openlcb.EventEmergencyOff] == openlcb.MTIConsumerIdentifiedValid &&
+			h[openlcb.EventClearEmergencyOff] == openlcb.MTIConsumerIdentifiedInvalid &&
+			h[openlcb.EventEmergencyStop] == openlcb.MTIConsumerIdentifiedUnknown &&
+			h[openlcb.EventClearEmergencyStop] == openlcb.MTIConsumerIdentifiedUnknown
+	})
+	if err := local.SendEvent(ctx, openlcb.EventClearEmergencyOff); err != nil {
+		t.Fatal(err)
+	}
+	// Asked again, it says power is on.
+	deadline := time.Now().Add(time.Second)
+	for heard()[openlcb.EventEmergencyOff] != openlcb.MTIConsumerIdentifiedInvalid {
+		if time.Now().After(deadline) {
+			t.Fatalf("power still reported off; heard %v", heard())
+		}
+		msg := openlcb.Message{MTI: openlcb.MTIIdentifyConsumer, Payload: openlcb.EventEmergencyOff.AsSlice()}
+		if err := local.Send(ctx, msg); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }
 
