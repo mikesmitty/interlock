@@ -163,6 +163,24 @@ func (m *Manager) Programmed(id, decoder, cv string, value int, written bool) er
 	return m.opts.CVs.Programmed(decoder, cv, value, written)
 }
 
+// StartSession begins the session on one of a locomotive's decoders with
+// a check of it on the programming track (CheckMatched or
+// CheckAccepted), ending the sessions there of the others.
+func (m *Manager) StartSession(id, decoder, check string) error {
+	if err := m.hasDecoder(id, decoder); err != nil {
+		return err
+	}
+	if check != CheckMatched && check != CheckAccepted {
+		return invalid("a session's check is %q or %q", CheckMatched, CheckAccepted)
+	}
+	m.opts.CVs.StartSession(decoder, check)
+	return nil
+}
+
+// SessionChecked reports whether the session on a decoder began with a
+// check of it on the programming track, which work there needs first.
+func (m *Manager) SessionChecked(decoder string) bool { return m.opts.CVs.Checked(decoder) }
+
 // EndSession ends the session on one of a locomotive's decoders.
 func (m *Manager) EndSession(id, decoder string) error {
 	if err := m.hasDecoder(id, decoder); err != nil {
@@ -218,6 +236,9 @@ type DecoderMatch struct {
 	// Identity is set when the decoder's saved identity agrees, not just
 	// its address.
 	Identity bool `json:"identity"`
+	// Checked is set when Identify checked the decoder and began its
+	// session.
+	Checked bool `json:"checked,omitempty"`
 }
 
 // FindDecoder lists the roster decoders that could be the one identified

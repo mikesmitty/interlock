@@ -126,6 +126,8 @@ GET    /api/v1/trains/{id}/decoders/{dec}/cvs      {cvs, imported, updated, chan
 PATCH  /api/v1/trains/{id}/decoders/{dec}/cvs      {cvs} save these values
 PUT    /api/v1/trains/{id}/decoders/{dec}/cvs      {cvs} replace them all
 PUT    /api/v1/trains/{id}/decoders/{dec}/changes  {changes} keep the changes not written yet
+POST   /api/v1/trains/{id}/decoders/{dec}/check    is the decoder on the programming track this one?
+POST   /api/v1/trains/{id}/decoders/{dec}/session  begin the session though the check did not match
 DELETE /api/v1/trains/{id}/decoders/{dec}/session  end the session on it
 POST   /api/v1/trains/import                 multipart: file (JMRI roster files or a zip), plan
 POST   /api/v1/trains/{id}/acquire           take control
@@ -151,10 +153,24 @@ change is dropped once a value read from or written to the decoder
 holds it. `imported` holds values from an imported roster that the
 decoder has not been read for since; saving a CV's value moves it to
 `cvs`, and replacing them all clears `imported`. `session`, when there
-is one, is `{started, last, read, written}`: the CVs read from and
+is one, is `{started, last, check, read, written}`: the CVs read from and
 written to the decoder through `/programming/decoder-cv` since it
 began. It ends two hours after `last`, when `/programming/identify`
-finds a decoder, when it is deleted, or when Interlock restarts. See [Trains](./trains.md) and [The roster](./roster.md).
+finds a decoder, when another decoder is checked, when it is deleted,
+or when Interlock restarts.
+
+`check` reads the decoder on the programming track and compares it with
+the roster decoder: `{match, differences, told, alike, others, read,
+identity, manufacturer, model, address, session}`. Each difference is
+`{what, cv, roster, track}`, `what` being `manufacturer`, `product`,
+`address` or `cv`; `alike` lists roster decoders of the same model at
+the same address that nothing saved tells apart, `others` the ones it
+could be instead, and `told` the CVs read to tell them apart. A match
+begins the session with `check: "matched"` and the values in `read`
+saved as read; otherwise nothing changes, and `POST .../session` begins
+it with `check: "accepted"`. Reads and writes for a roster decoder on
+the programming track answer 409 until its session has a check. See
+[Trains](./trains.md) and [The roster](./roster.md).
 
 ## Decoder definitions
 
@@ -173,7 +189,8 @@ accepts it. `decoder-cv` takes a CV by the name the definition uses
 `decoder`s, the value is saved for that decoder. It refuses CVs the
 definition marks read-only, write-only or for information only.
 `identify` also reads the decoder's address and lists the roster
-decoders it could be. An ESU decoder's function map comes as an
+decoders it could be; when the first checks out, its session begins and
+it is marked `checked`. An ESU decoder's function map comes as an
 `esu_map` node: its rows and blocks of items, from which each item's CV
 and bits follow (see `internal/decoder/esumap.go`); its CVs are in the
 definition's list. See [Decoder settings](./decoders.md).

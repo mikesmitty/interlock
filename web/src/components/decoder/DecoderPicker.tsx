@@ -201,6 +201,7 @@ export function DecoderPicker({
                       {t.name}: {d.name || d.model || d.id}
                     </Link>
                     {!m.identity && <span className="faint"> (same address; its identity was never saved)</span>}
+                    {m.checked && <span className="dim"> Checked: its session has begun.</span>}
                     {!m.installed && (
                       <>
                         {" "}

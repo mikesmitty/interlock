@@ -59,19 +59,32 @@ type CVValues struct {
 
 // CVSession is a spell of work on one decoder: the CVs read from it and
 // written to it since it began, which can be trusted to hold those
-// values more than ones saved earlier. It ends after SessionIdle without
-// work, when a decoder is identified on the programming track (the
-// locomotive there may have been swapped), when it is ended by hand, or
-// when Interlock stops. A CV read or written last is listed only there.
+// values more than ones saved earlier. Work on the programming track
+// begins with a check that the decoder there is this one (Check says how
+// it went); writes on the main begin a session unchecked. It ends after
+// SessionIdle without work, when a decoder is identified on the
+// programming track (the locomotive there may have been swapped), when
+// another decoder is checked there, when it is ended by hand, or when
+// Interlock stops. A CV read or written last is listed only there.
 type CVSession struct {
 	Started time.Time `json:"started"`
 	Last    time.Time `json:"last"`
+	Check   string    `json:"check,omitempty"`
 	Read    []string  `json:"read"`
 	Written []string  `json:"written"`
 }
 
+// How a session's decoder was checked on the programming track.
+const (
+	// CheckMatched means the decoder there was checked and is this one.
+	CheckMatched = "matched"
+	// CheckAccepted means it did not match and work went on anyway.
+	CheckAccepted = "accepted"
+)
+
 type cvSession struct {
 	started, last time.Time
+	check         string
 	// written is true for a CV written last, false for one read last.
 	cvs map[string]bool
 }
@@ -159,7 +172,7 @@ func (s *CVStore) Get(decoder string) (CVValues, error) {
 	}
 	v := CVValues{CVs: maps.Clone(d.CVs), Imported: maps.Clone(d.Imported), Updated: d.Updated, Changes: maps.Clone(d.Changes)}
 	if ss := s.sessionLocked(decoder, false); ss != nil {
-		v.Session = &CVSession{Started: ss.started, Last: ss.last, Read: []string{}, Written: []string{}}
+		v.Session = &CVSession{Started: ss.started, Last: ss.last, Check: ss.check, Read: []string{}, Written: []string{}}
 		for _, cv := range slices.Sorted(maps.Keys(ss.cvs)) {
 			if ss.cvs[cv] {
 				v.Session.Written = append(v.Session.Written, cv)
@@ -204,6 +217,39 @@ func (s *CVStore) Programmed(decoder, cv string, value int, written bool) error 
 	defer s.mu.Unlock()
 	s.sessionLocked(decoder, true).cvs[cv] = written
 	return nil
+}
+
+// StartSession begins the decoder's session with a check of it on the
+// programming track, or records the check in the session going on. The
+// other decoders' sessions on the programming track end, since only one
+// decoder can be there; a matched check is not undone by an accepted one.
+func (s *CVStore) StartSession(decoder, check string) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for other, ss := range s.sessions {
+		if other != decoder && ss.check != "" {
+			delete(s.sessions, other)
+		}
+	}
+	ss := s.sessionLocked(decoder, true)
+	if ss.check != CheckMatched {
+		ss.check = check
+	}
+}
+
+// Checked reports whether the decoder's session began with a check of it
+// on the programming track.
+func (s *CVStore) Checked(decoder string) bool {
+	if s == nil {
+		return true
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ss := s.sessionLocked(decoder, false)
+	return ss != nil && ss.check != ""
 }
 
 // EndSession ends the decoder's session; its values stay saved.

@@ -88,20 +88,53 @@ ESU function map's rows and the CVs tab carry the same lamps.
 
 ### Sessions
 
-For a decoder in the roster, a session is a spell of work on it: it
-starts with the first read or write and is shown above the tabs with an
-**End session** button. Its values keep their green lamps when the page
-is reloaded or opened on another device. A session ends:
+For a decoder in the roster, a session is a spell of work on it, shown
+above the tabs with an **End session** button. On the programming track
+it begins with a check that the decoder there is the one you opened;
+on the main, where the address picks the decoder, with the first write.
+Its values keep their green lamps when the page is reloaded or opened on
+another device. A session ends:
 
 - after two hours without a read, a write or a change on the page;
 - when **Identify** finds a decoder on the programming track, since the
   locomotive there may have been swapped or changed elsewhere;
+- when another decoder is checked on the programming track;
 - with **End session**;
 - when Interlock restarts.
 
 Its values stay saved and show without a lamp from then on. A decoder
 opened on its own, outside the roster, keeps its lamps until the page
 closes.
+
+### Checking the decoder on the track
+
+A fleet often has many of the same decoder, so before the first read or
+write of a session on the programming track, Interlock reads the
+decoder's manufacturer, product ID and address (the CVs Identify reads,
+which take ten to twenty seconds on a slow command station) and compares
+them with the roster:
+
+- the manufacturer and product ID with those saved for the decoder, or
+  with its definition's when none were saved;
+- the address with the locomotive's;
+- the CVs read on the way, such as CV 29, with the values saved or
+  imported for the decoder.
+
+When another roster decoder has the same model at the same address, such
+as a pair of units that run as one, Interlock also reads up to three CVs
+whose saved values tell the two apart.
+
+If everything agrees, the session begins, the CVs read for the check
+count as read, and the work goes on. If anything differs, nothing is read
+or written: the page says what differs and which roster decoders the one
+on the track could be. **Read anyway** or **Write anyway** begins the
+session regardless, for a new decoder that still answers at address 3
+for instance, and the session line then says the decoder did not match.
+
+**Identify** checks the roster decoder it names first the same way and,
+when it agrees, begins that decoder's session, so its settings open
+ready to read. Interlock cannot see a locomotive being lifted off the
+track: after swapping one, use Identify or **End session**.
 
 Changes to a decoder in the [roster](./roster.md) are kept until they
 are written or discarded: close the page, or open it on another device,

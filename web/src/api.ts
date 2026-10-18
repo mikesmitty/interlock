@@ -443,8 +443,21 @@ export interface SavedCVs {
   imported?: Record<string, number>;
   updated?: string;
   changes?: Record<string, { value: number; bits: number }>;
-  /** The work on the decoder going on now: the CVs read from it and written to it. */
-  session?: { started: string; last: string; read: string[]; written: string[] };
+  /** The work on the decoder going on now. */
+  session?: DecoderSession;
+}
+
+/**
+ * A spell of work on a decoder: the CVs read from it and written to it,
+ * and, for work on the programming track, how the check that it is this
+ * decoder went.
+ */
+export interface DecoderSession {
+  started: string;
+  last: string;
+  check?: "matched" | "accepted";
+  read: string[];
+  written: string[];
 }
 
 /** A roster decoder that could be the one on the programming track. */
@@ -453,6 +466,43 @@ export interface DecoderMatch {
   decoder?: string;
   installed: boolean;
   identity: boolean;
+  /** Identify checked it and began its session. */
+  checked?: boolean;
+}
+
+/** Something the decoder on the programming track and the roster disagree on. */
+export interface CheckDifference {
+  what: "manufacturer" | "product" | "address" | "cv";
+  cv?: string;
+  /** The roster's value and the decoder's: IDs, addresses or CV values. */
+  roster: number;
+  track: number;
+  roster_long?: boolean;
+  track_long?: boolean;
+  /** The roster's value was imported and has not been read since. */
+  imported?: boolean;
+  roster_name?: string;
+  track_name?: string;
+}
+
+/** Whether the decoder on the programming track is a roster decoder. */
+export interface DecoderCheck {
+  match: boolean;
+  differences: CheckDifference[];
+  /** The CVs read to tell it from other roster decoders. */
+  told?: string[];
+  /** Roster decoders of the same model at the same address that nothing saved tells it from. */
+  alike: DecoderMatch[];
+  /** Roster decoders it could be instead. */
+  others: DecoderMatch[];
+  /** The values read for the check, by CV. */
+  read: Record<string, number>;
+  identity: DecoderIdentity;
+  manufacturer?: string;
+  model?: string;
+  address: { address: number; long: boolean };
+  /** The session begun when it matched. */
+  session?: DecoderSession;
 }
 
 export type ImportAction = "new" | "decoder" | "skip";
@@ -851,6 +901,12 @@ export const api = {
       method: replace ? "PUT" : "PATCH",
       body: JSON.stringify({ cvs }),
     }),
+  /** Checks that the decoder on the programming track is this one, beginning its session if it is. */
+  checkDecoder: (id: string, decoder: string) =>
+    request<DecoderCheck>(`${trainPath(id)}/decoders/${encodeURIComponent(decoder)}/check`, { method: "POST" }),
+  /** Begins the session on a decoder though its check did not match. */
+  startSession: (id: string, decoder: string) =>
+    request<DecoderSession>(`${trainPath(id)}/decoders/${encodeURIComponent(decoder)}/session`, { method: "POST" }),
   endSession: (id: string, decoder: string) =>
     request<void>(`${trainPath(id)}/decoders/${encodeURIComponent(decoder)}/session`, { method: "DELETE" }),
   /** Keeps the changes not written yet; keepalive lets it finish as the page closes. */

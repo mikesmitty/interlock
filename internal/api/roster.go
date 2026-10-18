@@ -22,6 +22,7 @@ import (
 //	PATCH  /api/v1/trains/{id}/decoders/{decoder}/cvs      {cvs} saves these values, keeping the others
 //	PUT    /api/v1/trains/{id}/decoders/{decoder}/cvs      {cvs} replaces them all
 //	PUT    /api/v1/trains/{id}/decoders/{decoder}/changes  {changes} keeps the changes not written yet
+//	POST   /api/v1/trains/{id}/decoders/{decoder}/session  begins the session though a check did not match -> session
 //	DELETE /api/v1/trains/{id}/decoders/{decoder}/session  ends the session on it
 //	POST   /api/v1/trains/import                           multipart: file (JMRI roster files or zips), plan
 //
@@ -215,6 +216,23 @@ func (a *API) setDecoderChanges(w http.ResponseWriter, r *http.Request) {
 
 // endDecoderSession ends the session on a decoder: what was read and
 // written in it counts as saved from then on.
+func (a *API) startDecoderSession(w http.ResponseWriter, r *http.Request) {
+	if !a.trainsReady(w) {
+		return
+	}
+	id, dec := r.PathValue("id"), r.PathValue("decoder")
+	if err := a.deps.Trains.StartSession(id, dec, train.CheckAccepted); err != nil {
+		a.trainError(w, err)
+		return
+	}
+	v, err := a.deps.Trains.CVs(id, dec)
+	if err != nil {
+		a.trainError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, v.Session)
+}
+
 func (a *API) endDecoderSession(w http.ResponseWriter, r *http.Request) {
 	if !a.trainsReady(w) {
 		return

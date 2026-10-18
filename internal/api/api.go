@@ -163,6 +163,7 @@ func New(deps Deps) *API {
 	a.mux.HandleFunc("PATCH /api/v1/trains/{id}/decoders/{decoder}/cvs", a.setDecoderCVs)
 	a.mux.HandleFunc("PUT /api/v1/trains/{id}/decoders/{decoder}/cvs", a.setDecoderCVs)
 	a.mux.HandleFunc("PUT /api/v1/trains/{id}/decoders/{decoder}/changes", a.setDecoderChanges)
+	a.mux.HandleFunc("POST /api/v1/trains/{id}/decoders/{decoder}/session", a.startDecoderSession)
 	a.mux.HandleFunc("DELETE /api/v1/trains/{id}/decoders/{decoder}/session", a.endDecoderSession)
 	a.mux.HandleFunc("POST /api/v1/trains/import", a.importTrains)
 	a.mux.HandleFunc("GET /api/v1/programming", a.programming)
@@ -175,6 +176,7 @@ func New(deps Deps) *API {
 		a.mux.HandleFunc("GET /api/v1/decoders/definition", a.decoderDefinition)
 		a.mux.HandleFunc("POST /api/v1/programming/identify", a.identifyDecoder)
 		a.mux.HandleFunc("POST /api/v1/programming/decoder-cv", a.decoderCV)
+		a.mux.HandleFunc("POST /api/v1/trains/{id}/decoders/{decoder}/check", a.checkDecoder)
 	}
 	if deps.Firmware != nil {
 		a.mux.HandleFunc("GET /api/v1/firmware", a.listFirmware)

@@ -109,7 +109,9 @@ applied at the next start; the replaced files go to `before-restore-*/`.
   values (imported ones apart until a read confirms them) and the
   settings page's changes not written yet in `<data>/cvs/`, and in
   memory each decoder's session (what was read and written since work on
-  it began; Identify ends them all). The JMRI
+  it began; Identify ends them all). Work on the programming track needs
+  a session begun by `CheckDecoder` (`check.go`: model, address, saved
+  values, and CVs that tell alike decoders apart). The JMRI
   import is planned and applied here.
 - `internal/jmri` — reads JMRI roster files (roster.xml, the locomotive
   files, zips of them) into imports for the roster.

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
-import { api, type RosterIdentity } from "../api";
+import { api, ApiError, type DecoderCheck, type DecoderMatch, type DecoderSession, type RosterIdentity } from "../api";
 import { Status } from "../components/Lamp";
 import { Page } from "../components/Page";
 import { rosterSettingsLink } from "../components/decoder/DecoderPicker";
@@ -45,10 +45,28 @@ function describe(err: unknown): string {
 }
 
 interface Job {
-  kind: "read" | "write";
+  kind: "read" | "write" | "check";
   done: number;
   total: number;
   failed: number;
+}
+
+/** A roster decoder's session: when it began, when it last saw work, and its check. */
+interface SessionState {
+  started: string;
+  last: number;
+  check?: DecoderSession["check"];
+}
+
+function sessionState(s: DecoderSession | undefined): SessionState | undefined {
+  return s ? { started: s.started, last: Date.parse(s.last), check: s.check } : undefined;
+}
+
+/** A check that found something else on the programming track, and the work waiting on it. */
+interface Mismatch {
+  check: DecoderCheck;
+  kind: "read" | "write";
+  cvs: string[];
 }
 
 /** The bits a whole CV holds: 16 for the TCS protocol, 8 for the rest. */
@@ -117,8 +135,15 @@ export function DecoderSettings() {
   const [message, setMessage] = useState<string>();
   // How many changes from an earlier visit came back, for a note.
   const [restored, setRestored] = useState(0);
-  // A roster decoder's session: when it began and when it last saw work.
-  const [session, setSession] = useState<{ started: string; last: number }>();
+  // A roster decoder's session, kept in a ref too so work started right
+  // after it changes sees it.
+  const [session, setSessionState] = useState<SessionState>();
+  const sessionRef = useRef<SessionState>(undefined);
+  const setSession = useCallback((s: SessionState | undefined) => {
+    sessionRef.current = s;
+    setSessionState(s);
+  }, []);
+  const [mismatch, setMismatch] = useState<Mismatch>();
   const runningRef = useRef(false);
   // The changes the roster keeps, as last sent, and the save waiting.
   const sentRef = useRef("{}");
@@ -139,13 +164,14 @@ export function DecoderSettings() {
     setLoadError(undefined);
     setSavedAt(undefined);
     setSession(undefined);
+    setMismatch(undefined);
     const saved = loco && decoderID ? api.savedCVs(loco, decoderID) : Promise.resolve(undefined);
     Promise.all([api.decoderDefinition(file, model), saved])
       .then(([d, values]) => {
         const t = values
           ? withChanges(withSession(withImported(withSaved(initialTable(d), values.cvs), values.imported ?? {}), values.session ?? noSession), values.changes ?? {})
           : initialTable(d);
-        setSession(values?.session ? { started: values.session.started, last: Date.parse(values.session.last) } : undefined);
+        setSession(sessionState(values?.session));
         sentRef.current = JSON.stringify(pendingChanges(t));
         setDef(d);
         setTable(t);
@@ -154,7 +180,7 @@ export function DecoderSettings() {
         setTab(0);
       })
       .catch((err) => setLoadError(describe(err)));
-  }, [file, model, loco, decoderID]);
+  }, [file, model, loco, decoderID, setSession]);
 
   // A roster decoder keeps changes not written yet, so they are there
   // when its page opens again, here or elsewhere.
@@ -197,11 +223,11 @@ export function DecoderSettings() {
       const s = (await api.savedCVs(loco, decoderID)).session;
       if (runningRef.current) return;
       setTable(withSession(endSession(tableRef.current), s ?? noSession));
-      setSession(s ? { started: s.started, last: Date.parse(s.last) } : undefined);
+      setSession(sessionState(s));
     } catch {
       // The marks stay as they are until the next check.
     }
-  }, [loco, decoderID]);
+  }, [loco, decoderID, setSession]);
   useEffect(() => {
     const onShow = () => {
       if (document.visibilityState === "visible") void syncSession();
@@ -306,10 +332,12 @@ export function DecoderSettings() {
   }
 
   // Reads, writes and changes are work on the decoder: a session begins
-  // with the first read or write and goes on while there is work.
+  // with a check on the programming track or the first write on the main,
+  // and goes on while there is work.
   function worked(start: boolean) {
     if (!loco) return;
-    setSession((s) => (s ? { ...s, last: Date.now() } : start ? { started: new Date().toISOString(), last: Date.now() } : s));
+    const s = sessionRef.current;
+    setSession(s ? { ...s, last: Date.now() } : start ? { started: new Date().toISOString(), last: Date.now() } : s);
   }
   function changeTable(t: CVTable) {
     setTable(t);
@@ -373,11 +401,59 @@ export function DecoderSettings() {
     }
   }
 
-  async function run(kind: Job["kind"], cvs: string[], step: (cv: string) => Promise<string | undefined>) {
+  // Before the first read or write of a session on the programming track,
+  // Interlock checks that the decoder there is this one, since a fleet
+  // often shares a decoder model.
+  async function checkFirst(kind: Mismatch["kind"], cvs: string[]): Promise<boolean> {
+    setConfirmWrite(false);
+    setMessage(undefined);
+    setMismatch(undefined);
+    runningRef.current = true;
+    setJob({ kind: "check", done: 0, total: 0, failed: 0 });
+    try {
+      await flushChanges();
+      const c = await api.checkDecoder(loco, decoderID);
+      if (!c.match) {
+        setMismatch({ check: c, kind, cvs });
+        return false;
+      }
+      // What the check read is read in the session.
+      let t = tableRef.current;
+      for (const [cv, value] of Object.entries(c.read ?? {})) if (t[cv]) t = settle(t, cv, value, "read");
+      setTable(t);
+      setSession(sessionState(c.session));
+      return true;
+    } catch (err) {
+      setMessage(`The decoder on the programming track could not be checked: ${describe(err)}`);
+      return false;
+    } finally {
+      runningRef.current = false;
+      setJob(undefined);
+    }
+  }
+
+  async function continueAnyway() {
+    const m = mismatch;
+    if (!m) return;
+    setMismatch(undefined);
+    try {
+      setSession(sessionState(await api.startSession(loco, decoderID)));
+    } catch (err) {
+      setMessage(`The session could not begin: ${describe(err)}`);
+      return;
+    }
+    await run(m.kind, m.cvs, m.kind === "read" ? readCV : writeCV);
+  }
+
+  async function run(kind: Mismatch["kind"], cvs: string[], step: (cv: string) => Promise<string | undefined>) {
+    if (loco && !onMain && cvs.length > 0 && !sessionRef.current?.check && !(await checkFirst(kind, cvs))) return;
     stopRef.current = false;
     runningRef.current = true;
     setConfirmWrite(false);
     setMessage(undefined);
+    // The session can end elsewhere while this runs; what is left waits
+    // for a new check.
+    let unchecked: string[] | undefined;
     let failed = 0;
     setJob({ kind, done: 0, total: cvs.length, failed });
     const newFailures: Record<string, string> = {};
@@ -391,6 +467,10 @@ export function DecoderSettings() {
         try {
           problem = await step(cvs[i]);
         } catch (err) {
+          if (err instanceof ApiError && err.status === 409) {
+            unchecked = cvs.slice(i);
+            break;
+          }
           problem = describe(err);
         }
         if (problem) {
@@ -409,6 +489,11 @@ export function DecoderSettings() {
       else if (cvs.length === 0) setMessage(kind === "read" ? "This page has nothing to read." : "Nothing on this page needs writing.");
       else setMessage(`${cvs.length} CV${cvs.length === 1 ? "" : "s"} ${verb}${loco ? " and saved" : ""}.`);
       if (loco && failed < cvs.length) setSavedAt(new Date().toISOString());
+    }
+    if (unchecked) {
+      setTable(endSession(tableRef.current));
+      setSession(undefined);
+      return run(kind, unchecked, step);
     }
     if (kind === "write") await followAddress();
   }
@@ -499,7 +584,15 @@ export function DecoderSettings() {
       <div className="panel dec-target">
         <label className="dec-target__pick">
           <span>Program</span>
-          <select className="input input--select" value={train} disabled={busy} onChange={(e) => setTrain(e.target.value)}>
+          <select
+            className="input input--select"
+            value={train}
+            disabled={busy}
+            onChange={(e) => {
+              setTrain(e.target.value);
+              setMismatch(undefined);
+            }}
+          >
             <option value="">on the programming track</option>
             {entry ? (
               <option value={entry.id}>on the main, at address {entry.address}</option>
@@ -515,7 +608,11 @@ export function DecoderSettings() {
         {onMain && <span className="dim">Writes only: reading on the main needs RailCom.</span>}
         {session && (
           <span className="dec-session">
-            <Status color="green">{`Session started ${relativeTime(session.started, now)}`}</Status>
+            {session.check === "accepted" ? (
+              <Status color="amber">{`Session started ${relativeTime(session.started, now)}, though the decoder did not match`}</Status>
+            ) : (
+              <Status color="green">{`Session started ${relativeTime(session.started, now)}`}</Status>
+            )}
             <button className="btn btn--quiet" disabled={busy} onClick={() => void finishSession()}>
               End session
             </button>
@@ -547,6 +644,7 @@ export function DecoderSettings() {
               onClick={() => {
                 setTab(i);
                 setConfirmWrite(false);
+                setMismatch(undefined);
                 setMessage(undefined);
                 setFailures({});
               }}
@@ -584,7 +682,14 @@ export function DecoderSettings() {
               </button>
             )}
             <span className="dec-toolbar__status">
-              {job ? (
+              {job?.kind === "check" ? (
+                <>
+                  <span className="progress dec-progress" aria-label="Checking">
+                    <span className="progress__bar progress__bar--indeterminate" />
+                  </span>
+                  <span>Checking which decoder is on the programming track…</span>
+                </>
+              ) : job ? (
                 <>
                   <span className="progress dec-progress" aria-label={`${job.done} of ${job.total}`}>
                     <span className="progress__bar" style={{ width: `${job.total ? (job.done / job.total) * 100 : 0}%` }} />
@@ -605,6 +710,16 @@ export function DecoderSettings() {
               )}
             </span>
           </div>
+          {mismatch && !busy && entry && (
+            <CheckMismatch
+              mismatch={mismatch}
+              loco={entry.name}
+              decoder={`${entry.name}'s ${decoderTitle}`}
+              model={def.model}
+              onContinue={() => void continueAnyway()}
+              onCancel={() => setMismatch(undefined)}
+            />
+          )}
           {confirmWrite && unreadList && !busy && (
             <div className="confirm confirm--block dec-confirm">
               <span>
@@ -657,6 +772,90 @@ export function DecoderSettings() {
         </details>
       )}
     </Page>
+  );
+}
+
+/** What a check found on the programming track instead of this decoder, and the choice to go on. */
+function CheckMismatch({
+  mismatch,
+  loco,
+  decoder,
+  model,
+  onContinue,
+  onCancel,
+}: {
+  mismatch: Mismatch;
+  loco: string;
+  /** The roster decoder, as "GP40's LokSound 5". */
+  decoder: string;
+  model: string;
+  onContinue: () => void;
+  onCancel: () => void;
+}) {
+  const { trains } = useBus();
+  const { check: c, kind } = mismatch;
+  const address = (n: number, long?: boolean) => (long && n < 128 ? `long address ${n}` : `address ${n}`);
+  const lines = c.differences.map((d) => {
+    switch (d.what) {
+      case "manufacturer":
+        return `It is made by ${d.track_name ?? `manufacturer ${d.track}`}, not ${d.roster_name ?? `manufacturer ${d.roster}`}.`;
+      case "product":
+        return `It is ${c.model ? `a ${c.model}` : "another model"}, not a ${model}.`;
+      case "address":
+        return `It answers at ${address(d.track, d.track_long)}, not ${address(d.roster, d.roster_long)}.`;
+      case "cv":
+        return d.imported ? `CV ${d.cv} is ${d.track}; the imported value is ${d.roster}.` : `CV ${d.cv} is ${d.track}; the roster has ${d.roster}.`;
+    }
+  });
+  const name = (m: DecoderMatch) => {
+    const t = trains[m.train];
+    const d = t?.decoders?.find((x) => x.id === m.decoder);
+    if (!t) return m.train;
+    return d ? `${t.name}'s ${d.name || d.model || "decoder"}` : t.name;
+  };
+  const link = (m: DecoderMatch) => (m.decoder ? rosterSettingsLink(m.train, m.decoder) : `/roster/${encodeURIComponent(m.train)}`);
+  const list = (ms: DecoderMatch[]) =>
+    ms.map((m, i) => (
+      <span key={`${m.train}/${m.decoder ?? ""}`}>
+        {i > 0 && (i === ms.length - 1 ? " or " : ", ")}
+        <Link to={link(m)}>{name(m)}</Link>
+      </span>
+    ));
+  // A new decoder answers at address 3 until it is set.
+  const fresh = c.differences.length === 1 && c.differences[0].what === "address" && c.differences[0].track === 3 && !c.differences[0].track_long;
+  return (
+    <div className="confirm confirm--block dec-confirm dec-check" role="alert">
+      {lines.length > 0 ? (
+        <>
+          <span>The decoder on the programming track does not match {decoder}.</span>
+          <ul>
+            {lines.map((l) => (
+              <li key={l}>{l}</li>
+            ))}
+          </ul>
+        </>
+      ) : (
+        <span>
+          The decoder on the programming track could be {decoder}, but nothing saved tells it from {list(c.alike)}, with the same model at the same
+          address.
+        </span>
+      )}
+      {c.others.length > 0 && <span>It could be {list(c.others)}.</span>}
+      {fresh && <span className="dim">New decoders answer at address 3. If this one is new, go on and set its address.</span>}
+      <span>
+        {kind === "read"
+          ? `Reading anyway saves what it reads for ${loco}.`
+          : `Writing anyway changes the decoder on the track and saves the values for ${loco}.`}
+      </span>
+      <span className="dec-check__actions">
+        <button className="btn btn--danger" onClick={onContinue}>
+          {kind === "read" ? "Read anyway" : "Write anyway"}
+        </button>
+        <button className="btn btn--quiet" onClick={onCancel}>
+          Cancel
+        </button>
+      </span>
+    </div>
   );
 }
 

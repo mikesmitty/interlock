@@ -726,4 +726,39 @@ func TestCVSessions(t *testing.T) {
 	if s := session(); s != nil {
 		t.Errorf("EndSessions left %+v", s)
 	}
+
+	// Work on the programming track begins with a check of the decoder.
+	if m.SessionChecked(esu.ID) {
+		t.Error("checked without a check")
+	}
+	if err := m.StartSession(p42.ID, esu.ID, train.CheckMatched); err != nil || !m.SessionChecked(esu.ID) || session().Check != train.CheckMatched {
+		t.Fatalf("StartSession = %v, %+v", err, session())
+	}
+	if err := m.StartSession(p42.ID, esu.ID, train.CheckAccepted); err != nil || session().Check != train.CheckMatched {
+		t.Errorf("going on without a match undid one: %v, %+v", err, session())
+	}
+	if err := m.StartSession(p42.ID, esu.ID, "maybe"); err == nil {
+		t.Error("StartSession took an unknown check")
+	}
+	if err := m.StartSession(p42.ID, "nope", train.CheckMatched); !errors.Is(err, train.ErrNotFound) {
+		t.Errorf("StartSession on another decoder = %v", err)
+	}
+	// Checking another decoder there ends this one's session; one begun
+	// by writes on the main goes on.
+	_, sound, err := m.AddDecoder(b.ctx, p42.ID, train.Decoder{File: "ESU_LokSound5.xml", Model: "LokSound 5"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Programmed(p42.ID, sound.ID, "3", 4, true); err != nil || m.SessionChecked(sound.ID) {
+		t.Fatalf("a write on the main = %v, checked %v", err, m.SessionChecked(sound.ID))
+	}
+	if err := m.StartSession(p42.ID, esu.ID, train.CheckMatched); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := m.CVs(p42.ID, sound.ID); got.Session == nil {
+		t.Error("a check ended a session on the main")
+	}
+	if err := m.StartSession(p42.ID, sound.ID, train.CheckAccepted); err != nil || session() != nil {
+		t.Errorf("checking another decoder left %+v", session())
+	}
 }

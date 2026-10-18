@@ -40,8 +40,26 @@ func TestRosterDecoderEndpoints(t *testing.T) {
 		t.Fatalf("POST decoders = %d %v", rec.Code, body)
 	}
 
-	// Values read and written for a roster decoder are saved for it.
+	// Values read and written for a roster decoder are saved for it, once
+	// a check has found it on the programming track.
 	const def = `"file":"ESU_LokSound5.xml","model":"LokSound 5","locomotive":"gp40","decoder":"loksound-5",`
+	const check = "/api/v1/trains/gp40/decoders/loksound-5/check"
+	if rec, body := ta.do(t, http.MethodPost, "/api/v1/programming/decoder-cv", `{`+def+`"cv":"16.0.259"}`); rec.Code != http.StatusConflict {
+		t.Fatalf("read before a check = %d %v", rec.Code, body)
+	}
+	// The decoder answers at its short address, not the roster's.
+	rec, body = ta.do(t, http.MethodPost, check, "")
+	if rec.Code != http.StatusOK || body["match"] != false || body["session"] != nil || body["manufacturer"] != "Electronic Solutions Ulm GmbH" || body["model"] != "LokSound 5" {
+		t.Fatalf("check at another address = %d %v", rec.Code, body)
+	}
+	if diffs := body["differences"].([]any); len(diffs) != 1 || fmt.Sprint(diffs[0]) != "map[roster:6641 roster_long:true track:3 what:address]" {
+		t.Errorf("differences = %v", diffs)
+	}
+	prog.cvs[29], prog.cvs[17], prog.cvs[18] = 0x26, 0xD9, 0xF1
+	rec, body = ta.do(t, http.MethodPost, check, "")
+	if rec.Code != http.StatusOK || body["match"] != true || body["session"].(map[string]any)["check"] != "matched" {
+		t.Fatalf("check = %d %v", rec.Code, body)
+	}
 	if rec, body := ta.do(t, http.MethodPost, "/api/v1/programming/decoder-cv", `{`+def+`"cv":"16.0.259"}`); rec.Code != http.StatusOK || body["ok"] != true || body["error"] != nil {
 		t.Fatalf("read = %d %v", rec.Code, body)
 	}
@@ -51,8 +69,9 @@ func TestRosterDecoderEndpoints(t *testing.T) {
 	if rec, _ := ta.do(t, http.MethodPost, "/api/v1/programming/decoder-cv", `{"file":"ESU_LokSound5.xml","model":"LokSound 5","locomotive":"gp40","decoder":"nope","cv":"29"}`); rec.Code != http.StatusNotFound {
 		t.Errorf("another decoder = %d", rec.Code)
 	}
+	// What the check read is saved too.
 	rec, body = ta.do(t, http.MethodGet, "/api/v1/trains/gp40/decoders/loksound-5/cvs", "")
-	if cvs := body["cvs"].(map[string]any); rec.Code != http.StatusOK || cvs["16.0.259"] != float64(40) || cvs["29"] != float64(38) || body["updated"] == nil {
+	if cvs := body["cvs"].(map[string]any); rec.Code != http.StatusOK || cvs["16.0.259"] != float64(40) || cvs["29"] != float64(38) || cvs["8"] != float64(151) || body["updated"] == nil {
 		t.Fatalf("GET cvs = %d %v", rec.Code, body)
 	}
 	// They are the decoder's session, until it is ended by hand or a
@@ -63,7 +82,7 @@ func TestRosterDecoderEndpoints(t *testing.T) {
 		s, _ := body["session"].(map[string]any)
 		return s
 	}
-	if s := session(); s == nil || fmt.Sprint(s["read"]) != "[16.0.259]" || fmt.Sprint(s["written"]) != "[29]" || s["started"] == nil {
+	if s := session(); s == nil || fmt.Sprint(s["read"]) != "[16.0.259 8]" || fmt.Sprint(s["written"]) != "[29]" || s["started"] == nil || s["check"] != "matched" {
 		t.Errorf("session = %v", s)
 	}
 	if rec, _ := ta.do(t, http.MethodDelete, "/api/v1/trains/gp40/decoders/loksound-5/session", ""); rec.Code != http.StatusNoContent || session() != nil {
@@ -72,13 +91,26 @@ func TestRosterDecoderEndpoints(t *testing.T) {
 	if rec, _ := ta.do(t, http.MethodDelete, "/api/v1/trains/gp40/decoders/nope/session", ""); rec.Code != http.StatusNotFound {
 		t.Errorf("DELETE another decoder's session = %d", rec.Code)
 	}
+	if rec, _ := ta.do(t, http.MethodPost, "/api/v1/programming/decoder-cv", `{`+def+`"cv":"29"}`); rec.Code != http.StatusConflict {
+		t.Errorf("read after the session ended = %d", rec.Code)
+	}
+	// A session can begin without a match, when asked to.
+	if rec, body := ta.do(t, http.MethodPost, "/api/v1/trains/gp40/decoders/loksound-5/session", ""); rec.Code != http.StatusOK || body["check"] != "accepted" {
+		t.Errorf("POST session = %d %v", rec.Code, body)
+	}
 	if rec, _ := ta.do(t, http.MethodPost, "/api/v1/programming/decoder-cv", `{`+def+`"cv":"29"}`); rec.Code != http.StatusOK || session() == nil {
 		t.Fatalf("read = %d, session %v", rec.Code, session())
 	}
-	if rec, _ := ta.do(t, http.MethodPost, "/api/v1/programming/identify", ""); rec.Code != http.StatusOK || session() != nil {
-		t.Errorf("identify = %d, session %v", rec.Code, session())
+	// Identify ends it, and begins a new one when the decoder checks out.
+	rec, body = ta.do(t, http.MethodPost, "/api/v1/programming/identify", "")
+	if s := session(); rec.Code != http.StatusOK || s == nil || s["check"] != "matched" || fmt.Sprint(s["read"]) != "[29 8]" || body["roster"].([]any)[0].(map[string]any)["checked"] != true {
+		t.Errorf("identify = %d %v, session %v", rec.Code, body, s)
 	}
-	if rec, body = ta.do(t, http.MethodPatch, "/api/v1/trains/gp40/decoders/loksound-5/cvs", `{"cvs": {"3": 10}}`); rec.Code != http.StatusOK || len(body["cvs"].(map[string]any)) != 3 {
+	prog.cvs[29] = 6
+	if rec, _ := ta.do(t, http.MethodPost, "/api/v1/programming/identify", ""); rec.Code != http.StatusOK || session() != nil {
+		t.Errorf("identify of another decoder = %d, session %v", rec.Code, session())
+	}
+	if rec, body = ta.do(t, http.MethodPatch, "/api/v1/trains/gp40/decoders/loksound-5/cvs", `{"cvs": {"3": 10}}`); rec.Code != http.StatusOK || len(body["cvs"].(map[string]any)) != 4 {
 		t.Errorf("PATCH cvs = %d %v", rec.Code, body)
 	}
 	if rec, body = ta.do(t, http.MethodPut, "/api/v1/trains/gp40/decoders/loksound-5/cvs", `{"cvs": {"3": 11}}`); rec.Code != http.StatusOK || len(body["cvs"].(map[string]any)) != 1 {
@@ -96,6 +128,7 @@ func TestRosterDecoderEndpoints(t *testing.T) {
 	if _, body = ta.do(t, http.MethodGet, "/api/v1/trains/gp40/decoders/loksound-5/cvs", ""); body["changes"].(map[string]any)["29"].(map[string]any)["bits"] != float64(32) {
 		t.Errorf("GET cvs with changes = %v", body)
 	}
+	ta.do(t, http.MethodPost, "/api/v1/trains/gp40/decoders/loksound-5/session", "")
 	if rec, body := ta.do(t, http.MethodPost, "/api/v1/programming/decoder-cv", `{`+def+`"cv":"29","write":true,"value":6}`); rec.Code != http.StatusOK || body["ok"] != true {
 		t.Fatalf("write = %d %v", rec.Code, body)
 	}

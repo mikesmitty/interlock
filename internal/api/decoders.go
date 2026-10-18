@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -30,15 +32,24 @@ type Decoders interface {
 //	GET  /api/v1/decoders/definition?file=&model= one model's settings and panes
 //	POST /api/v1/programming/identify             {identity, manufacturer, candidates, address, roster}
 //	POST /api/v1/programming/decoder-cv           {file, model, cv, write, value, train, locomotive, decoder} -> {value}
+//	POST /api/v1/trains/{id}/decoders/{decoder}/check  {match, differences, told, alike, others, identity, address, session}
 //
 // decoder-cv reads or writes one CV by the name a definition uses for it
 // ("29", "16.0.259", "T2CV.1.05"), on the programming track or, with a
 // train, on the main. The browser walks a pane's CVs one request at a
 // time, so it can show progress and stop. With a roster locomotive and
-// one of its decoders, each value read or written is saved for it.
+// one of its decoders, each value read or written is saved for it; on
+// the programming track that needs the decoder's session to have begun
+// with a check (409 until then).
 //
 // identify also reads the address the decoder answers to and lists the
-// roster decoders it could be.
+// roster decoders it could be. When the first of them checks out, its
+// session begins.
+//
+// check compares the decoder on the programming track with a roster
+// decoder (see train.Manager.CheckDecoder) and, when it is that one,
+// begins its session with the values read for the check. When it is not,
+// nothing changes; POST .../session begins the session anyway.
 
 func (a *API) decoderStatus(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, a.deps.Decoders.Status())
@@ -88,8 +99,7 @@ func (a *API) identifyDecoder(w http.ResponseWriter, r *http.Request) {
 	if !a.programmerReady(w) {
 		return
 	}
-	id, err := decoder.Identify(r.Context(), serviceBus{a.deps.Programmer})
-	a.sessions.forget("")
+	found, err := a.readOnTrack(r.Context())
 	if err == nil && a.deps.Trains != nil {
 		// The locomotive on the track may have been swapped, so what was
 		// read or written before no longer counts as current.
@@ -99,23 +109,29 @@ func (a *API) identifyDecoder(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, "The decoder could not be identified: "+programmer.Explain(err))
 		return
 	}
+	id := found.identity
 	resp := identifyResponse{Identity: id, Candidates: []decoder.Candidate{}, Roster: []train.DecoderMatch{}}
-	if addr, err := decoder.ReadAddress(r.Context(), serviceBus{a.deps.Programmer}); err == nil {
-		resp.Address = &addr
+	if found.addressErr == nil {
+		resp.Address = &found.address
 	}
 	if a.deps.Trains != nil {
-		tid := train.Identity{Manufacturer: id.Manufacturer, Version: id.Version}
-		if id.HasProductID {
-			p := id.ProductID
-			tid.ProductID = &p
-		}
 		var address uint16
 		var long bool
 		if resp.Address != nil {
 			address, long = uint16(resp.Address.Address), resp.Address.Long
 		}
-		if m := a.deps.Trains.FindDecoder(tid, address, long); m != nil {
+		if m := a.deps.Trains.FindDecoder(trainIdentity(id), address, long); m != nil {
 			resp.Roster = m
+		}
+		// The roster decoder that fits best begins its session if it
+		// checks out, so its settings open ready to read.
+		if len(resp.Roster) > 0 && resp.Roster[0].Decoder != "" && resp.Address != nil {
+			top := &resp.Roster[0]
+			if def, err := a.rosterDefinition(top.Train, top.Decoder); err == nil {
+				if check, err := a.check(r.Context(), top.Train, top.Decoder, def, found, false); err == nil && check.Match {
+					top.Checked = a.startChecked(top.Train, top.Decoder, def, check.Read) == nil
+				}
+			}
 		}
 	}
 	idx, err := a.deps.Decoders.Index()
@@ -194,6 +210,10 @@ func (a *API) decoderCV(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, e.Name+"'s decoder "+saved.Title()+" uses another definition")
 			return
 		}
+		if body.Train == "" && !a.deps.Trains.SessionChecked(body.Decoder) {
+			writeError(w, http.StatusConflict, "Check that the decoder on the programming track is "+e.Name+"'s "+saved.Title()+" first")
+			return
+		}
 	}
 	switch {
 	case cv.InfoOnly:
@@ -237,6 +257,236 @@ func (a *API) decoderCV(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// onTrack is what the decoder on the programming track said about
+// itself.
+type onTrack struct {
+	identity decoder.Identity
+	// address is valid when addressErr is nil.
+	address    decoder.Address
+	addressErr error
+	// cvs are the plain CVs read, by name.
+	cvs map[string]int
+}
+
+// readOnTrack identifies the decoder on the programming track and reads
+// the address it answers to.
+func (a *API) readOnTrack(ctx context.Context) (onTrack, error) {
+	bus := &recordingBus{CVBus: serviceBus{a.deps.Programmer}, cvs: map[string]int{}}
+	var found onTrack
+	var err error
+	found.identity, err = decoder.Identify(ctx, bus)
+	// Identify can leave index CVs pointing elsewhere.
+	a.sessions.forget("")
+	if err != nil {
+		return found, err
+	}
+	found.address, found.addressErr = decoder.ReadAddress(ctx, bus)
+	found.cvs = bus.cvs
+	return found, nil
+}
+
+// trainIdentity is an identity as the roster keeps it.
+func trainIdentity(id decoder.Identity) train.Identity {
+	t := train.Identity{Manufacturer: id.Manufacturer, Version: id.Version}
+	if id.HasProductID {
+		p := id.ProductID
+		t.ProductID = &p
+	}
+	return t
+}
+
+// plainCVs are the CVs Identify and ReadAddress read that every
+// definition names by number and no index CV moves.
+var plainCVs = map[int]bool{1: true, 7: true, 8: true, 17: true, 18: true, 29: true}
+
+// recordingBus keeps the values of the plain CVs read through it.
+type recordingBus struct {
+	decoder.CVBus
+	cvs map[string]int
+}
+
+func (b *recordingBus) ReadCV(ctx context.Context, cv int) (int, error) {
+	v, err := b.CVBus.ReadCV(ctx, cv)
+	if err == nil && plainCVs[cv] {
+		b.cvs[strconv.Itoa(cv)] = v
+	}
+	return v, err
+}
+
+type checkResponse struct {
+	train.DecoderCheck
+	// Identity, Manufacturer and Address are the decoder on the track's.
+	Identity     decoder.Identity `json:"identity"`
+	Manufacturer string           `json:"manufacturer,omitempty"`
+	// Model is the model its product ID names, when the index lists one.
+	Model   string           `json:"model,omitempty"`
+	Address decoder.Address  `json:"address"`
+	Session *train.CVSession `json:"session,omitempty"`
+}
+
+func (a *API) checkDecoder(w http.ResponseWriter, r *http.Request) {
+	if !a.trainsReady(w) || !a.programmerReady(w) {
+		return
+	}
+	id, dec := r.PathValue("id"), r.PathValue("decoder")
+	e, ok := a.deps.Trains.Entry(id)
+	if !ok {
+		writeError(w, http.StatusNotFound, "no locomotive "+id+" in the roster")
+		return
+	}
+	d, ok := e.Decoder(dec)
+	if !ok {
+		writeError(w, http.StatusNotFound, e.Name+" has no decoder "+dec)
+		return
+	}
+	if d.File == "" {
+		writeError(w, http.StatusBadRequest, e.Name+"'s decoder "+d.Title()+" has no definition yet")
+		return
+	}
+	def, err := a.deps.Decoders.Definition(d.File, d.Model)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "The decoder definition could not be read: "+err.Error())
+		return
+	}
+	found, err := a.readOnTrack(r.Context())
+	if err == nil {
+		err = found.addressErr
+	}
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "The decoder on the programming track could not be read: "+programmer.Explain(err))
+		return
+	}
+	check, err := a.check(r.Context(), id, dec, def, found, true)
+	if err != nil {
+		a.trainError(w, err)
+		return
+	}
+	if check.Match {
+		if err := a.startChecked(id, dec, def, check.Read); err != nil {
+			a.trainError(w, err)
+			return
+		}
+	}
+	resp := checkResponse{DecoderCheck: check, Identity: found.identity, Address: found.address}
+	if idx, err := a.deps.Decoders.Index(); err == nil {
+		if m, ok := idx.Manufacturer(found.identity.Manufacturer); ok {
+			resp.Manufacturer = m.Name
+		}
+		// A product ID can stand for several models; only one is named.
+		var models []string
+		for _, c := range idx.Match(found.identity) {
+			if c.Exact && !slices.Contains(models, c.Model) {
+				models = append(models, c.Model)
+			}
+		}
+		if len(models) == 1 {
+			resp.Model = models[0]
+		}
+		for i, diff := range resp.Differences {
+			if diff.What == "manufacturer" {
+				if m, ok := idx.Manufacturer(int(diff.Roster)); ok {
+					resp.Differences[i].RosterName = m.Name
+				}
+				resp.Differences[i].TrackName = resp.Manufacturer
+			}
+		}
+	}
+	if v, err := a.deps.Trains.CVs(id, dec); err == nil {
+		resp.Session = v.Session
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// rosterDefinition is the definition of a roster decoder.
+func (a *API) rosterDefinition(id, dec string) (*decoder.Definition, error) {
+	e, _ := a.deps.Trains.Entry(id)
+	d, ok := e.Decoder(dec)
+	if !ok || d.File == "" {
+		return nil, decoder.ErrUnknownDecoder
+	}
+	return a.deps.Decoders.Definition(d.File, d.Model)
+}
+
+// check compares the decoder on the programming track with a roster
+// decoder whose definition is def; with tell it reads CVs to tell it
+// from others like it.
+func (a *API) check(ctx context.Context, id, dec string, def *decoder.Definition, found onTrack, tell bool) (train.DecoderCheck, error) {
+	opts := train.CheckOptions{}
+	if idx, err := a.deps.Decoders.Index(); err == nil {
+		opts.Manufacturer, opts.ProductIDs = definitionIdentity(idx, def.File, def.Model)
+	}
+	if tell {
+		session := a.sessions.get("")
+		cache := def.Programming.Index != nil && def.Programming.Index.Cache
+		opts.Read = func(name string) (int, error) {
+			if !readableCV(def, name) {
+				return 0, errors.New("CV " + name + " cannot be read")
+			}
+			access, err := def.Programming.Resolve(name)
+			if err != nil {
+				return 0, err
+			}
+			return session.Read(ctx, serviceBus{a.deps.Programmer}, access, cache)
+		}
+	}
+	track := train.OnTrack{Identity: trainIdentity(found.identity), Address: uint16(found.address.Address), Long: found.address.Long, CVs: found.cvs}
+	return a.deps.Trains.CheckDecoder(id, dec, track, opts)
+}
+
+// startChecked begins a decoder's session after a check found it on the
+// programming track, with what the check read as read in it.
+func (a *API) startChecked(id, dec string, def *decoder.Definition, read map[string]int) error {
+	if err := a.deps.Trains.StartSession(id, dec, train.CheckMatched); err != nil {
+		return err
+	}
+	for _, cv := range slices.Sorted(maps.Keys(read)) {
+		if !readableCV(def, cv) {
+			continue
+		}
+		if err := a.deps.Trains.Programmed(id, dec, cv, read[cv], false); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// readableCV reports whether a definition has a CV that can be read.
+func readableCV(def *decoder.Definition, name string) bool {
+	i := slices.IndexFunc(def.CVs, func(c decoder.CV) bool { return c.Name == name })
+	return i >= 0 && !def.CVs[i].InfoOnly && !def.CVs[i].WriteOnly
+}
+
+// definitionIdentity is what a definition lets a decoder report: its
+// manufacturer's ID, and the model's product IDs (every model's, for the
+// family as a whole).
+func definitionIdentity(idx *decoder.Index, file, model string) (int, []uint32) {
+	for _, f := range idx.Families {
+		if f.File != file {
+			continue
+		}
+		maker := 0
+		for _, m := range idx.Manufacturers {
+			if m.Name == f.Manufacturer {
+				maker = m.ID
+				break
+			}
+		}
+		var ids []uint32
+		for _, m := range f.Models {
+			if m.Name != model && f.Name != model {
+				continue
+			}
+			for _, p := range m.ProductIDs {
+				if n, err := strconv.ParseUint(p, 10, 32); err == nil {
+					ids = append(ids, uint32(n))
+				}
+			}
+		}
+		return maker, ids
+	}
+	return 0, nil
 }
 
 // serviceBus reaches the decoder on the programming track.

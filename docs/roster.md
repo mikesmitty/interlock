@@ -26,7 +26,10 @@ yet are kept until they are written or discarded. A page shows when the
 values were last saved; read it again if the decoder may have been
 changed elsewhere since. Values read or written in the current
 [session](./decoders.md#sessions) carry green lamps; older ones have no
-lamp.
+lamp. Before the first read or write on the programming track, Interlock
+[checks](./decoders.md#checking-the-decoder-on-the-track) that the
+decoder there is this one, by its model, its address and the values
+saved for it.
 
 To add a decoder, choose **Add a decoder** and identify it on the
 programming track or search for the model. A decoder opened from the
@@ -40,7 +43,8 @@ so far.
 the decoder answers to, then looks in the roster. A decoder at the same
 address whose saved identity matches is named first, with a link to its
 settings; a decoder that is saved but not marked as fitted can be marked
-from there. A locomotive at that address with no decoder yet can take the
+from there. When the decoder named first checks out, its session begins.
+A locomotive at that address with no decoder yet can take the
 definition you pick.
 
 ## Several locomotives at one address
