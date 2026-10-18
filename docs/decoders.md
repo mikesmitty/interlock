@@ -57,13 +57,14 @@ defaults, marked as not read yet.
 - **Read page** reads every CV the tab shows. Changes not written yet
   stay; the rest of their CV comes from the decoder.
 - **Write changes** writes only the CVs you changed. A setting that
-  shares its CV with others is written without disturbing them: if that
-  CV was never read, Interlock reads it first.
+  shares its CV with others is written without disturbing them: unless
+  that CV was read or written in this session, Interlock reads it first.
 - **Write page** writes every CV on the tab that has a value, for setting
   up a new decoder from the defaults or putting a saved copy back. When
-  some of those values were not read from the decoder (defaults, or
-  values imported from a JMRI roster and not read since), it asks first,
-  since they replace whatever the decoder holds.
+  some of those values were not read from the decoder in this session
+  (values saved earlier, values imported from a JMRI roster, or
+  defaults), it asks first, since they replace whatever the decoder
+  holds.
 - **Discard changes** puts the tab's changed settings back as they were.
 
 Changed settings carry a brass mark until they are written, and so do
@@ -102,9 +103,12 @@ another device. A session ends:
 - with **End session**;
 - when Interlock restarts.
 
-Its values stay saved and show without a lamp from then on. A decoder
-opened on its own, outside the roster, keeps its lamps until the page
-closes.
+Its values stay saved and show without a lamp from then on. Only values
+read or written in the session are trusted to be what the decoder holds
+now, since it may have been changed elsewhere in between: a change to
+part of a CV saved earlier reads the decoder first, and **Write page**
+asks before writing saved values. A decoder opened on its own, outside
+the roster, keeps its lamps until the page closes.
 
 ### Checking the decoder on the track
 

@@ -383,6 +383,16 @@ export function loadSetup(
   return { table: out, changed, replaced };
 }
 
+/**
+ * Whether a CV's value, or for a changed CV the value under the change,
+ * was read from the decoder or written to it in this session: the only
+ * values trusted to be what the decoder holds now.
+ */
+export function confirmed(cell: CVCell | undefined): boolean {
+  const state = cell?.state === "edited" ? cell.prior?.state : cell?.state;
+  return state === "read" || state === "stored";
+}
+
 /** A copy of the table with the changes to these CVs undone. */
 export function discard(t: CVTable, cvs: string[]): CVTable {
   const out = { ...t };

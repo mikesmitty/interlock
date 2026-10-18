@@ -13,6 +13,7 @@ import {
   addressItems,
   addressOf,
   applyUpdates,
+  confirmed,
   cvsOf,
   discard,
   endSession,
@@ -514,8 +515,9 @@ export function DecoderSettings() {
     if (!cell) return undefined;
     let value = cell.value;
     const info = cvInfo.get(cv);
-    // A CV edited before it was ever read keeps the decoder's other bits.
-    if (!cell.known && cell.state === "edited" && cell.edited !== fullBits(cv) && !info?.write_only && !onMain) {
+    // A change to part of a CV keeps the decoder's other bits: unless this
+    // session read or wrote the CV, it is read first.
+    if (!confirmed(cell) && cell.state === "edited" && cell.edited !== fullBits(cv) && !info?.write_only && !onMain) {
       const r = await cvCall(cv);
       if (!r.ok) return `Could not read it first: ${r.error ?? "failed"}`;
       value = merge(cell, r.value);
@@ -539,16 +541,19 @@ export function DecoderSettings() {
   const toRead = cvs.filter(readable);
   const changed = cvs.filter((cv) => writable(cv) && table[cv]?.state === "edited");
   const toWrite = cvs.filter((cv) => writable(cv) && table[cv] && table[cv].state !== "unknown");
-  // Values Write page would put on the decoder without its having held
-  // them: imported ones not read since, and the definition's defaults.
+  // Values Write page would put on the decoder that this session has not
+  // seen it hold: saved before the session, imported and not read since,
+  // and the definition's defaults.
+  const unreadSaved = toWrite.filter((cv) => table[cv].state === "saved").length;
   const unreadImported = toWrite.filter((cv) => table[cv].state === "imported").length;
   const unreadDefaults = toWrite.filter((cv) => table[cv].state === "fromfile").length;
-  const unreadList = [
+  const unreadCount = unreadSaved + unreadImported + unreadDefaults;
+  const unreadParts = [
+    unreadSaved > 0 ? `${unreadSaved} saved value${unreadSaved === 1 ? "" : "s"}` : "",
     unreadImported > 0 ? `${unreadImported} imported value${unreadImported === 1 ? "" : "s"}` : "",
     unreadDefaults > 0 ? `${unreadDefaults} default${unreadDefaults === 1 ? "" : "s"}` : "",
-  ]
-    .filter(Boolean)
-    .join(" and ");
+  ].filter(Boolean);
+  const unreadList = unreadParts.length > 1 ? `${unreadParts.slice(0, -1).join(", ")} and ${unreadParts.at(-1)}` : (unreadParts[0] ?? "");
   const allChanged = def.cvs.filter((c) => !c.info_only && !c.read_only && table[c.name]?.state === "edited").map((c) => c.name);
   const pageEdited = cvs.filter((cv) => table[cv]?.state === "edited");
   const anyEdited = Object.values(table).some((c) => c.state === "edited");
@@ -726,8 +731,8 @@ export function DecoderSettings() {
           {confirmWrite && unreadList && !busy && (
             <div className="confirm confirm--block dec-confirm">
               <span>
-                {unreadList} on this page {unreadImported + unreadDefaults === 1 ? "was" : "were"} not read from the decoder. Writing the page
-                replaces what the decoder holds with {unreadImported + unreadDefaults === 1 ? "it" : "them"}.
+                {unreadList} on this page {unreadCount === 1 ? "was" : "were"} not read from the decoder in this session. Writing the page
+                replaces what the decoder holds with {unreadCount === 1 ? "it" : "them"}.
               </span>
               <button className="btn btn--danger" onClick={() => void run("write", toWrite, writeCV)}>
                 Write page

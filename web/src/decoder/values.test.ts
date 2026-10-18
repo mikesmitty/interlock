@@ -31,6 +31,7 @@ import {
   withSession,
   endSession,
   loadSetup,
+  confirmed,
   type CVTable,
 } from "./values.ts";
 
@@ -351,4 +352,18 @@ test("a kept setup loads as changes where it differs", () => {
   assert.deepEqual(back.table["1"], { value: 3, state: "saved", known: true, edited: 0 }, "a setup that undoes a change drops it");
   assert.deepEqual(pendingChanges(r.table)["29"], { value: 7, bits: 0xff });
   assert.deepEqual(discard(r.table, ["1", "29"])["1"], { value: 3, state: "saved", known: true, edited: 0 }, "undoing goes back to before the edits");
+});
+
+test("only values read or written in this session are confirmed", () => {
+  let t: CVTable = withImported(withSaved({}, { "1": 3, "29": 6, "3": 10 }), { "4": 8 });
+  t = withSession(t, { read: ["1"], written: ["3"] });
+  t = applyUpdates(t, [{ cv: "29", value: 0x26, bits: 0x20 }], "edited");
+  t = applyUpdates(t, [{ cv: "1", value: 4, bits: 0x7f }], "edited");
+  t["5"] = { value: 0, state: "fromfile", known: false, edited: 0 };
+  assert.deepEqual(
+    ["1", "3", "29", "4", "5", "99"].map((cv) => confirmed(t[cv])),
+    [true, true, false, false, false, false],
+    "a change over a value read now, a value written now; not a change over a saved value, an imported value, a default or nothing",
+  );
+  assert.equal(confirmed(endSession(t)["3"]), false, "a session's values are saved once it ends");
 });
