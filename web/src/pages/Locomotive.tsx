@@ -17,7 +17,7 @@ function describe(err: unknown): string {
 
 export function Locomotive() {
   const { id = "" } = useParams();
-  const { trains, loaded } = useBus();
+  const { trains, consists, loaded } = useBus();
   const t = trains[id];
   const back = (
     <Link className="page__back" to="/roster">
@@ -53,6 +53,12 @@ export function Locomotive() {
       }
     >
       <div className="ros-layout">
+        {t.consist && consists[t.consist] && (
+          <p className="note">
+            Runs in <Link to={`/roster/consists/${encodeURIComponent(t.consist)}`}>{consists[t.consist].name}</Link>, which is made
+            up: break it up before changing the address.
+          </p>
+        )}
         <Decoders key={`d-${t.id}`} train={t} />
         <Details key={`e-${t.id}-${t.address}-${t.long}-${t.installed ?? ""}`} train={t} />
         <FunctionLabels key={`f-${t.id}-${t.installed ?? ""}`} train={t} />

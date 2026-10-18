@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router";
-import { api, type Direction, type FoundTrain, type Train } from "../api";
+import { api, type Consist, type Direction, type FoundTrain, type Train } from "../api";
 import { Lamp, Status, type LampColor } from "../components/Lamp";
 import { Empty, Page } from "../components/Page";
 import { plural, relativeTime, useNow } from "../format";
@@ -18,6 +18,14 @@ function addressText(t: { address: number; long: boolean }): string {
   return `${t.address} ${t.long ? "long" : "short"}`;
 }
 
+/** The made-up consist a train runs in, and whether it leads it. */
+function consistOf(t: Train, consists: Record<string, Consist>, trains: Record<string, Train>): { consist: Consist; lead?: Train; leads: boolean } | undefined {
+  const consist = t.consist ? consists[t.consist] : undefined;
+  if (!consist) return undefined;
+  const lead = trains[consist.members[0]?.train];
+  return { consist, lead, leads: !!lead && lead.address === t.address && lead.long === t.long };
+}
+
 /** The lamp beside a train: lit green while this controller drives it. */
 function trainLamp(t: Train, nodeNames: Record<string, string>): { color: LampColor; label: string } {
   if (t.controlled) return { color: "green", label: "Driving" };
@@ -31,7 +39,7 @@ function trainLamp(t: Train, nodeNames: Record<string, string>): { color: LampCo
 }
 
 export function Throttle() {
-  const { trains, layout, nodes, loaded } = useBus();
+  const { trains, consists, layout, nodes, loaded } = useBus();
   const { id } = useParams();
   const navigate = useNavigate();
   const [message, setMessage] = useState<string>();
@@ -110,7 +118,7 @@ export function Throttle() {
       <div className="thr-layout">
         <Roster list={list} selected={id} nodeNames={nodeNames} onMessage={setMessage} />
         {selected ? (
-          <Cab key={selected.id} train={selected} nodeNames={nodeNames} onMessage={setMessage} />
+          <Cab key={selected.id} train={selected} inConsist={consistOf(selected, consists, trains)} nodeNames={nodeNames} onMessage={setMessage} />
         ) : id ? (
           <Missing id={id} onMessage={setMessage} />
         ) : loaded && list.length === 0 ? (
@@ -139,6 +147,7 @@ function Roster({
   onMessage: (m?: string) => void;
 }) {
   const navigate = useNavigate();
+  const { trains, consists } = useBus();
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
   const [long, setLong] = useState(false);
@@ -187,6 +196,7 @@ function Roster({
       <ul className="thr-roster__list">
         {list.map((t) => {
           const lamp = trainLamp(t, nodeNames);
+          const inConsist = consistOf(t, consists, trains);
           return (
             <li key={t.id}>
               <button
@@ -199,6 +209,12 @@ function Roster({
                 <span className="thr-roster__name">
                   {t.name}
                   {!t.roster && <span className="faint"> (not in roster)</span>}
+                  {inConsist && (
+                    <span className="faint">
+                      {" "}
+                      ({inConsist.leads ? "leads" : "in"} {inConsist.consist.name})
+                    </span>
+                  )}
                 </span>
                 <span className="thr-roster__address">{addressText(t)}</span>
                 <span className="thr-roster__speed">
@@ -322,13 +338,18 @@ function Missing({ id, onMessage }: { id: string; onMessage: (m?: string) => voi
 
 function Cab({
   train: t,
+  inConsist,
   nodeNames,
   onMessage,
 }: {
   train: Train;
+  inConsist?: ReturnType<typeof consistOf>;
   nodeNames: Record<string, string>;
   onMessage: (m?: string) => void;
 }) {
+  const { trains } = useBus();
+  // A member's speed comes from the lead.
+  const follower = !!inConsist && !inConsist.leads;
   const now = useNow();
   const navigate = useNavigate();
   const [busy, setBusy] = useState<string>();
@@ -447,6 +468,25 @@ function Cab({
         </div>
       </div>
       <div className="thr-cab__body">
+        {inConsist &&
+          (inConsist.leads ? (
+            <p className="thr-note">
+              Leads{" "}
+              <Link to={`/roster/consists/${encodeURIComponent(inConsist.consist.id)}`}>{inConsist.consist.name}</Link>:{" "}
+              {inConsist.consist.members
+                .slice(1)
+                .map((m) => trains[m.train]?.name ?? m.train)
+                .join(", ")}{" "}
+              {inConsist.consist.members.length === 2 ? "follows" : "follow"} its speed.
+            </p>
+          ) : (
+            <p className="note">
+              {t.name} runs in{" "}
+              <Link to={`/roster/consists/${encodeURIComponent(inConsist.consist.id)}`}>{inConsist.consist.name}</Link>; its
+              speed comes from {inConsist.lead?.name ?? "the lead"}.{" "}
+              {inConsist.lead && <Link to={`/throttle/${encodeURIComponent(inConsist.lead.id)}`}>Drive {inConsist.lead.name}</Link>}
+            </p>
+          ))}
         <div className="thr-speed">
           <div className={["thr-speed__readout", t.estop ? "is-estop" : ""].join(" ")}>
             {t.estop ? "STOP" : Math.round(speed)}
@@ -462,21 +502,22 @@ function Cab({
               value={Math.round(speed)}
               onChange={(e) => slide(Number(e.target.value))}
               aria-label={`Speed of ${t.name}`}
+              disabled={follower}
             />
             <div className="thr-steps">
-              <button className="btn btn--quiet" onClick={() => step(-10)}>
+              <button className="btn btn--quiet" onClick={() => step(-10)} disabled={follower}>
                 −10
               </button>
-              <button className="btn btn--quiet" onClick={() => step(-1)}>
+              <button className="btn btn--quiet" onClick={() => step(-1)} disabled={follower}>
                 −1
               </button>
-              <button className="btn btn--quiet" onClick={() => step(1)}>
+              <button className="btn btn--quiet" onClick={() => step(1)} disabled={follower}>
                 +1
               </button>
-              <button className="btn btn--quiet" onClick={() => step(10)}>
+              <button className="btn btn--quiet" onClick={() => step(10)} disabled={follower}>
                 +10
               </button>
-              <button className="btn" onClick={() => slide(0)}>
+              <button className="btn" onClick={() => slide(0)} disabled={follower}>
                 Stop
               </button>
               <button
@@ -491,6 +532,7 @@ function Cab({
                   className="lever__opt"
                   aria-pressed={t.direction === "forward"}
                   onClick={() => direction("forward")}
+                  disabled={follower}
                 >
                   Forward
                 </button>
@@ -499,6 +541,7 @@ function Cab({
                   className="lever__opt"
                   aria-pressed={t.direction === "reverse"}
                   onClick={() => direction("reverse")}
+                  disabled={follower}
                 >
                   Reverse
                 </button>

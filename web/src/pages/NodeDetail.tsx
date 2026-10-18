@@ -256,6 +256,8 @@ function RosterEntries({ address, trains }: { address: { address: number; long: 
 
 /** What the roster says about a locomotive; its page changes it. */
 function RosterSummary({ train: t }: { train: Train }) {
+  const { consists } = useBus();
+  const consist = t.consist ? consists[t.consist] : undefined;
   const held = new Set(t.momentary ?? []);
   const labels = Object.entries(t.functions ?? {})
     .filter(([, label]) => label)
@@ -290,6 +292,14 @@ function RosterSummary({ train: t }: { train: Train }) {
         )}
         <dt>Decoder</dt>
         <dd>{fittedText(t) || <span className="faint">none</span>}</dd>
+        {consist && (
+          <>
+            <dt>Consist</dt>
+            <dd>
+              <Link to={`/roster/consists/${encodeURIComponent(consist.id)}`}>{consist.name}</Link>
+            </dd>
+          </>
+        )}
         <dt>Functions</dt>
         <dd>
           {labels.length === 0 ? (

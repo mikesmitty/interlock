@@ -36,6 +36,14 @@ type consistMember struct {
 	flags byte
 }
 
+// maxConsistMembers is how many members a lead takes besides itself, as
+// in the firmware.
+const maxConsistMembers = 4
+
+// consistFull is the firmware's answer to an attach when the consist
+// holds as many members as it can.
+const consistFull = 0x1032
+
 func newTrain(s *Station, address uint16, long bool, dec *Decoder, pending openlcb.EventID) *Train {
 	cfg := s.cfg
 	cfg.ID = traction.DCCNodeID(address, long)
@@ -144,18 +152,11 @@ func (t *Train) command(src openlcb.NodeHandle, payload []byte) []byte {
 	defer s.mu.Unlock()
 	d := t.Decoder
 	switch c.Kind {
-	case traction.CmdSetSpeed:
-		d.Speed, d.EStop = c.Speed, false
-		t.log.Info("sim: train speed", "address", t.Address, "speed", c.Speed.String())
-	case traction.CmdSetFunction:
-		if c.Function <= traction.MaxFunction {
-			d.Functions[c.Function] = c.Value != 0
+	case traction.CmdSetSpeed, traction.CmdSetFunction, traction.CmdEmergencyStop:
+		t.apply(c)
+		if !c.Listener {
+			t.forward(c, payload)
 		}
-		t.log.Info("sim: train function", "address", t.Address, "function", c.Function, "on", c.Value != 0)
-	case traction.CmdEmergencyStop:
-		d.EStop = true
-		d.Speed.Value = 0
-		t.log.Info("sim: train emergency stop", "address", t.Address)
 	case traction.CmdQuerySpeeds:
 		b := d.Speed.Encode()
 		if d.EStop {
@@ -189,6 +190,65 @@ func (t *Train) command(src openlcb.NodeHandle, payload []byte) []byte {
 	}
 	_ = src
 	return nil
+}
+
+// apply carries out a speed, function or emergency stop command; the
+// caller holds the station's lock.
+func (t *Train) apply(c traction.Command) {
+	d := t.Decoder
+	switch c.Kind {
+	case traction.CmdSetSpeed:
+		d.Speed, d.EStop = c.Speed, false
+		t.log.Info("sim: train speed", "address", t.Address, "speed", c.Speed.String(), "listener", c.Listener)
+	case traction.CmdSetFunction:
+		if c.Function <= traction.MaxFunction {
+			d.Functions[c.Function] = c.Value != 0
+		}
+		t.log.Info("sim: train function", "address", t.Address, "function", c.Function, "on", c.Value != 0, "listener", c.Listener)
+	case traction.CmdEmergencyStop:
+		d.EStop = true
+		d.Speed.Value = 0
+		t.log.Info("sim: train emergency stop", "address", t.Address, "listener", c.Listener)
+	}
+}
+
+// forward passes a command on to the consist's members, as the firmware
+// does: marked as forwarded, with the direction flipped for a member
+// facing the other way, and functions only to members that follow them.
+// Like the firmware it reaches only train nodes of its own station. The
+// caller holds the station's lock.
+func (t *Train) forward(c traction.Command, payload []byte) {
+	t.mu.Lock()
+	members := append([]consistMember(nil), t.consist...)
+	t.mu.Unlock()
+	for _, m := range members {
+		if c.Kind == traction.CmdSetFunction {
+			link := traction.ConsistFlagLinkFn
+			if c.Function == 0 {
+				link = traction.ConsistFlagLinkF0
+			}
+			if m.flags&link == 0 {
+				continue
+			}
+		}
+		member, ok := t.station.trains[m.node]
+		if !ok || member == t {
+			continue
+		}
+		fwd := append([]byte(nil), payload...)
+		fwd[0] |= traction.FlagListener
+		mc := c
+		mc.Listener = true
+		if c.Kind == traction.CmdSetSpeed && m.flags&traction.ConsistFlagReverse != 0 {
+			fwd[1] ^= 0x80
+			mc.Speed.Reverse = !mc.Speed.Reverse
+		}
+		member.apply(mc)
+		dest := openlcb.NodeHandle{ID: member.ID(), Alias: member.Alias()}
+		t.station.schedule(func() {
+			t.send(openlcb.Message{MTI: openlcb.MTITractionControlCommand, Dest: dest, Payload: fwd})
+		})
+	}
 }
 
 // controllerCommand takes over, releases and reports the controller. Like
@@ -226,12 +286,17 @@ func (t *Train) consistCommand(c traction.Command) []byte {
 				return result(traction.ConsistAttach, c.Node, 0)
 			}
 		}
+		if c.Node == t.ID() || len(t.consist) >= maxConsistMembers {
+			return result(traction.ConsistAttach, c.Node, consistFull)
+		}
 		t.consist = append(t.consist, consistMember{node: c.Node, flags: c.Flags})
+		t.log.Info("sim: consist member attached", "address", t.Address, "member", c.Node, "flags", c.Flags)
 		return result(traction.ConsistAttach, c.Node, 0)
 	case traction.ConsistDetach:
 		for i := range t.consist {
 			if t.consist[i].node == c.Node {
 				t.consist = append(t.consist[:i], t.consist[i+1:]...)
+				t.log.Info("sim: consist member detached", "address", t.Address, "member", c.Node)
 				return result(traction.ConsistDetach, c.Node, 0)
 			}
 		}

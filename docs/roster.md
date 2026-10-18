@@ -56,6 +56,12 @@ drives whichever locomotive is on the track at that address, and the
 throttle shows the same speed for both. An automation that drives the
 address lists both names in its trace.
 
+## Consists
+
+Locomotives that run together are kept as a consist, listed below the
+locomotives on the Roster page. [Trains](./trains.md#consists) covers
+making one up and driving it.
+
 ## Importing a JMRI roster
 
 **Import from JMRI** reads the roster JMRI keeps in its profile folder:

@@ -395,6 +395,8 @@ type Train struct {
 	EStop bool `json:"estop"`
 	// On lists the functions that are on.
 	On []int `json:"on"`
+	// Consist is the ID of the made-up consist the locomotive runs in.
+	Consist string `json:"consist,omitempty"`
 	// Known is true once the state was read back from the train.
 	Known   bool      `json:"known"`
 	Updated time.Time `json:"updated"`

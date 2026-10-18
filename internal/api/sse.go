@@ -34,6 +34,7 @@ import (
 //	trace        automation.Trace   a run started, took a step or ended (topic "automations")
 //	train        train.Train        a train changed, was added or removed (topic "trains")
 //	layout       train.Layout       track power or emergency stop changed (topic "trains")
+//	consist      train.ConsistState a consist changed, was added or removed (topic "trains")
 //	cv           programmer.Op      a CV operation finished (topic "trains")
 //	clock        clock.State        the fast clock changed or reached a minute (topic "clock")
 //	lagged       {}                 the client fell behind and entries were skipped
@@ -102,6 +103,8 @@ func (a *API) events(w http.ResponseWriter, r *http.Request) {
 		defer unsubscribe()
 		unsubscribeLayout := a.deps.Trains.SubscribeLayout(func(l train.Layout) { push(sseEvent{"layout", l}) })
 		defer unsubscribeLayout()
+		unsubscribeConsists := a.deps.Trains.SubscribeConsists(func(c train.ConsistState) { push(sseEvent{"consist", c}) })
+		defer unsubscribeConsists()
 	}
 	if topics["trains"] && a.deps.Programmer != nil {
 		unsubscribe := a.deps.Programmer.Subscribe(func(op programmer.Op) { push(sseEvent{"cv", op}) })

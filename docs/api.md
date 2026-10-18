@@ -25,7 +25,7 @@ is a server-sent event stream; the default is every topic. Events:
 | `entity` | entities | an entity that changed |
 | `event_names` | entities | `{"node": id}` when a node's named events changed |
 | `automation`, `trace` | automations | an automation's status; a run's trace as it moves |
-| `train`, `layout`, `cv` | trains | a train; track power and emergency stop; a finished CV operation |
+| `train`, `layout`, `cv`, `consist` | trains | a train; track power and emergency stop; a finished CV operation; a consist |
 | `clock` | clock | the fast clock, on every change and fast minute |
 | `lagged` | | the client fell behind and missed events |
 
@@ -139,6 +139,13 @@ POST   /api/v1/trains/{id}/estop
 POST   /api/v1/trains/{id}/function          {function, on}
 POST   /api/v1/trains/{id}/refresh           read speed and functions back
 POST   /api/v1/trains/{id}/cv                write a CV on the main {cv, value}
+GET    /api/v1/consists                      {consists}
+POST   /api/v1/consists                      {name, members: [{train, reverse, f0, functions}]}, the lead first
+GET    /api/v1/consists/{id}                 with made_up, attached and any problem
+PATCH  /api/v1/consists/{id}                 any of {name, members}; only the name while made up
+DELETE /api/v1/consists/{id}                 only while it is apart
+POST   /api/v1/consists/{id}/make-up         put it together on the command station
+POST   /api/v1/consists/{id}/break-up        take it apart; the lead has to be stopped
 GET    /api/v1/programming                   {track, history}
 POST   /api/v1/programming/find              look for the programming track
 POST   /api/v1/programming/read              {cv}

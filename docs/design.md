@@ -441,18 +441,24 @@ the browser, Engine Driver's Web tab included, so this waits until a
 tool needs it. DCC-EX's track manager and EXRAIL have no LCC
 counterpart.
 
-Consist support. Build a consist from a lead locomotive and members,
-each facing either way and choosing which functions follow the lead,
-through Train Control's consist attach, detach and query, so the command
-station passes the lead's speed and functions on. Show and drive
-consists on the Throttle page and in throttle apps, keep them in the
-roster, and show them on train node pages. `simple-dcc` forwards only to
-members on its own train nodes, so members on another command station
-wait on the firmware. Throttle apps can already drive several
-locomotives on one throttle by sending each the same commands; that
-consist lives in the app, not on the layout. DCC advanced consisting
-(CV 19, written to each decoder, then driven by the consist address) is
-the other kind to weigh alongside it.
+Consist support, the rest of it. LCC consists are done (see Status);
+still to come:
+
+- DCC advanced consists, kept in the decoders: the consist address is
+  read from CV 19 but set with the Consist Control instruction, so
+  `simple-dcc` has to send it for a write of CV 19 through a train
+  node's space 0xF8 (and the short form for CV 19 and 20 together, for
+  long consist addresses, once what CV 20 holds is confirmed). The
+  model has the kind and address already; making one up refuses until
+  then.
+- Writing a long address on the main as one instruction: the short form
+  for CV 17 and 18 together, which also sets CV 29, through a two-byte
+  write at CV 17 in the same space, once `simple-dcc` sends it.
+  Interlock writes CV 17, 18 and 29 one at a time today.
+- Consists in throttle apps: WiThrottle's consist lists, so an app
+  shows the consist by name rather than its lead.
+- Members on another command station, which wait on `simple-dcc`
+  forwarding to train nodes it does not host.
 
 ## Decisions on the open questions
 
@@ -655,6 +661,16 @@ the other kind to weigh alongside it.
   train manager asks with Identify Consumer when nodes arrive, follows
   each station's reply, and shows the power as unknown while none has
   said or two disagree; the simulator does the same as the firmware.
+- Consists (2026-10-18): LCC consists in `trains.yaml`, the lead first,
+  each member with its facing and whether it follows the lead's F0 and
+  other functions. Making one up attaches the members to the lead's
+  train node with Train Control's consist commands; a failed attach
+  detaches the others again. The train manager keeps the members' state
+  following the lead, refuses speed for a member, puts a made-up consist
+  together again before its lead is next driven when the lead's node
+  left the bus or Interlock restarted, and breaks one up only when the
+  lead is stopped. The simulator passes the lead's commands on as the
+  firmware does, up to four members.
 - Next: the rest of Phase 7, and hardware verification against
   canbus-outpost and simple-dcc.
 

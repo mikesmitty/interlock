@@ -48,6 +48,14 @@ type Trains interface {
 	SetEmergencyStop(ctx context.Context, stop bool) (train.Layout, error)
 	Subscribe(train.Subscriber) func()
 	SubscribeLayout(train.LayoutSubscriber) func()
+	Consists() []train.ConsistState
+	Consist(id string) (train.ConsistState, bool)
+	CreateConsist(c train.Consist) (train.ConsistState, error)
+	UpdateConsist(id string, change func(*train.Consist) error) (train.ConsistState, error)
+	DeleteConsist(id string) error
+	MakeUp(ctx context.Context, id string) (train.ConsistState, error)
+	BreakUp(ctx context.Context, id string) (train.ConsistState, error)
+	SubscribeConsists(train.ConsistSubscriber) func()
 }
 
 // Programmer reads and writes CVs.
@@ -327,7 +335,7 @@ func (a *API) trainError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, train.ErrNotFound):
 		writeError(w, http.StatusNotFound, err.Error())
-	case errors.Is(err, train.ErrNoNode), errors.Is(err, train.ErrRefused):
+	case errors.Is(err, train.ErrNoNode), errors.Is(err, train.ErrRefused), errors.Is(err, train.ErrConsistRefused):
 		writeError(w, http.StatusConflict, err.Error())
 	case errors.As(err, &invalid):
 		writeError(w, http.StatusBadRequest, invalid.Reason)

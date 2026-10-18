@@ -71,6 +71,10 @@
   padding-left: 1.25rem;
 }
 
+.ros-heading {
+  margin: 1.75rem 0 0.5rem;
+}
+
 .ros-warn {
   color: var(--lamp-amber);
 }

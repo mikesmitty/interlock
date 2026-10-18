@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -96,6 +97,19 @@ type Manager struct {
 	subs       map[int]Subscriber
 	layoutSubs map[int]LayoutSubscriber
 	nextSub    int
+
+	// consists are the consists by ID.
+	consists map[string]Consist
+	// consistNode is the lead's train node each made-up consist was put
+	// together on, by consist ID; a consist missing here has to be put
+	// together again before it is driven.
+	consistNode map[string]openlcb.NodeID
+	// consistProblem says why a consist could not be put together.
+	consistProblem map[string]string
+	consistSubs    map[int]ConsistSubscriber
+	// consistOp serializes putting consists together and taking them
+	// apart; it is taken before any train's acquire.
+	consistOp sync.Mutex
 }
 
 // New builds a manager over opts, loading the roster, and installs itself
@@ -115,6 +129,11 @@ func New(opts Options) *Manager {
 		online:     make(map[openlcb.NodeID]bool),
 		subs:       make(map[int]Subscriber),
 		layoutSubs: make(map[int]LayoutSubscriber),
+
+		consists:       make(map[string]Consist),
+		consistNode:    make(map[string]openlcb.NodeID),
+		consistProblem: make(map[string]string),
+		consistSubs:    make(map[int]ConsistSubscriber),
 	}
 	if m.window <= 0 {
 		m.window = time.Second
@@ -126,6 +145,7 @@ func New(opts Options) *Manager {
 		m.roster[e.ID] = e.clone()
 		m.trainAtLocked(e.Address, e.Long)
 	}
+	m.loadConsists()
 	m.opts.Bus.HandleTraction(m.handleTraction)
 	return m
 }
@@ -169,6 +189,9 @@ func (m *Manager) viewLocked(e Entry) Train {
 	}
 	t.Entry = e.clone()
 	t.Roster = true
+	if c, _, ok := m.madeUpAtLocked(e.key(), ""); ok {
+		t.Consist = c.ID
+	}
 	return t
 }
 
@@ -220,6 +243,7 @@ func (m *Manager) HandleNode(info registry.Info) {
 			tr.Online = online
 			if !online {
 				tr.Controlled = false
+				m.forgetAttachedLocked(tr)
 			}
 			tr.Updated = time.Now()
 			changed = tr
@@ -553,8 +577,16 @@ func (m *Manager) edit(ctx context.Context, id string, change func(*Entry) error
 			return Train{}, invalid("the decoder %s already belongs to %s", d.ID, m.roster[owner].Name)
 		}
 	}
+	if c, _, ok := m.madeUpAtLocked(old.key(), ""); ok && next.key() != old.key() {
+		m.mu.Unlock()
+		return Train{}, invalid("%s runs in %s; break that up before changing its address", old.Name, c.Name)
+	}
 	delete(m.roster, old.ID)
 	m.roster[next.ID] = next
+	var consists []Consist
+	if next.ID != old.ID {
+		consists = m.renameMemberLocked(old.ID, next.ID)
+	}
 	m.trainAtLocked(next.Address, next.Long)
 	// A train no entry drives any more goes, as a deleted entry's does.
 	var orphan *train
@@ -565,6 +597,9 @@ func (m *Manager) edit(ctx context.Context, id string, change func(*Entry) error
 	view := m.viewLocked(next)
 	m.mu.Unlock()
 	if err := m.opts.File.Replace(old.ID, next); err != nil {
+		return view, err
+	}
+	if err := m.saveConsists(consists); err != nil {
 		return view, err
 	}
 	if orphan != nil {
@@ -595,9 +630,19 @@ func (m *Manager) Delete(ctx context.Context, id string) error {
 		m.mu.Unlock()
 		return invalid("locomotives in the roster drive %s; remove them from the roster instead", traction.AddressName(tr.Address, tr.Long))
 	}
+	var consists []Consist
+	if inRoster {
+		for _, c := range m.consists {
+			if c.MadeUp && slices.ContainsFunc(c.Members, func(mb Member) bool { return mb.Train == id }) {
+				m.mu.Unlock()
+				return invalid("%s runs in %s; break that up first", e.Name, c.Name)
+			}
+		}
+	}
 	removed := m.viewForLocked(id, tr)
 	if inRoster {
 		delete(m.roster, id)
+		consists = m.dropMemberLocked(id)
 	}
 	last := len(m.entriesAtLocked(tr.ID)) == 0
 	if last {
@@ -609,6 +654,9 @@ func (m *Manager) Delete(ctx context.Context, id string) error {
 	}
 	if inRoster {
 		if err := m.opts.File.Remove(id); err != nil {
+			return err
+		}
+		if err := m.saveConsists(consists); err != nil {
 			return err
 		}
 		for _, d := range e.Decoders {
@@ -823,10 +871,17 @@ func (m *Manager) readBack(ctx context.Context, tr *train, id openlcb.NodeID) {
 }
 
 // control gets a train under Interlock's control, ready for a command.
-func (m *Manager) control(ctx context.Context, id string) (*train, openlcb.NodeID, error) {
+// With consist set, a consist the train leads is put together first if
+// the command station may have lost it.
+func (m *Manager) control(ctx context.Context, id string, consist bool) (*train, openlcb.NodeID, error) {
 	tr, err := m.get(id)
 	if err != nil {
 		return nil, 0, err
+	}
+	if consist {
+		if err := m.ensureConsist(ctx, tr); err != nil {
+			return tr, 0, err
+		}
 	}
 	tr.acquire.Lock()
 	defer tr.acquire.Unlock()
@@ -836,7 +891,7 @@ func (m *Manager) control(ctx context.Context, id string) (*train, openlcb.NodeI
 
 // Acquire finds a train's node, takes control of it and reads its state.
 func (m *Manager) Acquire(ctx context.Context, id string) (Train, error) {
-	tr, _, err := m.control(ctx, id)
+	tr, _, err := m.control(ctx, id, true)
 	if err != nil {
 		if tr != nil {
 			return m.viewFor(id, tr), err
@@ -883,7 +938,12 @@ func (m *Manager) SetSpeed(ctx context.Context, id string, speed float32, direct
 	if direction != "" && direction != Forward && direction != Reverse {
 		return Train{}, invalid("the direction must be forward or reverse")
 	}
-	tr, nodeID, err := m.control(ctx, id)
+	if tr, err := m.get(id); err == nil {
+		if err := m.following(tr); err != nil {
+			return m.viewFor(id, tr), err
+		}
+	}
+	tr, nodeID, err := m.control(ctx, id, true)
 	if err != nil {
 		return Train{}, err
 	}
@@ -900,13 +960,16 @@ func (m *Manager) SetSpeed(ctx context.Context, id string, speed float32, direct
 	tr.setSpeed(s)
 	tr.Updated = time.Now()
 	m.mu.Unlock()
+	m.follow(tr, func(member *train, mb Member) {
+		member.setSpeed(traction.Speed{Value: s.Value, Reverse: s.Reverse != mb.Reverse})
+	})
 	m.publish(tr)
 	return m.viewFor(id, tr), nil
 }
 
 // EmergencyStop stops a train at once.
 func (m *Manager) EmergencyStop(ctx context.Context, id string) (Train, error) {
-	tr, nodeID, err := m.control(ctx, id)
+	tr, nodeID, err := m.control(ctx, id, false)
 	if err != nil {
 		return Train{}, err
 	}
@@ -917,6 +980,7 @@ func (m *Manager) EmergencyStop(ctx context.Context, id string) (Train, error) {
 	tr.EStop, tr.Speed = true, 0
 	tr.Updated = time.Now()
 	m.mu.Unlock()
+	m.follow(tr, func(member *train, _ Member) { member.EStop, member.Speed = true, 0 })
 	m.publish(tr)
 	return m.viewFor(id, tr), nil
 }
@@ -926,7 +990,7 @@ func (m *Manager) SetFunction(ctx context.Context, id string, fn int, on bool) (
 	if fn < 0 || fn > MaxFunction {
 		return Train{}, invalid("there is no function F%d; functions run from F0 to F%d", fn, MaxFunction)
 	}
-	tr, nodeID, err := m.control(ctx, id)
+	tr, nodeID, err := m.control(ctx, id, true)
 	if err != nil {
 		return Train{}, err
 	}
@@ -941,6 +1005,11 @@ func (m *Manager) SetFunction(ctx context.Context, id string, fn int, on bool) (
 	tr.setFunction(fn, on)
 	tr.Updated = time.Now()
 	m.mu.Unlock()
+	m.follow(tr, func(member *train, mb Member) {
+		if mb.follows(fn) {
+			member.setFunction(fn, on)
+		}
+	})
 	m.publish(tr)
 	return m.viewFor(id, tr), nil
 }
@@ -1008,10 +1077,15 @@ func (m *Manager) Command(ctx context.Context, cmd Command) (Train, error) {
 // Name returns how a locomotive at an address is called: its roster
 // name (the names of all that share the address), else the address.
 func (m *Manager) Name(address uint16, long bool) string {
-	long = long || address > traction.ShortAddressMax
 	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.nameLocked(address, long)
+}
+
+// nameLocked is Name for a caller holding m.mu.
+func (m *Manager) nameLocked(address uint16, long bool) string {
+	long = long || address > traction.ShortAddressMax
 	es := m.entriesAtLocked(IDFor(address, long))
-	m.mu.RUnlock()
 	if len(es) == 0 {
 		return "locomotive " + traction.AddressName(address, long)
 	}

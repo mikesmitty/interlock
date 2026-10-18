@@ -84,6 +84,57 @@ unknown until a command station has said, or when two of them disagree;
 a command station that does not say leaves it unknown until power is
 switched from Interlock or another throttle.
 
+## Consists
+
+A consist is two or more locomotives from the roster that run together,
+driven as one through the first of them, the lead. **Add a consist** on
+the Roster page starts one with a name, the lead and one more locomotive;
+its page adds the rest. For each locomotive after the lead it says:
+
+- which way it faces: forward like the lead, or backward, so it runs in
+  reverse while the lead runs forward;
+- whether it follows the lead's F0 (usually the lights) and the lead's
+  other functions. Functions it does not follow stay its own, worked
+  from its own cab on the Throttle page.
+
+**Make up** puts the consist together: Interlock tells the lead's train
+node on the command station to pass its speed, and the functions each
+member follows, on to the members' train nodes. Nothing is written to the
+decoders, and each locomotive keeps its own address, so detectors still
+report each one. Drive the lead and the others follow; their cabs show
+the speed they were given and refuse speed changes of their own, though
+their functions and emergency stop still work. In a throttle app, drive
+the lead.
+
+The command station forgets a consist when it restarts. Interlock keeps
+it made up, and puts it together again before the lead is next driven,
+after either of them restarts. **Break up** takes it apart again, once
+the lead is stopped: a member keeps the last speed the lead passed on,
+so breaking up a moving consist would leave it running. While a consist
+is made up its locomotives can be renamed but not given new addresses,
+removed from the roster or put in another consist.
+
+A simple-dcc command station takes up to four locomotives besides the
+lead, and only locomotives on that command station; one that cannot be
+added leaves the consist apart, with the reason on its page. Consists
+kept in the decoders (DCC advanced consisting, CV 19) are not supported
+yet.
+
+Consists are kept in `trains.yaml` beside the locomotives:
+
+```yaml
+consists:
+  - id: coal-drag
+    name: Coal Drag
+    kind: lcc
+    members:
+      - train: csx-6641
+      - train: csx-9969
+        reverse: true
+        f0: true
+    made_up: true
+```
+
 ## Throttle apps
 
 Throttle apps that speak WiThrottle can drive trains through Interlock:

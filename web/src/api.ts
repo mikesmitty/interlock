@@ -569,8 +569,36 @@ export interface Train extends TrainEntry {
   direction: Direction;
   estop: boolean;
   on: number[];
+  /** The ID of the made-up consist the locomotive runs in. */
+  consist?: string;
   known: boolean;
   updated: string;
+  removed?: boolean;
+}
+
+/** A locomotive in a consist; the lead's flags mean nothing. */
+export interface ConsistMember {
+  train: string;
+  /** Faces the other way from the lead. */
+  reverse: boolean;
+  /** Follows the lead's F0. */
+  f0: boolean;
+  /** Follows the lead's other functions. */
+  functions: boolean;
+}
+
+/** Locomotives that run together, driven through the lead (the first member). */
+export interface Consist {
+  id: string;
+  name: string;
+  /** "lcc": the command station passes the lead's commands on; "dcc": the decoders answer a consist address. */
+  kind: "lcc" | "dcc";
+  address?: number;
+  members: ConsistMember[];
+  made_up: boolean;
+  /** Put together on the command station since the lead's train node last came onto the bus. */
+  attached: boolean;
+  problem?: string;
   removed?: boolean;
 }
 
@@ -738,6 +766,7 @@ async function requestText(path: string): Promise<string> {
 const nodePath = (id: string) => `/api/v1/nodes/${encodeURIComponent(id)}`;
 const automationPath = (id: string) => `/api/v1/automations/${encodeURIComponent(id)}`;
 const trainPath = (id: string) => `/api/v1/trains/${encodeURIComponent(id)}`;
+const consistPath = (id: string) => `/api/v1/consists/${encodeURIComponent(id)}`;
 
 export const api = {
   health: () => request<Health>("/api/v1/health"),
@@ -869,6 +898,14 @@ export const api = {
       body: JSON.stringify(entry),
     }),
   deleteTrain: (id: string) => request<void>(trainPath(id), { method: "DELETE" }),
+  consists: () => request<{ consists: Consist[] }>("/api/v1/consists"),
+  createConsist: (c: Pick<Consist, "name" | "members"> & Partial<Pick<Consist, "kind" | "address">>) =>
+    request<Consist>("/api/v1/consists", { method: "POST", body: JSON.stringify(c) }),
+  updateConsist: (id: string, change: Partial<Pick<Consist, "name" | "kind" | "address" | "members">>) =>
+    request<Consist>(consistPath(id), { method: "PATCH", body: JSON.stringify(change) }),
+  deleteConsist: (id: string) => request<void>(consistPath(id), { method: "DELETE" }),
+  makeUpConsist: (id: string) => request<Consist>(`${consistPath(id)}/make-up`, { method: "POST" }),
+  breakUpConsist: (id: string) => request<Consist>(`${consistPath(id)}/break-up`, { method: "POST" }),
   searchTrains: (query: string) =>
     request<{ trains: FoundTrain[] }>("/api/v1/trains/search", {
       method: "POST",

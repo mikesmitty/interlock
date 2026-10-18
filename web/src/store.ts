@@ -5,6 +5,7 @@ import {
   api,
   type AutomationStatus,
   type ClockState,
+  type Consist,
   type Entity,
   type EventName,
   type FirmwareJob,
@@ -37,6 +38,7 @@ export interface BusState {
    * merges these over what it fetched. */
   liveTraces: Trace[];
   trains: Record<string, Train>;
+  consists: Record<string, Consist>;
   layout: LayoutState;
   /** The latest firmware upgrade of each node, by node ID. */
   firmware: Record<string, FirmwareJob>;
@@ -73,6 +75,7 @@ class BusStore {
     automations: {},
     liveTraces: [],
     trains: {},
+    consists: {},
     layout: { power_off: false, power_known: false, emergency_stop: false },
     firmware: {},
   };
@@ -172,6 +175,13 @@ class BusStore {
       else trains[train.id] = train;
       this.set({ trains });
     });
+    es.addEventListener("consist", (ev) => {
+      const consist = JSON.parse((ev as MessageEvent<string>).data) as Consist;
+      const consists = { ...this.state.consists };
+      if (consist.removed) delete consists[consist.id];
+      else consists[consist.id] = consist;
+      this.set({ consists });
+    });
     es.addEventListener("layout", (ev) => {
       this.set({
         layout: JSON.parse((ev as MessageEvent<string>).data) as LayoutState,
@@ -198,7 +208,7 @@ class BusStore {
   private async load(serverSeq: number) {
     this.set({ connection: "live" });
     try {
-      const [nodes, links, health, entityList, eventNames, automationList, trainsResponse, firmwareJobs] = await Promise.all([
+      const [nodes, links, health, entityList, eventNames, automationList, trainsResponse, firmwareJobs, consistsResponse] = await Promise.all([
         api.nodes(),
         api.links(),
         api.health(),
@@ -207,12 +217,15 @@ class BusStore {
         api.automations(),
         api.trains(),
         api.firmwareJobs().catch(() => [] as FirmwareJob[]),
+        api.consists().catch(() => ({ consists: [] as Consist[] })),
       ]);
       const clock = await api.clock().catch(() => undefined);
       const firmware: Record<string, FirmwareJob> = {};
       for (const j of firmwareJobs) firmware[j.node] = j;
       const trains: Record<string, Train> = {};
       for (const t of trainsResponse.trains) trains[t.id] = t;
+      const consists: Record<string, Consist> = {};
+      for (const c of consistsResponse.consists) consists[c.id] = c;
       const automations: Record<string, AutomationStatus> = {};
       for (const a of automationList) automations[a.id] = a;
       const map: Record<string, NodeInfo> = {};
@@ -232,6 +245,7 @@ class BusStore {
         eventNames,
         automations,
         trains,
+        consists,
         layout: trainsResponse.layout,
         firmware,
         clock,

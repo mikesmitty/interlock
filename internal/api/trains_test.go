@@ -64,6 +64,8 @@ func (b *fakeTrainBus) TractionCommand(_ context.Context, _ openlcb.NodeID, payl
 			return []byte{0x20, 0x01, 0x00}, nil
 		}
 		return append([]byte{0x20, 0x03, 0}, b.ID().AsSlice()...), nil
+	case traction.CmdConsist:
+		return append(append([]byte{0x30, payload[1]}, payload[3:9]...), 0, 0), nil
 	}
 	return nil, errors.New("unexpected command")
 }
@@ -211,6 +213,50 @@ func TestTrainEndpoints(t *testing.T) {
 	tb.mu.Unlock()
 	if n == 0 {
 		t.Error("no traction commands were sent")
+	}
+}
+
+func TestConsistEndpoints(t *testing.T) {
+	ta, _ := newTrainAPI(t)
+	for _, body := range []string{`{"name": "Lead", "address": 1001}`, `{"name": "Trailer", "address": 1002}`} {
+		if rec, _ := ta.do(t, http.MethodPost, "/api/v1/trains", body); rec.Code != http.StatusCreated {
+			t.Fatalf("add train = %d", rec.Code)
+		}
+	}
+	rec, body := ta.do(t, http.MethodPost, "/api/v1/consists", `{"name": "Pair", "members": [{"train": "lead"}, {"train": "trailer", "reverse": true}]}`)
+	if rec.Code != http.StatusCreated || body["id"] != "pair" || body["kind"] != "lcc" {
+		t.Fatalf("create = %d %v", rec.Code, body)
+	}
+	if rec, _ := ta.do(t, http.MethodPost, "/api/v1/consists", `{"name": "One", "members": [{"train": "lead"}]}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("a consist of one = %d", rec.Code)
+	}
+	rec, body = ta.do(t, http.MethodPost, "/api/v1/consists/pair/make-up", "")
+	if rec.Code != http.StatusOK || body["made_up"] != true || body["attached"] != true {
+		t.Fatalf("make up = %d %v", rec.Code, body)
+	}
+	if rec, _ := ta.do(t, http.MethodDelete, "/api/v1/consists/pair", ""); rec.Code != http.StatusBadRequest {
+		t.Errorf("delete while made up = %d", rec.Code)
+	}
+	rec, body = ta.do(t, http.MethodGet, "/api/v1/trains/trailer", "")
+	if rec.Code != http.StatusOK || body["consist"] != "pair" {
+		t.Errorf("member = %d %v", rec.Code, body)
+	}
+	rec, body = ta.do(t, http.MethodPatch, "/api/v1/consists/pair", `{"name": "Matched Pair"}`)
+	if rec.Code != http.StatusOK || body["name"] != "Matched Pair" {
+		t.Errorf("rename = %d %v", rec.Code, body)
+	}
+	if rec, body = ta.do(t, http.MethodPost, "/api/v1/consists/pair/break-up", ""); rec.Code != http.StatusOK || body["made_up"] != false {
+		t.Errorf("break up = %d %v", rec.Code, body)
+	}
+	rec, body = ta.do(t, http.MethodGet, "/api/v1/consists", "")
+	if list, _ := body["consists"].([]any); rec.Code != http.StatusOK || len(list) != 1 {
+		t.Errorf("list = %d %v", rec.Code, body)
+	}
+	if rec, _ := ta.do(t, http.MethodDelete, "/api/v1/consists/pair", ""); rec.Code != http.StatusNoContent {
+		t.Errorf("delete = %d", rec.Code)
+	}
+	if rec, _ := ta.do(t, http.MethodGet, "/api/v1/consists/pair", ""); rec.Code != http.StatusNotFound {
+		t.Errorf("get after delete = %d", rec.Code)
 	}
 }
 

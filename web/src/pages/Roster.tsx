@@ -1,9 +1,11 @@
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router";
 import { api, type ImportPreview, type ImportResult, type ImportStep, type Train } from "../api";
+import { Status } from "../components/Lamp";
 import { Empty, Page } from "../components/Page";
 import { plural } from "../format";
 import { useBus } from "../store";
+import { consistLamp, memberNames } from "./Consist";
 
 function describe(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -27,13 +29,15 @@ export function fittedText(t: Train): string {
 }
 
 export function Roster() {
-  const { trains, loaded } = useBus();
+  const { trains, consists, loaded } = useBus();
   const navigate = useNavigate();
   const [importing, setImporting] = useState(false);
   const [adding, setAdding] = useState(false);
+  const [addingConsist, setAddingConsist] = useState(false);
   const list = Object.values(trains)
     .filter((t) => t.roster)
     .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+  const consistList = Object.values(consists).sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
 
   return (
     <Page
@@ -44,6 +48,11 @@ export function Roster() {
           <button className="btn" onClick={() => setImporting((v) => !v)} aria-pressed={importing}>
             Import from JMRI
           </button>
+          {list.length >= 2 && (
+            <button className="btn" onClick={() => setAddingConsist((v) => !v)} aria-pressed={addingConsist}>
+              Add a consist
+            </button>
+          )}
           <button className="btn btn--primary" onClick={() => setAdding((v) => !v)} aria-pressed={adding}>
             Add a locomotive
           </button>
@@ -51,6 +60,7 @@ export function Roster() {
       }
     >
       {adding && <AddLocomotive onCancel={() => setAdding(false)} />}
+      {addingConsist && <AddConsist locomotives={list} onCancel={() => setAddingConsist(false)} />}
       {importing && <ImportPanel onClose={() => setImporting(false)} />}
       {loaded && list.length === 0 && !importing && !adding && (
         <Empty title="Start the roster">
@@ -108,7 +118,119 @@ export function Roster() {
           </table>
         </div>
       )}
+      {consistList.length > 0 && (
+        <>
+          <h2 className="ros-heading">Consists</h2>
+          <div className="panel">
+            <table className="table table--rows ros-table">
+              <thead>
+                <tr>
+                  <th scope="col">Name</th>
+                  <th scope="col">Locomotives</th>
+                  <th scope="col">State</th>
+                </tr>
+              </thead>
+              <tbody>
+                {consistList.map((c) => {
+                  const open = () => navigate(`/roster/consists/${encodeURIComponent(c.id)}`);
+                  const lamp = consistLamp(c);
+                  return (
+                    <tr
+                      key={c.id}
+                      className="is-link"
+                      tabIndex={0}
+                      onClick={open}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") open();
+                      }}
+                    >
+                      <td>
+                        <div className="cell-title">{c.name}</div>
+                      </td>
+                      <td>{memberNames(c, trains)}</td>
+                      <td>
+                        <Status color={lamp.color}>{lamp.label}</Status>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
     </Page>
+  );
+}
+
+/** The form that starts a consist with its lead and one more locomotive. */
+function AddConsist({ locomotives, onCancel }: { locomotives: Train[]; onCancel: () => void }) {
+  const navigate = useNavigate();
+  const [name, setName] = useState("");
+  const [lead, setLead] = useState("");
+  const [second, setSecond] = useState("");
+  const [reverse, setReverse] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+
+  async function add(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(undefined);
+    try {
+      const c = await api.createConsist({
+        name,
+        members: [
+          { train: lead, reverse: false, f0: false, functions: false },
+          { train: second, reverse, f0: false, functions: false },
+        ],
+      });
+      navigate(`/roster/consists/${encodeURIComponent(c.id)}`);
+    } catch (err) {
+      setError(describe(err));
+      setBusy(false);
+    }
+  }
+
+  const options = (skip: string) =>
+    locomotives
+      .filter((t) => t.id !== skip)
+      .map((t) => (
+        <option key={t.id} value={t.id}>
+          {t.name} ({addressText(t)})
+        </option>
+      ));
+  return (
+    <form className="panel ros-add" onSubmit={(e) => void add(e)}>
+      <label className="auto-field">
+        <span>Name</span>
+        <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Coal drag" autoFocus required />
+      </label>
+      <label className="auto-field">
+        <span>Lead</span>
+        <select className="input input--select" value={lead} onChange={(e) => setLead(e.target.value)} required>
+          <option value="">Choose…</option>
+          {options(second)}
+        </select>
+      </label>
+      <label className="auto-field">
+        <span>Then</span>
+        <select className="input input--select" value={second} onChange={(e) => setSecond(e.target.value)} required>
+          <option value="">Choose…</option>
+          {options(lead)}
+        </select>
+      </label>
+      <label className="check">
+        <input type="checkbox" checked={reverse} onChange={(e) => setReverse(e.target.checked)} /> facing backward
+      </label>
+      <button className="btn btn--primary" type="submit" disabled={busy || !name.trim() || !lead || !second}>
+        Add
+      </button>
+      <button className="btn btn--quiet" type="button" onClick={onCancel}>
+        Cancel
+      </button>
+      {error && <p className="field__error">{error}</p>}
+    </form>
   );
 }
 

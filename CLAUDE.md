@@ -68,7 +68,8 @@ applied at the next start; the replaced files go to `before-restore-*/`.
     firmware repos); `Outpost` adds the firmware's behavior (servos,
     detectors, Identify replies) over the plain node; `Station` behaves
     like simple-dcc (train search and train nodes, a programming track
-    with a decoder on it, the emergency events). The outpost also takes
+    with a decoder on it, the emergency events, consists that pass
+    the lead's commands on). The outpost also takes
     firmware upgrades (`sim.FirmwareImage` makes an image; a new image
     runs on trial and confirms itself or goes back)
 - `internal/config` — `interlock.yaml` loading and validation.
@@ -101,7 +102,9 @@ applied at the next start; the replaced files go to `before-restore-*/`.
   goroutine.
 - `internal/train` — the throttle side: the roster in `<data>/trains.yaml`,
   finding train nodes by Train Search, controller assign, speed and
-  function commands, the layout's emergency events. Roster entries are
+  function commands, the layout's emergency events, consists (`consist.go`:
+  made up on the command station by Train Control's consist commands, the
+  members' state following the lead). Roster entries are
   locomotives with IDs of their own and may share an address; the state
   on the bus belongs to the address (`train` in the manager) and every
   entry there shows it. Each entry has decoders, one fitted, whose
