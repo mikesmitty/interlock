@@ -5,16 +5,19 @@ import {
   choicesFor,
   compositeIndex,
   currentAddress,
+  cvsOf,
   decode,
   isEdited,
   isKnown,
   qualified,
   setSpeedPoint,
+  sourceOf,
   type CVTable,
   type CVUpdate,
   type Value,
 } from "../../decoder/values";
 import { ESUMapView } from "./ESUMapView";
+import { SourceLamp } from "./SourceLamp";
 
 /** What the pane's controls need: the CV values and how to change them. */
 export interface PaneContext {
@@ -115,6 +118,7 @@ function Display({ node, ctx }: { node: DecoderNode; ctx: PaneContext }) {
     <div className={cls} title={tip}>
       {label && <span className="dec-field__label">{label}</span>}
       <span className="dec-field__control">
+        <SourceLamp state={sourceOf(cvsOf([v.item], ctx.vars), ctx.table)} />
         <Control v={v} node={node} ctx={ctx} label={label || v.label} />
         {edited && <span className="field__dirty">changed</span>}
         {v.read_only && <span className="faint">read-only</span>}
@@ -306,6 +310,7 @@ function AddressField({ ctx }: { ctx: PaneContext }) {
     <div className={["dec-field", edited ? "is-dirty" : "", unread ? "is-unread" : ""].filter(Boolean).join(" ")}>
       <span className="dec-field__label">Address</span>
       <span className="dec-field__control">
+        <SourceLamp state={sourceOf(cvsOf(vs.map((v) => v.item), ctx.vars), ctx.table)} />
         <TextControl
           label="Address"
           value={address === undefined ? "" : String(address)}
@@ -338,15 +343,22 @@ function FunctionMap({ node, ctx }: { node: DecoderNode; ctx: PaneContext }) {
           </tr>
         </thead>
         <tbody>
-          {m.rows.map((r, ri) => (
-            <tr key={ri}>
-              <th scope="row">{r.label}</th>
-              {r.cells.map((cell, ci) => {
-                const v = (cell ?? []).map((item) => ctx.vars.get(item)).find((x) => x && available(x, ctx));
-                return <td key={ci}>{v && <Control v={v} node={{ kind: "display", format: cellFormat(v) }} ctx={ctx} label={`${r.label}, output ${m.columns[ci].name}`} />}</td>;
-              })}
-            </tr>
-          ))}
+          {m.rows.map((r, ri) => {
+            const vs = r.cells.map((cell) => (cell ?? []).map((item) => ctx.vars.get(item)).find((x) => x && available(x, ctx)));
+            return (
+              <tr key={ri}>
+                <th scope="row">
+                  <span className="dec-fnmap__fn">
+                    <SourceLamp state={sourceOf(cvsOf(vs.filter((v) => !!v).map((v) => v.item), ctx.vars), ctx.table)} />
+                    {r.label}
+                  </span>
+                </th>
+                {vs.map((v, ci) => (
+                  <td key={ci}>{v && <Control v={v} node={{ kind: "display", format: cellFormat(v) }} ctx={ctx} label={`${r.label}, output ${m.columns[ci].name}`} />}</td>
+                ))}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -400,7 +412,7 @@ function CVTableView({ ctx }: { ctx: PaneContext }) {
                 />
               </td>
               <td className={cell?.state === "edited" ? "field__dirty" : "dim"}>
-                {STATE_WORDS[cell?.state ?? "unknown"]}
+                <SourceLamp state={cell?.state ?? "unknown"} /> {STATE_WORDS[cell?.state ?? "unknown"]}
                 {c.read_only ? ", read-only" : ""}
                 {c.write_only ? ", write-only" : ""}
               </td>

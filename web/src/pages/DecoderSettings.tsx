@@ -5,6 +5,7 @@ import { Status } from "../components/Lamp";
 import { Page } from "../components/Page";
 import { rosterSettingsLink } from "../components/decoder/DecoderPicker";
 import { PaneNodes, type PaneContext } from "../components/decoder/PaneView";
+import { SourceKey } from "../components/decoder/SourceLamp";
 import { esuCVs, esuRowEdited, esuRowKnown } from "../decoder/esumap";
 import type { DecoderDefinition, DecoderNode, DecoderPane, DecoderVariable, ESUMap } from "../decoder/types";
 import { relativeTime, useNow } from "../format";
@@ -14,6 +15,7 @@ import {
   applyUpdates,
   cvsOf,
   discard,
+  endSession,
   encode,
   initialTable,
   isEdited,
@@ -28,6 +30,7 @@ import {
   withChanges,
   withImported,
   withSaved,
+  withSession,
   isImported,
   type CVChange,
   type CVTable,
@@ -49,6 +52,11 @@ interface Job {
 }
 
 /** The bits a whole CV holds: 16 for the TCS protocol, 8 for the rest. */
+// A session ends after this long without work, as the server's
+// SessionIdle says.
+const SESSION_IDLE = 2 * 60 * 60 * 1000;
+const noSession = { read: [], written: [] };
+
 const fullBits = (cv: string) => (cv.startsWith("T2CV") ? 0xffff : 0xff);
 
 /** The ESU function maps a pane shows. */
@@ -109,6 +117,9 @@ export function DecoderSettings() {
   const [message, setMessage] = useState<string>();
   // How many changes from an earlier visit came back, for a note.
   const [restored, setRestored] = useState(0);
+  // A roster decoder's session: when it began and when it last saw work.
+  const [session, setSession] = useState<{ started: string; last: number }>();
+  const runningRef = useRef(false);
   // The changes the roster keeps, as last sent, and the save waiting.
   const sentRef = useRef("{}");
   const saveTimer = useRef<number | undefined>(undefined);
@@ -127,10 +138,14 @@ export function DecoderSettings() {
     setDef(undefined);
     setLoadError(undefined);
     setSavedAt(undefined);
+    setSession(undefined);
     const saved = loco && decoderID ? api.savedCVs(loco, decoderID) : Promise.resolve(undefined);
     Promise.all([api.decoderDefinition(file, model), saved])
       .then(([d, values]) => {
-        const t = values ? withChanges(withImported(withSaved(initialTable(d), values.cvs), values.imported ?? {}), values.changes ?? {}) : initialTable(d);
+        const t = values
+          ? withChanges(withSession(withImported(withSaved(initialTable(d), values.cvs), values.imported ?? {}), values.session ?? noSession), values.changes ?? {})
+          : initialTable(d);
+        setSession(values?.session ? { started: values.session.started, last: Date.parse(values.session.last) } : undefined);
         sentRef.current = JSON.stringify(pendingChanges(t));
         setDef(d);
         setTable(t);
@@ -173,6 +188,38 @@ export function DecoderSettings() {
       void flushChanges(true);
     };
   }, [flushChanges]);
+  // The session can end elsewhere (another page, an Identify on the
+  // programming track), so coming back to the page checks it; and it ends
+  // here after a spell without work.
+  const syncSession = useCallback(async () => {
+    if (!loco || !decoderID || runningRef.current) return;
+    try {
+      const s = (await api.savedCVs(loco, decoderID)).session;
+      if (runningRef.current) return;
+      setTable(withSession(endSession(tableRef.current), s ?? noSession));
+      setSession(s ? { started: s.started, last: Date.parse(s.last) } : undefined);
+    } catch {
+      // The marks stay as they are until the next check.
+    }
+  }, [loco, decoderID]);
+  useEffect(() => {
+    const onShow = () => {
+      if (document.visibilityState === "visible") void syncSession();
+    };
+    window.addEventListener("focus", onShow);
+    document.addEventListener("visibilitychange", onShow);
+    return () => {
+      window.removeEventListener("focus", onShow);
+      document.removeEventListener("visibilitychange", onShow);
+    };
+  }, [syncSession]);
+  useEffect(() => {
+    if (!session) return;
+    const left = session.last + SESSION_IDLE - Date.now();
+    const timer = window.setTimeout(() => void syncSession(), Math.max(left, 0) + 1000);
+    return () => window.clearTimeout(timer);
+  }, [session, syncSession]);
+
   // A decoder opened on its own keeps nothing, so leaving with changes
   // asks first.
   useEffect(() => {
@@ -255,7 +302,29 @@ export function DecoderSettings() {
       const { [item]: _drop, ...rest } = e;
       return rest;
     });
-    setTable(applyUpdates(tableRef.current, r.updates, "edited"));
+    changeTable(applyUpdates(tableRef.current, r.updates, "edited"));
+  }
+
+  // Reads, writes and changes are work on the decoder: a session begins
+  // with the first read or write and goes on while there is work.
+  function worked(start: boolean) {
+    if (!loco) return;
+    setSession((s) => (s ? { ...s, last: Date.now() } : start ? { started: new Date().toISOString(), last: Date.now() } : s));
+  }
+  function changeTable(t: CVTable) {
+    setTable(t);
+    worked(false);
+  }
+
+  async function finishSession() {
+    if (!loco || !decoderID) return;
+    try {
+      await api.endSession(loco, decoderID);
+      setTable(endSession(tableRef.current));
+      setSession(undefined);
+    } catch (err) {
+      setMessage(`The session could not be ended: ${describe(err)}`);
+    }
   }
 
   const ctx: PaneContext = {
@@ -269,9 +338,9 @@ export function DecoderSettings() {
     setAddress: (address: number) => edit("Address", setAddress(addressItems(vars), address, tableRef.current, vars)),
     setCV: (cv: string, value: number) => {
       const u: CVUpdate = { cv, value, bits: fullBits(cv) };
-      setTable(applyUpdates(tableRef.current, [u], "edited"));
+      changeTable(applyUpdates(tableRef.current, [u], "edited"));
     },
-    setBits: (updates: CVUpdate[]) => setTable(applyUpdates(tableRef.current, updates, "edited")),
+    setBits: (updates: CVUpdate[]) => changeTable(applyUpdates(tableRef.current, updates, "edited")),
     readCVs: onMain || !programmable ? undefined : (list: string[]) => void run("read", list.filter(readable), readCV),
     functionLabels: entry ? (entry.installed === decoderID ? entry.functions : rosterDecoder?.functions) : undefined,
   };
@@ -306,6 +375,7 @@ export function DecoderSettings() {
 
   async function run(kind: Job["kind"], cvs: string[], step: (cv: string) => Promise<string | undefined>) {
     stopRef.current = false;
+    runningRef.current = true;
     setConfirmWrite(false);
     setMessage(undefined);
     let failed = 0;
@@ -330,6 +400,7 @@ export function DecoderSettings() {
         setJob({ kind, done: i + 1, total: cvs.length, failed });
       }
     } finally {
+      runningRef.current = false;
       setJob(undefined);
       setFailures(newFailures);
       const verb = kind === "read" ? "read" : "written";
@@ -346,6 +417,7 @@ export function DecoderSettings() {
     const r = await cvCall(cv);
     if (!r.ok) return r.error ?? "Failed";
     setTable(settle(tableRef.current, cv, r.value, "read"));
+    worked(true);
     return undefined;
   }
 
@@ -363,6 +435,7 @@ export function DecoderSettings() {
     const w = await cvCall(cv, value);
     if (!w.ok) return w.error ?? "Failed";
     setTable(settle(tableRef.current, cv, value, "stored"));
+    worked(true);
     return undefined;
   }
 
@@ -440,6 +513,14 @@ export function DecoderSettings() {
           </select>
         </label>
         {onMain && <span className="dim">Writes only: reading on the main needs RailCom.</span>}
+        {session && (
+          <span className="dec-session">
+            <Status color="green">{`Session started ${relativeTime(session.started, now)}`}</Status>
+            <button className="btn btn--quiet" disabled={busy} onClick={() => void finishSession()}>
+              End session
+            </button>
+          </span>
+        )}
       </div>
 
       {restored > 0 && anyEdited && (
@@ -550,6 +631,7 @@ export function DecoderSettings() {
               </ul>
             </details>
           )}
+          <SourceKey />
           <PaneNodes nodes={pane.nodes} ctx={ctx} />
         </div>
       )}

@@ -443,6 +443,8 @@ export interface SavedCVs {
   imported?: Record<string, number>;
   updated?: string;
   changes?: Record<string, { value: number; bits: number }>;
+  /** The work on the decoder going on now: the CVs read from it and written to it. */
+  session?: { started: string; last: string; read: string[]; written: string[] };
 }
 
 /** A roster decoder that could be the one on the programming track. */
@@ -849,6 +851,8 @@ export const api = {
       method: replace ? "PUT" : "PATCH",
       body: JSON.stringify({ cvs }),
     }),
+  endSession: (id: string, decoder: string) =>
+    request<void>(`${trainPath(id)}/decoders/${encodeURIComponent(decoder)}/session`, { method: "DELETE" }),
   /** Keeps the changes not written yet; keepalive lets it finish as the page closes. */
   saveChanges: (id: string, decoder: string, changes: Record<string, { value: number; bits: number }>, keepalive = false) =>
     request<void>(`${trainPath(id)}/decoders/${encodeURIComponent(decoder)}/changes`, {

@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { esuRowCVs, esuRowEdited, esuRowKnown, esuSummary, esuUpdate, esuValue } from "../../decoder/esumap";
 import type { ESUItem, ESUMap } from "../../decoder/types";
-import { applyUpdates, type CVUpdate } from "../../decoder/values";
+import { applyUpdates, sourceOf, type CVUpdate } from "../../decoder/values";
 import type { PaneContext } from "./PaneView";
+import { SourceLamp } from "./SourceLamp";
 
 /**
  * An ESU decoder's mapping table: one line per row saying what it does,
@@ -60,9 +61,12 @@ function MapRow({ map, row, ctx, open, onToggle }: { map: ESUMap; row: number; c
     <>
       <tr className={cls}>
         <td className="num">
-          <button type="button" className="linklike" aria-expanded={open} onClick={onToggle}>
-            {row + 1}
-          </button>
+          <span className="dec-esumap__num">
+            <SourceLamp state={sourceOf(esuRowCVs(map, row), t)} />
+            <button type="button" className="linklike" aria-expanded={open} onClick={onToggle}>
+              {row + 1}
+            </button>
+          </span>
         </td>
         <td>{when}</td>
         <td>

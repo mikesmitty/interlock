@@ -27,6 +27,9 @@ import {
   withImported,
   withSaved,
   isImported,
+  sourceOf,
+  withSession,
+  endSession,
   type CVTable,
 } from "./values.ts";
 
@@ -267,6 +270,39 @@ test("imported values show but are not known until read", () => {
   t = settle(t, "3", 12, "read");
   assert.deepEqual(t["3"], { value: 12, state: "read", known: true, edited: 0 });
   assert.equal(isImported(t["3"]), false);
+});
+
+test("a setting shows the least settled state of its CVs", () => {
+  let t: CVTable = withImported(withSaved({}, { "1": 3, "17": 0xc0 }), { "29": 0x22 });
+  t = settle(settle(t, "17", 0xc0, "read"), "18", 150, "stored");
+  t["2"] = { value: 0, state: "fromfile", known: false, edited: 0 };
+  assert.equal(sourceOf(["17"], t), "read");
+  assert.equal(sourceOf(["17", "18"], t), "stored", "read and written show as written");
+  assert.equal(sourceOf(["1", "17"], t), "saved", "a value from an earlier visit outranks one read now");
+  assert.equal(sourceOf(["18", "29"], t), "imported");
+  assert.equal(sourceOf(["2", "29"], t), "fromfile");
+  assert.equal(sourceOf(["17", "99"], t), "unknown", "a CV with no value is not read");
+  assert.equal(sourceOf(["17"], applyUpdates(t, [{ cv: "17", value: 4, bits: 0xff }], "edited")), "edited");
+  assert.equal(sourceOf([], t), undefined);
+});
+
+test("a session marks what it read and wrote until it ends", () => {
+  let t: CVTable = withSaved({}, { "1": 3, "29": 0x22, "3": 4, "4": 2 });
+  t = applyUpdates(t, [{ cv: "3", value: 5, bits: 0xff }], "edited");
+  t = withSession(t, { read: ["1", "3"], written: ["29"] });
+  assert.equal(t["1"].state, "read");
+  assert.equal(t["29"].state, "stored");
+  assert.equal(t["4"].state, "saved", "a value from before the session stays saved");
+  assert.deepEqual(t["3"].prior, { value: 4, state: "read" }, "an edited CV keeps what the session read under it");
+  t = settle(t, "4", 2, "read");
+  t = endSession(t);
+  assert.deepEqual(
+    ["1", "29", "4"].map((cv) => t[cv].state),
+    ["saved", "saved", "saved"],
+  );
+  assert.deepEqual(t["3"].prior, { value: 4, state: "saved" });
+  assert.equal(t["3"].state, "edited", "changes not written yet outlast the session");
+  assert.equal(t["1"].known, true);
 });
 
 test("changes not written yet are kept, survive a read and can be undone", () => {

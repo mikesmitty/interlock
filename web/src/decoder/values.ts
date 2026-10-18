@@ -6,8 +6,11 @@
 import type { Choice, DecoderDefinition, DecoderVariable, Part, Qualifier } from "./types";
 
 /**
- * Where a CV's value came from: "saved" is the roster's copy of what was
- * read or written, "imported" another roster's copy, not read since.
+ * Where a CV's value came from: "read" from the decoder and "stored" to
+ * it in this session; "saved" the roster's copy of what was read or
+ * written before it; "imported" another roster's copy, not read since;
+ * "fromfile" the definition's default; "edited" changed here and not
+ * written yet.
  */
 export type CVState = "unknown" | "fromfile" | "imported" | "edited" | "read" | "stored" | "saved";
 
@@ -398,6 +401,36 @@ export function withImported(t: CVTable, cvs: Record<string, number>): CVTable {
   return out;
 }
 
+/** What a roster decoder's session has read from it and written to it. */
+export interface SessionCVs {
+  read: string[];
+  written: string[];
+}
+
+/** A copy of the table with the session's saved values marked as read or written in it. */
+export function withSession(t: CVTable, s: SessionCVs): CVTable {
+  const out = { ...t };
+  const mark = (cv: string, state: CVState) => {
+    const old = out[cv];
+    if (old?.state === "saved") out[cv] = { ...old, state };
+    else if (old?.state === "edited" && old.prior?.state === "saved") out[cv] = { ...old, prior: { ...old.prior, state } };
+  };
+  for (const cv of s.read) mark(cv, "read");
+  for (const cv of s.written) mark(cv, "stored");
+  return out;
+}
+
+/** A copy of the table with the session over: what it read and wrote counts as saved. */
+export function endSession(t: CVTable): CVTable {
+  const out = { ...t };
+  const over = (s: CVState) => s === "read" || s === "stored";
+  for (const [cv, cell] of Object.entries(out)) {
+    if (over(cell.state)) out[cv] = { ...cell, state: "saved" };
+    else if (cell.state === "edited" && cell.prior && over(cell.prior.state)) out[cv] = { ...cell, prior: { ...cell.prior, state: "saved" } };
+  }
+  return out;
+}
+
 /** Whether a CV's value, or its value before edits, was imported and not read since. */
 export function isImported(cell: CVCell | undefined): boolean {
   return cell?.state === "imported" || (cell?.state === "edited" && cell.prior?.state === "imported");
@@ -412,6 +445,21 @@ export function knownValues(t: CVTable): Record<string, number> {
     else if (cell.prior && ["read", "stored", "saved"].includes(cell.prior.state)) out[cv] = cell.prior.value;
   }
   return out;
+}
+
+// From least settled to most: a setting over several CVs shows the least
+// settled state among them. Values saved on an earlier visit rank below
+// those read or written on this one.
+const SOURCE_ORDER: CVState[] = ["edited", "unknown", "fromfile", "imported", "saved", "stored", "read"];
+
+/** The state a setting shows for its CVs, or undefined when it has none. */
+export function sourceOf(cvs: string[], t: CVTable): CVState | undefined {
+  let least: number | undefined;
+  for (const cv of cvs) {
+    const i = SOURCE_ORDER.indexOf(t[cv]?.state ?? "unknown");
+    if (least === undefined || i < least) least = i;
+  }
+  return least === undefined ? undefined : SOURCE_ORDER[least];
 }
 
 /** The CV table a definition starts with: its defaults, from the file. */
