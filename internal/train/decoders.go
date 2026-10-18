@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 )
 
 // AddDecoder gives a locomotive another decoder, with an ID made from its
@@ -180,6 +181,27 @@ func (m *Manager) StartSession(id, decoder, check string) error {
 // SessionChecked reports whether the session on a decoder began with a
 // check of it on the programming track, which work there needs first.
 func (m *Manager) SessionChecked(decoder string) bool { return m.opts.CVs.Checked(decoder) }
+
+// KeepSetup keeps a copy of one of a locomotive's decoders' values under
+// a name, replacing a setup by that name only with replace.
+func (m *Manager) KeepSetup(id, decoder, name string, replace bool) (CVSetup, error) {
+	if err := m.hasDecoder(id, decoder); err != nil {
+		return CVSetup{}, err
+	}
+	name = strings.TrimSpace(name)
+	if name == "" || len(name) > maxSetupName {
+		return CVSetup{}, invalid("a setup needs a name of up to %d characters", maxSetupName)
+	}
+	return m.opts.CVs.KeepSetup(decoder, name, replace)
+}
+
+// DeleteSetup forgets one of the setups kept for a locomotive's decoder.
+func (m *Manager) DeleteSetup(id, decoder, name string) error {
+	if err := m.hasDecoder(id, decoder); err != nil {
+		return err
+	}
+	return m.opts.CVs.DeleteSetup(decoder, name)
+}
 
 // EndSession ends the session on one of a locomotive's decoders.
 func (m *Manager) EndSession(id, decoder string) error {

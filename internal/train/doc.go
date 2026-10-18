@@ -56,6 +56,8 @@ var (
 	ErrNotFound = errors.New("train: no such train")
 	ErrNoNode   = errors.New("train: no command station answered for the locomotive")
 	ErrRefused  = errors.New("train: the train refused to be controlled")
+	// ErrSetupExists means a decoder already keeps a setup by that name.
+	ErrSetupExists = errors.New("train: a setup by that name is kept already")
 )
 
 // InvalidError reports a roster entry or command that cannot be used.

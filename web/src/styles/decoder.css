@@ -467,3 +467,52 @@
   }
 
 }
+
+/* Setups: copies of a roster decoder's values kept under a name. */
+.dec-setups {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: var(--gutter);
+  padding: 1rem 1.25rem;
+  max-width: 48rem;
+}
+
+.dec-setups h2 {
+  margin: 0;
+  font-size: var(--fs-lg);
+}
+
+.dec-setups p {
+  margin: 0;
+}
+
+.dec-setups__list {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dec-setups__list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.75rem;
+}
+
+.dec-setups__name {
+  font-weight: 600;
+}
+
+.dec-setups__actions {
+  display: inline-flex;
+  gap: 0.5rem;
+}
+
+.dec-setups__keep {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem;
+}

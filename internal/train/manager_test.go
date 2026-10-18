@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -760,5 +761,84 @@ func TestCVSessions(t *testing.T) {
 	}
 	if err := m.StartSession(p42.ID, sound.ID, train.CheckAccepted); err != nil || session() != nil {
 		t.Errorf("checking another decoder left %+v", session())
+	}
+}
+
+func TestCVSetups(t *testing.T) {
+	b := newBench(t)
+	dir := filepath.Join(t.TempDir(), train.CVDirName)
+	store := train.OpenCVStore(dir, nil)
+	m := train.New(train.Options{Bus: b.local, Logger: slog.New(slog.DiscardHandler), CVs: store})
+	p42, err := m.Create(train.Entry{Name: "Kato P42", Address: 150})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p42, esu, err := m.AddDecoder(b.ctx, p42.ID, train.Decoder{File: "ESU_LokPilot5.xml", Model: "LokPilot 5 nano DCC"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var invalid *train.InvalidError
+	if _, err := m.KeepSetup(p42.ID, esu.ID, "As delivered", false); !errors.As(err, &invalid) {
+		t.Errorf("a setup of nothing = %v", err)
+	}
+
+	// A setup keeps the values read and imported, not changes.
+	if err := store.Import(esu.ID, map[string]int{"2": 5, "3": 10}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.SetCVs(p42.ID, esu.ID, map[string]int{"3": 12, "29": 34}, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.SetChanges(p42.ID, esu.ID, map[string]train.CVChange{"4": {Value: 8, Bits: 0xFF}}); err != nil {
+		t.Fatal(err)
+	}
+	st, err := m.KeepSetup(p42.ID, esu.ID, "  As delivered ", false)
+	if err != nil || st.Name != "As delivered" || !maps.Equal(st.CVs, map[string]int{"2": 5, "3": 12, "29": 34}) || st.Kept.IsZero() {
+		t.Fatalf("KeepSetup = %+v, %v", st, err)
+	}
+	for _, name := range []string{"", strings.Repeat("x", 65)} {
+		if _, err := m.KeepSetup(p42.ID, esu.ID, name, false); !errors.As(err, &invalid) {
+			t.Errorf("KeepSetup(%q) = %v", name, err)
+		}
+	}
+	if _, err := m.KeepSetup(p42.ID, "nope", "Tuned", false); !errors.Is(err, train.ErrNotFound) {
+		t.Errorf("KeepSetup on another decoder = %v", err)
+	}
+
+	// The same name again replaces it only when asked.
+	if err := m.SetCVs(p42.ID, esu.ID, map[string]int{"3": 14}, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.KeepSetup(p42.ID, esu.ID, "As delivered", false); !errors.Is(err, train.ErrSetupExists) {
+		t.Errorf("keeping a name twice = %v", err)
+	}
+	if st, err := m.KeepSetup(p42.ID, esu.ID, "As delivered", true); err != nil || st.CVs["3"] != 14 {
+		t.Errorf("replacing a setup = %+v, %v", st, err)
+	}
+	if _, err := m.KeepSetup(p42.ID, esu.ID, "Tuned", false); err != nil {
+		t.Fatal(err)
+	}
+
+	// Setups outlast replaced values and a restart.
+	if err := m.SetCVs(p42.ID, esu.ID, map[string]int{"1": 3}, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened := train.OpenCVStore(dir, nil)
+	got, err := reopened.Get(esu.ID)
+	if err != nil || len(got.Setups) != 2 || got.Setups[0].Name != "As delivered" || got.Setups[1].Name != "Tuned" || got.Setups[0].CVs["29"] != 34 {
+		t.Fatalf("setups after a restart = %+v, %v", got.Setups, err)
+	}
+
+	if err := m.DeleteSetup(p42.ID, esu.ID, "As delivered"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := m.CVs(p42.ID, esu.ID); len(got.Setups) != 1 || got.Setups[0].Name != "Tuned" {
+		t.Errorf("setups after a delete = %+v", got.Setups)
+	}
+	if err := m.DeleteSetup(p42.ID, esu.ID, "As delivered"); !errors.Is(err, train.ErrNotFound) {
+		t.Errorf("deleting a setup twice = %v", err)
 	}
 }

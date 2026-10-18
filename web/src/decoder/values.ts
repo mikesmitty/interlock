@@ -342,6 +342,47 @@ export function settle(t: CVTable, cv: string, value: number, state: "read" | "s
   return { ...t, [cv]: { value, state, known: true, edited: 0 } };
 }
 
+/**
+ * A copy of the table with a kept setup's values as changes to write:
+ * each writable CV whose value differs from the setup's, or has none,
+ * takes the setup's whole value, and a change not written yet that the
+ * setup undoes is dropped. changed counts the CVs it marks, replaced the
+ * changes not written yet it gives another value or drops.
+ */
+export function loadSetup(
+  t: CVTable,
+  values: Record<string, number>,
+  writable: (cv: string) => boolean,
+  bits: (cv: string) => number,
+): { table: CVTable; changed: number; replaced: number } {
+  const out = { ...t };
+  let changed = 0;
+  let replaced = 0;
+  for (const [cv, value] of Object.entries(values)) {
+    const old = out[cv];
+    if (!old || !writable(cv)) continue;
+    if (old.state === "edited") {
+      const prior = old.prior;
+      if (prior && prior.value === value && prior.state !== "unknown") {
+        if (old.value !== value) replaced++;
+        out[cv] = { value, state: prior.state, known: old.known, edited: 0 };
+        continue;
+      }
+      if (old.value === value) continue;
+      replaced++;
+    } else if (old.value === value && old.state !== "unknown") continue;
+    out[cv] = {
+      value,
+      state: "edited",
+      known: old.known,
+      edited: bits(cv),
+      prior: old.state === "edited" ? old.prior : { value: old.value, state: old.state },
+    };
+    changed++;
+  }
+  return { table: out, changed, replaced };
+}
+
 /** A copy of the table with the changes to these CVs undone. */
 export function discard(t: CVTable, cvs: string[]): CVTable {
   const out = { ...t };

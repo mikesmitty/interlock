@@ -106,8 +106,9 @@ applied at the next start; the replaced files go to `before-restore-*/`.
   on the bus belongs to the address (`train` in the manager) and every
   entry there shows it. Each entry has decoders, one fitted, whose
   address and labels swap with it; `CVStore` keeps each decoder's CV
-  values (imported ones apart until a read confirms them) and the
-  settings page's changes not written yet in `<data>/cvs/`, and in
+  values (imported ones apart until a read confirms them), the
+  settings page's changes not written yet and named setups (copies of
+  its values to load again as changes) in `<data>/cvs/`, and in
   memory each decoder's session (what was read and written since work on
   it began; Identify ends them all). Work on the programming track needs
   a session begun by `CheckDecoder` (`check.go`: model, address, saved

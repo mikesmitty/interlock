@@ -136,6 +136,23 @@ when it agrees, begins that decoder's session, so its settings open
 ready to read. Interlock cannot see a locomotive being lifted off the
 track: after swapping one, use Identify or **End session**.
 
+### Setups
+
+Interlock saves each value as it reads or writes it, so the roster
+always has what the decoder last held. To keep a known-good state to
+come back to, such as how a decoder came or how it ran best, name it
+under **Setups** at the bottom of the page and choose **Keep these
+values**. A setup copies the values saved for the decoder, imported ones
+included; changes not written yet are left out. A name kept already is
+replaced only after you say so.
+
+**Load** marks every value that differs from the setup as a change, and
+drops changes not written yet that the setup undoes. Nothing reaches the
+decoder until you write the changes, page by page or with **Write
+changes on every page**. Loading over changes not written yet asks first.
+Setups live with the decoder's values in the data folder, and backups
+include them.
+
 Changes to a decoder in the [roster](./roster.md) are kept until they
 are written or discarded: close the page, or open it on another device,
 and they are still there, marked. A decoder opened on its own keeps

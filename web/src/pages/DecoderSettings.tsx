@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
-import { api, ApiError, type DecoderCheck, type DecoderMatch, type DecoderSession, type RosterIdentity } from "../api";
+import { api, ApiError, type CVSetup, type DecoderCheck, type DecoderMatch, type DecoderSession, type RosterIdentity } from "../api";
 import { Status } from "../components/Lamp";
 import { Page } from "../components/Page";
 import { rosterSettingsLink } from "../components/decoder/DecoderPicker";
@@ -21,6 +21,7 @@ import {
   isEdited,
   isKnown,
   knownValues,
+  loadSetup,
   merge,
   pendingChanges,
   qualified,
@@ -144,6 +145,7 @@ export function DecoderSettings() {
     setSessionState(s);
   }, []);
   const [mismatch, setMismatch] = useState<Mismatch>();
+  const [setups, setSetups] = useState<CVSetup[]>([]);
   const runningRef = useRef(false);
   // The changes the roster keeps, as last sent, and the save waiting.
   const sentRef = useRef("{}");
@@ -172,6 +174,7 @@ export function DecoderSettings() {
           ? withChanges(withSession(withImported(withSaved(initialTable(d), values.cvs), values.imported ?? {}), values.session ?? noSession), values.changes ?? {})
           : initialTable(d);
         setSession(sessionState(values?.session));
+        setSetups(values?.setups ?? []);
         sentRef.current = JSON.stringify(pendingChanges(t));
         setDef(d);
         setTable(t);
@@ -751,6 +754,22 @@ export function DecoderSettings() {
         </div>
       )}
 
+      {loco && (
+        <Setups
+          loco={loco}
+          decoder={decoderID}
+          setups={setups}
+          busy={busy}
+          edited={anyEdited}
+          onChange={setSetups}
+          onLoad={(st, apply) => {
+            const r = loadSetup(tableRef.current, st.cvs, writable, fullBits);
+            if (apply) changeTable(r.table);
+            return r;
+          }}
+        />
+      )}
+
       {!loco && (
         <AddToRoster
           def={def}
@@ -856,6 +875,190 @@ function CheckMismatch({
         </button>
       </span>
     </div>
+  );
+}
+
+/**
+ * Copies of a roster decoder's values kept under a name, such as how it
+ * came or how it ran best. Loading one marks what differs as changes, so
+ * nothing reaches the decoder until they are written.
+ */
+function Setups({
+  loco,
+  decoder,
+  setups,
+  busy,
+  edited,
+  onChange,
+  onLoad,
+}: {
+  loco: string;
+  decoder: string;
+  setups: CVSetup[];
+  busy: boolean;
+  /** Whether there are changes not written yet, which a setup leaves out. */
+  edited: boolean;
+  onChange: (setups: CVSetup[]) => void;
+  /** What loading a setup would change; with apply, it does. */
+  onLoad: (setup: CVSetup, apply: boolean) => { changed: number; replaced: number };
+}) {
+  const now = useNow();
+  const [name, setName] = useState("");
+  const [working, setWorking] = useState(false);
+  const [error, setError] = useState<string>();
+  const [note, setNote] = useState<string>();
+  // What waits for a yes: replacing a setup by the same name, deleting
+  // one, or loading one over changes not written yet.
+  const [ask, setAskState] = useState<{ kind: "replace" | "delete" | "load"; setup: string; replaced?: number }>();
+  const setAsk = (a: typeof ask) => {
+    setAskState(a);
+    if (a) {
+      setNote(undefined);
+      setError(undefined);
+    }
+  };
+
+  async function refresh() {
+    onChange((await api.savedCVs(loco, decoder)).setups ?? []);
+  }
+
+  async function keep(replace: boolean) {
+    const n = name.trim();
+    if (!replace && setups.some((st) => st.name === n)) {
+      setAsk({ kind: "replace", setup: n });
+      return;
+    }
+    setWorking(true);
+    setError(undefined);
+    setNote(undefined);
+    setAsk(undefined);
+    try {
+      const st = await api.keepSetup(loco, decoder, n, replace);
+      setName("");
+      setNote(`Kept ${Object.keys(st.cvs).length.toLocaleString()} values as ${st.name}.`);
+      await refresh();
+    } catch (err) {
+      setError(describe(err));
+    } finally {
+      setWorking(false);
+    }
+  }
+
+  async function remove(n: string) {
+    setWorking(true);
+    setError(undefined);
+    setNote(undefined);
+    setAsk(undefined);
+    try {
+      await api.deleteSetup(loco, decoder, n);
+      await refresh();
+    } catch (err) {
+      setError(describe(err));
+    } finally {
+      setWorking(false);
+    }
+  }
+
+  function load(st: CVSetup, force: boolean) {
+    setError(undefined);
+    setAsk(undefined);
+    const r = onLoad(st, false);
+    if (r.replaced > 0 && !force) {
+      setAsk({ kind: "load", setup: st.name, replaced: r.replaced });
+      return;
+    }
+    onLoad(st, true);
+    setNote(
+      r.changed > 0
+        ? `Loaded ${st.name}: ${r.changed.toLocaleString()} change${r.changed === 1 ? "" : "s"} to write, marked on their pages.`
+        : r.replaced > 0
+          ? `Loaded ${st.name}: the values now match it, with nothing to write.`
+          : `The values match ${st.name}; nothing to change.`,
+    );
+  }
+
+  const disabled = busy || working;
+  return (
+    <section className="panel dec-setups">
+      <h2>Setups</h2>
+      <p className="dim">
+        Keep a copy of this decoder's values to load again later, such as how it came or how it ran best. Loading one marks what differs as
+        changes; nothing reaches the decoder until you write them.
+      </p>
+      {setups.length > 0 && (
+        <ul className="dec-setups__list">
+          {setups.map((st) => (
+            <li key={st.name}>
+              <span className="dec-setups__name">{st.name}</span>
+              <span className="dim">
+                {Object.keys(st.cvs).length.toLocaleString()} values, kept {relativeTime(st.kept, now)}
+              </span>
+              <span className="dec-setups__actions">
+                <button className="btn btn--quiet" disabled={disabled} onClick={() => load(st, false)}>
+                  Load
+                </button>
+                <button className="btn btn--quiet" disabled={disabled} onClick={() => setAsk({ kind: "delete", setup: st.name })}>
+                  Delete
+                </button>
+              </span>
+              {ask?.setup === st.name && ask.kind === "delete" && (
+                <span className="confirm">
+                  <span>Delete {st.name}? The decoder's values stay as they are.</span>
+                  <button className="btn btn--danger" disabled={disabled} onClick={() => void remove(st.name)}>
+                    Delete
+                  </button>
+                  <button className="btn btn--quiet" onClick={() => setAsk(undefined)}>
+                    Cancel
+                  </button>
+                </span>
+              )}
+              {ask?.setup === st.name && ask.kind === "load" && (
+                <span className="confirm">
+                  <span>
+                    Loading {st.name} replaces {ask.replaced === 1 ? "a change" : `${ask.replaced} changes`} not written yet.
+                  </span>
+                  <button className="btn btn--danger" disabled={disabled} onClick={() => load(st, true)}>
+                    Load
+                  </button>
+                  <button className="btn btn--quiet" onClick={() => setAsk(undefined)}>
+                    Cancel
+                  </button>
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      <form
+        className="dec-setups__keep"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void keep(false);
+        }}
+      >
+        <label className="auto-field">
+          <span>Name</span>
+          <input className="input" value={name} maxLength={64} onChange={(e) => setName(e.target.value)} placeholder="As delivered" />
+        </label>
+        <button className="btn" type="submit" disabled={disabled || !name.trim()}>
+          Keep these values
+        </button>
+      </form>
+      {ask?.kind === "replace" && (
+        <span className="confirm">
+          <span>A setup named {ask.setup} is kept already. Replace it with these values?</span>
+          <button className="btn btn--danger" disabled={disabled} onClick={() => void keep(true)}>
+            Replace
+          </button>
+          <button className="btn btn--quiet" onClick={() => setAsk(undefined)}>
+            Cancel
+          </button>
+        </span>
+      )}
+      {edited && <p className="dim">Changes not written yet are left out of a setup.</p>}
+      {note && <p>{note}</p>}
+      {error && <p className="field__error">{error}</p>}
+    </section>
   );
 }
 
