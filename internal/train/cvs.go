@@ -9,6 +9,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -24,6 +25,10 @@ const CVDirName = "cvs"
 
 // cvSaveDelay gathers the CVs of a page being read into one save.
 const cvSaveDelay = time.Second
+
+// SessionIdle ends a decoder's session after this long without a read,
+// a write or a change on its settings page.
+const SessionIdle = 2 * time.Hour
 
 const cvHeader = `# CV values of one decoder, as Interlock last read them from it or wrote
 # them to it; values imported from another roster that the decoder has not
@@ -48,6 +53,27 @@ type CVValues struct {
 	Imported map[string]int      `json:"imported,omitempty"`
 	Updated  time.Time           `json:"updated,omitzero"`
 	Changes  map[string]CVChange `json:"changes,omitempty"`
+	// Session is the work on the decoder going on now, if any.
+	Session *CVSession `json:"session,omitempty"`
+}
+
+// CVSession is a spell of work on one decoder: the CVs read from it and
+// written to it since it began, which can be trusted to hold those
+// values more than ones saved earlier. It ends after SessionIdle without
+// work, when a decoder is identified on the programming track (the
+// locomotive there may have been swapped), when it is ended by hand, or
+// when Interlock stops. A CV read or written last is listed only there.
+type CVSession struct {
+	Started time.Time `json:"started"`
+	Last    time.Time `json:"last"`
+	Read    []string  `json:"read"`
+	Written []string  `json:"written"`
+}
+
+type cvSession struct {
+	started, last time.Time
+	// written is true for a CV written last, false for one read last.
+	cvs map[string]bool
 }
 
 // CVChange is a change to a CV that is not written yet: the bits it
@@ -78,10 +104,12 @@ type CVStore struct {
 	dir string
 	log *slog.Logger
 
-	mu    sync.Mutex
-	docs  map[string]*cvDoc
-	dirty map[string]bool
-	timer *time.Timer
+	mu       sync.Mutex
+	docs     map[string]*cvDoc
+	dirty    map[string]bool
+	timer    *time.Timer
+	sessions map[string]*cvSession
+	now      func() time.Time
 }
 
 // OpenCVStore keeps values in dir, which is made when the first value is
@@ -90,7 +118,7 @@ func OpenCVStore(dir string, log *slog.Logger) *CVStore {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &CVStore{dir: dir, log: log, docs: make(map[string]*cvDoc), dirty: make(map[string]bool)}
+	return &CVStore{dir: dir, log: log, docs: make(map[string]*cvDoc), dirty: make(map[string]bool), sessions: make(map[string]*cvSession), now: time.Now}
 }
 
 func (s *CVStore) path(decoder string) string { return filepath.Join(s.dir, decoder+".yaml") }
@@ -129,7 +157,73 @@ func (s *CVStore) Get(decoder string) (CVValues, error) {
 	if err != nil {
 		return CVValues{}, err
 	}
-	return CVValues{CVs: maps.Clone(d.CVs), Imported: maps.Clone(d.Imported), Updated: d.Updated, Changes: maps.Clone(d.Changes)}, nil
+	v := CVValues{CVs: maps.Clone(d.CVs), Imported: maps.Clone(d.Imported), Updated: d.Updated, Changes: maps.Clone(d.Changes)}
+	if ss := s.sessionLocked(decoder, false); ss != nil {
+		v.Session = &CVSession{Started: ss.started, Last: ss.last, Read: []string{}, Written: []string{}}
+		for _, cv := range slices.Sorted(maps.Keys(ss.cvs)) {
+			if ss.cvs[cv] {
+				v.Session.Written = append(v.Session.Written, cv)
+			} else {
+				v.Session.Read = append(v.Session.Read, cv)
+			}
+		}
+	}
+	return v, nil
+}
+
+// sessionLocked returns the decoder's session, ending it if it has been
+// idle too long; with start it begins one if there is none, and either
+// way marks it busy now.
+func (s *CVStore) sessionLocked(decoder string, start bool) *cvSession {
+	now := s.now()
+	ss := s.sessions[decoder]
+	if ss != nil && now.Sub(ss.last) > SessionIdle {
+		delete(s.sessions, decoder)
+		ss = nil
+	}
+	if ss == nil && start {
+		ss = &cvSession{started: now, cvs: make(map[string]bool)}
+		s.sessions[decoder] = ss
+	}
+	if ss != nil && start {
+		ss.last = now
+	}
+	return ss
+}
+
+// Programmed records a value read from the decoder or written to it in
+// the session, which begins if there is none, and saves it.
+func (s *CVStore) Programmed(decoder, cv string, value int, written bool) error {
+	if s == nil {
+		return nil
+	}
+	if err := s.Set(decoder, map[string]int{cv: value}); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sessionLocked(decoder, true).cvs[cv] = written
+	return nil
+}
+
+// EndSession ends the decoder's session; its values stay saved.
+func (s *CVStore) EndSession(decoder string) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.sessions, decoder)
+}
+
+// EndSessions ends every decoder's session.
+func (s *CVStore) EndSessions() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	clear(s.sessions)
 }
 
 // Set records values read from or written to a decoder, keeping the
@@ -190,6 +284,7 @@ func (s *CVStore) Import(decoder string, values map[string]int, at time.Time) er
 	if err != nil {
 		return err
 	}
+	delete(s.sessions, decoder)
 	d.CVs = make(map[string]int)
 	d.Imported = maps.Clone(values)
 	if len(d.Imported) == 0 {
@@ -211,6 +306,10 @@ func (s *CVStore) SetChanges(decoder string, changes map[string]CVChange) error 
 	d, err := s.loadLocked(decoder)
 	if err != nil {
 		return err
+	}
+	// Changing settings is work on the decoder: it keeps a session going.
+	if ss := s.sessionLocked(decoder, false); ss != nil {
+		ss.last = s.now()
 	}
 	if maps.Equal(d.Changes, changes) || (len(d.Changes) == 0 && len(changes) == 0) {
 		return nil
@@ -244,6 +343,7 @@ func (s *CVStore) Delete(decoder string) error {
 	defer s.mu.Unlock()
 	delete(s.docs, decoder)
 	delete(s.dirty, decoder)
+	delete(s.sessions, decoder)
 	if err := os.Remove(s.path(decoder)); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("remove CV values: %w", err)
 	}

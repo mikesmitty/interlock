@@ -154,6 +154,28 @@ func (m *Manager) SetCVs(id, decoder string, values map[string]int, replace bool
 	return m.opts.CVs.Set(decoder, values)
 }
 
+// Programmed saves a value read from one of a locomotive's decoders or
+// written to it, as part of the decoder's session.
+func (m *Manager) Programmed(id, decoder, cv string, value int, written bool) error {
+	if err := m.checkCVs(id, decoder, map[string]int{cv: value}); err != nil {
+		return err
+	}
+	return m.opts.CVs.Programmed(decoder, cv, value, written)
+}
+
+// EndSession ends the session on one of a locomotive's decoders.
+func (m *Manager) EndSession(id, decoder string) error {
+	if err := m.hasDecoder(id, decoder); err != nil {
+		return err
+	}
+	m.opts.CVs.EndSession(decoder)
+	return nil
+}
+
+// EndSessions ends the session on every decoder, as when another
+// locomotive may be on the programming track.
+func (m *Manager) EndSessions() { m.opts.CVs.EndSessions() }
+
 // SetChanges keeps the changes made to one of a locomotive's decoders
 // that are not written to it yet, replacing those kept before. Only the
 // bits each change sets are kept.

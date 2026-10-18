@@ -90,6 +90,11 @@ func (a *API) identifyDecoder(w http.ResponseWriter, r *http.Request) {
 	}
 	id, err := decoder.Identify(r.Context(), serviceBus{a.deps.Programmer})
 	a.sessions.forget("")
+	if err == nil && a.deps.Trains != nil {
+		// The locomotive on the track may have been swapped, so what was
+		// read or written before no longer counts as current.
+		a.deps.Trains.EndSessions()
+	}
 	if err != nil {
 		writeError(w, http.StatusBadGateway, "The decoder could not be identified: "+programmer.Explain(err))
 		return
@@ -227,7 +232,7 @@ func (a *API) decoderCV(w http.ResponseWriter, r *http.Request) {
 		resp.Error = programmer.Explain(err)
 	}
 	if resp.OK && body.Decoder != "" {
-		if err := a.deps.Trains.SetCVs(body.Locomotive, body.Decoder, map[string]int{body.CV: resp.Value}, false); err != nil {
+		if err := a.deps.Trains.Programmed(body.Locomotive, body.Decoder, body.CV, resp.Value, body.Write); err != nil {
 			resp.Error = "The value could not be saved in the roster: " + err.Error()
 		}
 	}

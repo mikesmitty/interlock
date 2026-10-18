@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -638,5 +639,91 @@ func TestImport(t *testing.T) {
 	}
 	if got, _ := m.CVs("kato-p42", "digitrax"); got.Imported != nil || got.CVs["1"] != 4 {
 		t.Errorf("after replacing, Digitrax CVs = %+v", got)
+	}
+}
+
+func TestCVSessions(t *testing.T) {
+	b := newBench(t)
+	store := train.OpenCVStore(filepath.Join(t.TempDir(), train.CVDirName), nil)
+	now := time.Date(2026, 10, 17, 19, 0, 0, 0, time.UTC)
+	train.SetCVStoreClock(store, func() time.Time { return now })
+	m := train.New(train.Options{Bus: b.local, Logger: slog.New(slog.DiscardHandler), CVs: store})
+	p42, err := m.Create(train.Entry{Name: "Kato P42", Address: 150})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p42, esu, err := m.AddDecoder(b.ctx, p42.ID, train.Decoder{File: "ESU_LokPilot5.xml", Model: "LokPilot 5 nano DCC"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := func() *train.CVSession {
+		t.Helper()
+		got, err := m.CVs(p42.ID, esu.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got.Session
+	}
+
+	if s := session(); s != nil {
+		t.Fatalf("a session before any work: %+v", s)
+	}
+	// Reads and writes begin a session and are listed by what came last.
+	for _, op := range []struct {
+		cv      string
+		value   int
+		written bool
+	}{{"1", 3, false}, {"29", 34, false}, {"3", 4, true}, {"29", 38, true}} {
+		if err := m.Programmed(p42.ID, esu.ID, op.cv, op.value, op.written); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s := session()
+	if s == nil || !slices.Equal(s.Read, []string{"1"}) || !slices.Equal(s.Written, []string{"29", "3"}) || !s.Started.Equal(now) {
+		t.Fatalf("session = %+v", s)
+	}
+	if got, _ := m.CVs(p42.ID, esu.ID); got.CVs["29"] != 38 {
+		t.Errorf("a value in the session is not saved: %+v", got.CVs)
+	}
+	if err := m.Programmed(p42.ID, "nope", "1", 3, false); !errors.Is(err, train.ErrNotFound) {
+		t.Errorf("Programmed on another decoder = %v", err)
+	}
+
+	// Changing settings keeps it going; two idle hours end it.
+	now = now.Add(train.SessionIdle - time.Minute)
+	if err := m.SetChanges(p42.ID, esu.ID, map[string]train.CVChange{"3": {Value: 5, Bits: 0xFF}}); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(train.SessionIdle - time.Minute)
+	if s := session(); s == nil || !s.Last.Equal(now.Add(-train.SessionIdle+time.Minute)) {
+		t.Fatalf("a change did not keep the session going: %+v", s)
+	}
+	now = now.Add(2 * time.Minute)
+	if s := session(); s != nil {
+		t.Fatalf("an idle session went on: %+v", s)
+	}
+	if got, _ := m.CVs(p42.ID, esu.ID); got.CVs["1"] != 3 {
+		t.Errorf("the values went with the session: %+v", got.CVs)
+	}
+
+	// Ended by hand or for every decoder at once.
+	if err := m.Programmed(p42.ID, esu.ID, "1", 3, false); err != nil {
+		t.Fatal(err)
+	}
+	if s := session(); s == nil || !s.Started.Equal(now) || len(s.Written) != 0 {
+		t.Fatalf("a new session = %+v", s)
+	}
+	if err := m.EndSession(p42.ID, esu.ID); err != nil || session() != nil {
+		t.Errorf("EndSession = %v, %+v", err, session())
+	}
+	if err := m.EndSession(p42.ID, "nope"); !errors.Is(err, train.ErrNotFound) {
+		t.Errorf("EndSession on another decoder = %v", err)
+	}
+	if err := m.Programmed(p42.ID, esu.ID, "1", 3, false); err != nil {
+		t.Fatal(err)
+	}
+	m.EndSessions()
+	if s := session(); s != nil {
+		t.Errorf("EndSessions left %+v", s)
 	}
 }

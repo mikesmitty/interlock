@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -53,6 +54,29 @@ func TestRosterDecoderEndpoints(t *testing.T) {
 	rec, body = ta.do(t, http.MethodGet, "/api/v1/trains/gp40/decoders/loksound-5/cvs", "")
 	if cvs := body["cvs"].(map[string]any); rec.Code != http.StatusOK || cvs["16.0.259"] != float64(40) || cvs["29"] != float64(38) || body["updated"] == nil {
 		t.Fatalf("GET cvs = %d %v", rec.Code, body)
+	}
+	// They are the decoder's session, until it is ended by hand or a
+	// decoder is identified on the programming track.
+	session := func() map[string]any {
+		t.Helper()
+		_, body := ta.do(t, http.MethodGet, "/api/v1/trains/gp40/decoders/loksound-5/cvs", "")
+		s, _ := body["session"].(map[string]any)
+		return s
+	}
+	if s := session(); s == nil || fmt.Sprint(s["read"]) != "[16.0.259]" || fmt.Sprint(s["written"]) != "[29]" || s["started"] == nil {
+		t.Errorf("session = %v", s)
+	}
+	if rec, _ := ta.do(t, http.MethodDelete, "/api/v1/trains/gp40/decoders/loksound-5/session", ""); rec.Code != http.StatusNoContent || session() != nil {
+		t.Errorf("DELETE session = %d, then %v", rec.Code, session())
+	}
+	if rec, _ := ta.do(t, http.MethodDelete, "/api/v1/trains/gp40/decoders/nope/session", ""); rec.Code != http.StatusNotFound {
+		t.Errorf("DELETE another decoder's session = %d", rec.Code)
+	}
+	if rec, _ := ta.do(t, http.MethodPost, "/api/v1/programming/decoder-cv", `{`+def+`"cv":"29"}`); rec.Code != http.StatusOK || session() == nil {
+		t.Fatalf("read = %d, session %v", rec.Code, session())
+	}
+	if rec, _ := ta.do(t, http.MethodPost, "/api/v1/programming/identify", ""); rec.Code != http.StatusOK || session() != nil {
+		t.Errorf("identify = %d, session %v", rec.Code, session())
 	}
 	if rec, body = ta.do(t, http.MethodPatch, "/api/v1/trains/gp40/decoders/loksound-5/cvs", `{"cvs": {"3": 10}}`); rec.Code != http.StatusOK || len(body["cvs"].(map[string]any)) != 3 {
 		t.Errorf("PATCH cvs = %d %v", rec.Code, body)

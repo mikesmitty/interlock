@@ -18,10 +18,11 @@ import (
 //	PATCH  /api/v1/trains/{id}/decoders/{decoder}          any of {name, file, family, model, identity} -> train
 //	DELETE /api/v1/trains/{id}/decoders/{decoder}          forgets its CV values too -> train
 //	POST   /api/v1/trains/{id}/install                     {decoder} fits it ("" for none) -> train
-//	GET    /api/v1/trains/{id}/decoders/{decoder}/cvs      {cvs, updated, changes}
+//	GET    /api/v1/trains/{id}/decoders/{decoder}/cvs      {cvs, imported, updated, changes, session}
 //	PATCH  /api/v1/trains/{id}/decoders/{decoder}/cvs      {cvs} saves these values, keeping the others
 //	PUT    /api/v1/trains/{id}/decoders/{decoder}/cvs      {cvs} replaces them all
 //	PUT    /api/v1/trains/{id}/decoders/{decoder}/changes  {changes} keeps the changes not written yet
+//	DELETE /api/v1/trains/{id}/decoders/{decoder}/session  ends the session on it
 //	POST   /api/v1/trains/import                           multipart: file (JMRI roster files or zips), plan
 //
 // Without a plan the import answers with what it found and a suggested
@@ -206,6 +207,19 @@ func (a *API) setDecoderChanges(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := a.deps.Trains.SetChanges(r.PathValue("id"), r.PathValue("decoder"), body.Changes); err != nil {
+		a.trainError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// endDecoderSession ends the session on a decoder: what was read and
+// written in it counts as saved from then on.
+func (a *API) endDecoderSession(w http.ResponseWriter, r *http.Request) {
+	if !a.trainsReady(w) {
+		return
+	}
+	if err := a.deps.Trains.EndSession(r.PathValue("id"), r.PathValue("decoder")); err != nil {
 		a.trainError(w, err)
 		return
 	}

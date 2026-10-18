@@ -25,6 +25,9 @@ type Trains interface {
 	CVs(id, decoder string) (train.CVValues, error)
 	SetCVs(id, decoder string, values map[string]int, replace bool) error
 	SetChanges(id, decoder string, changes map[string]train.CVChange) error
+	Programmed(id, decoder, cv string, value int, written bool) error
+	EndSession(id, decoder string) error
+	EndSessions()
 	FindDecoder(id train.Identity, address uint16, long bool) []train.DecoderMatch
 	PlanImport(items []train.Import) []train.ImportStep
 	ApplyImport(ctx context.Context, items []train.Import, plan []train.ImportStep) (train.ImportResult, error)
