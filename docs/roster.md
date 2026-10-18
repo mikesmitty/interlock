@@ -63,9 +63,10 @@ changes:
 - Its decoder comes in with the definition JMRI used and every CV value
   the locomotive file holds. Those values are marked as imported, not
   read: the settings page shows them but counts them as not read yet
-  until a read confirms them, and a change to part of a CV (one bit of CV
+  until a read confirms them. A change to part of a CV (one bit of CV
   29, say) reads the decoder before writing, so its other bits are what
-  the decoder holds. A decoder model that the definitions no longer have
+  the decoder holds, and **Write page** reads imported values rather
+  than writing them back. A decoder model that the definitions no longer have
   is marked; choose its definition later on the locomotive's page.
 - Entries with the same address, road name and road number are offered
   as one locomotive with several decoders: the most recently changed
