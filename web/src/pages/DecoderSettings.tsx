@@ -103,8 +103,8 @@ export function DecoderSettings() {
   const [failures, setFailures] = useState<Record<string, string>>({});
   const [job, setJob] = useState<Job>();
   const stopRef = useRef(false);
-  // Imported CVs a write read rather than wrote, for its message.
-  const readInstead = useRef(0);
+  // Write page waits for a yes when it would write values not read.
+  const [confirmWrite, setConfirmWrite] = useState(false);
   const [train, setTrain] = useState(params.get("train") ?? "");
   const [message, setMessage] = useState<string>();
   // How many changes from an earlier visit came back, for a note.
@@ -306,7 +306,7 @@ export function DecoderSettings() {
 
   async function run(kind: Job["kind"], cvs: string[], step: (cv: string) => Promise<string | undefined>) {
     stopRef.current = false;
-    readInstead.current = 0;
+    setConfirmWrite(false);
     setMessage(undefined);
     let failed = 0;
     setJob({ kind, done: 0, total: cvs.length, failed });
@@ -336,13 +336,7 @@ export function DecoderSettings() {
       if (stopRef.current) setMessage("Stopped.");
       else if (failed > 0) setMessage(`${failed} of ${cvs.length} CVs could not be ${verb}.`);
       else if (cvs.length === 0) setMessage(kind === "read" ? "This page has nothing to read." : "Nothing on this page needs writing.");
-      else if (readInstead.current > 0) {
-        const read = readInstead.current;
-        const written = cvs.length - read;
-        setMessage(
-          `${written > 0 ? `${written} CV${written === 1 ? "" : "s"} written; ` : ""}${read} imported CV${read === 1 ? "" : "s"} read from the decoder instead${loco ? ", and all saved" : ""}.`,
-        );
-      } else setMessage(`${cvs.length} CV${cvs.length === 1 ? "" : "s"} ${verb}${loco ? " and saved" : ""}.`);
+      else setMessage(`${cvs.length} CV${cvs.length === 1 ? "" : "s"} ${verb}${loco ? " and saved" : ""}.`);
       if (loco && failed < cvs.length) setSavedAt(new Date().toISOString());
     }
     if (kind === "write") await followAddress();
@@ -360,15 +354,6 @@ export function DecoderSettings() {
     if (!cell) return undefined;
     let value = cell.value;
     const info = cvInfo.get(cv);
-    // An imported value may be out of date, and the decoder's own bits
-    // win over it, so it is read rather than written back.
-    if (cell.state === "imported") {
-      const r = await cvCall(cv);
-      if (!r.ok) return `Could not read it: ${r.error ?? "failed"}`;
-      setTable(settle(tableRef.current, cv, r.value, "read"));
-      readInstead.current++;
-      return undefined;
-    }
     // A CV edited before it was ever read keeps the decoder's other bits.
     if (!cell.known && cell.state === "edited" && cell.edited !== fullBits(cv) && !info?.write_only && !onMain) {
       const r = await cvCall(cv);
@@ -392,11 +377,17 @@ export function DecoderSettings() {
   const cvs = pane ? paneCVs(pane, def, vars) : [];
   const toRead = cvs.filter(readable);
   const changed = cvs.filter((cv) => writable(cv) && table[cv]?.state === "edited");
-  // Imported values are read instead of written, so those that cannot be
-  // read here are left alone.
-  const toWrite = cvs.filter(
-    (cv) => writable(cv) && table[cv] && table[cv].state !== "unknown" && !(table[cv].state === "imported" && (onMain || !readable(cv))),
-  );
+  const toWrite = cvs.filter((cv) => writable(cv) && table[cv] && table[cv].state !== "unknown");
+  // Values Write page would put on the decoder without its having held
+  // them: imported ones not read since, and the definition's defaults.
+  const unreadImported = toWrite.filter((cv) => table[cv].state === "imported").length;
+  const unreadDefaults = toWrite.filter((cv) => table[cv].state === "fromfile").length;
+  const unreadList = [
+    unreadImported > 0 ? `${unreadImported} imported value${unreadImported === 1 ? "" : "s"}` : "",
+    unreadDefaults > 0 ? `${unreadDefaults} default${unreadDefaults === 1 ? "" : "s"}` : "",
+  ]
+    .filter(Boolean)
+    .join(" and ");
   const allChanged = def.cvs.filter((c) => !c.info_only && !c.read_only && table[c.name]?.state === "edited").map((c) => c.name);
   const pageEdited = cvs.filter((cv) => table[cv]?.state === "edited");
   const anyEdited = Object.values(table).some((c) => c.state === "edited");
@@ -474,6 +465,7 @@ export function DecoderSettings() {
               title={p.tooltip}
               onClick={() => {
                 setTab(i);
+                setConfirmWrite(false);
                 setMessage(undefined);
                 setFailures({});
               }}
@@ -493,7 +485,11 @@ export function DecoderSettings() {
             <button className="btn btn--primary" disabled={busy || !programmable || changed.length === 0} onClick={() => void run("write", changed, writeCV)}>
               Write changes{changed.length > 0 ? ` (${changed.length})` : ""}
             </button>
-            <button className="btn btn--quiet" disabled={busy || !programmable || toWrite.length === 0} onClick={() => void run("write", toWrite, writeCV)}>
+            <button
+              className="btn btn--quiet"
+              disabled={busy || !programmable || toWrite.length === 0}
+              onClick={() => (unreadList ? setConfirmWrite(true) : void run("write", toWrite, writeCV))}
+            >
               Write page
             </button>
             {pageEdited.length > 0 && (
@@ -528,6 +524,20 @@ export function DecoderSettings() {
               )}
             </span>
           </div>
+          {confirmWrite && unreadList && !busy && (
+            <div className="confirm confirm--block dec-confirm">
+              <span>
+                {unreadList} on this page {unreadImported + unreadDefaults === 1 ? "was" : "were"} not read from the decoder. Writing the page
+                replaces what the decoder holds with {unreadImported + unreadDefaults === 1 ? "it" : "them"}.
+              </span>
+              <button className="btn btn--danger" onClick={() => void run("write", toWrite, writeCV)}>
+                Write page
+              </button>
+              <button className="btn btn--quiet" onClick={() => setConfirmWrite(false)}>
+                Cancel
+              </button>
+            </div>
+          )}
           {Object.keys(failures).length > 0 && !busy && (
             <details className="note note--error">
               <summary>Which CVs failed</summary>

@@ -60,9 +60,10 @@ defaults, marked as not read yet.
   shares its CV with others is written without disturbing them: if that
   CV was never read, Interlock reads it first.
 - **Write page** writes every CV on the tab that has a value, for setting
-  up a new decoder from the defaults. A value imported from a JMRI
-  roster and not read since is read from the decoder instead, since the
-  decoder's value wins over the imported one.
+  up a new decoder from the defaults or putting a saved copy back. When
+  some of those values were not read from the decoder (defaults, or
+  values imported from a JMRI roster and not read since), it asks first,
+  since they replace whatever the decoder holds.
 - **Discard changes** puts the tab's changed settings back as they were.
 
 Changed settings carry a brass mark until they are written, and so do

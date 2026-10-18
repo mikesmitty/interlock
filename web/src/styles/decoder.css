@@ -78,6 +78,10 @@
   border-bottom: 1px solid var(--enamel-line);
 }
 
+.dec-confirm {
+  margin-top: 0.75rem;
+}
+
 .dec-toolbar__status {
   display: inline-flex;
   flex-wrap: wrap;
