@@ -441,6 +441,19 @@ the browser, Engine Driver's Web tab included, so this waits until a
 tool needs it. DCC-EX's track manager and EXRAIL have no LCC
 counterpart.
 
+Consist support. Build a consist from a lead locomotive and members,
+each facing either way and choosing which functions follow the lead,
+through Train Control's consist attach, detach and query, so the command
+station passes the lead's speed and functions on. Show and drive
+consists on the Throttle page and in throttle apps, keep them in the
+roster, and show them on train node pages. `simple-dcc` forwards only to
+members on its own train nodes, so members on another command station
+wait on the firmware. Throttle apps can already drive several
+locomotives on one throttle by sending each the same commands; that
+consist lives in the app, not on the layout. DCC advanced consisting
+(CV 19, written to each decoder, then driven by the consist address) is
+the other kind to weigh alongside it.
+
 ## Decisions on the open questions
 
 - **Node ID:** Interlock uses a locally assigned ID (0A prefix over 40
