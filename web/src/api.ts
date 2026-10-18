@@ -1008,6 +1008,43 @@ export function nodeModel(n: NodeInfo): string {
   return `${n.snip.Manufacturer} ${n.snip.Model}`.trim();
 }
 
+/** The DCC address in a train node's ID: 06.01, then the address in the low 14 bits, with 0xC000 set for a long one. */
+export function trainNodeAddress(id: string): { address: number; long: boolean } | undefined {
+  const b = id.split(".").map((h) => parseInt(h, 16));
+  if (b.length !== 6 || b[0] !== 0x06 || b[1] !== 0x01) return undefined;
+  const v = (b[4] << 8) | b[5];
+  const address = v & 0x3fff;
+  return { address, long: (v & 0xc000) === 0xc000 || address > 127 };
+}
+
+/** An address as it reads: "1234", or "3 (short)" and "3 (long)" where both kinds exist. */
+export function addressName(address: number, long: boolean): string {
+  if (address > 127) return String(address);
+  return `${address} (${long ? "long" : "short"})`;
+}
+
+/** The train ID of an address alone, as the server makes it: "1234", "3", or "3l" for a long 3. */
+export function addressID(t: { address: number; long: boolean }): string {
+  return t.long && t.address <= 127 ? `${t.address}l` : String(t.address);
+}
+
+/** The roster locomotives at a train node's address, by name. */
+export function trainsAtNode(id: string, trains: Record<string, Train>): Train[] {
+  const a = trainNodeAddress(id);
+  if (!a) return [];
+  return Object.values(trains)
+    .filter((t) => t.roster && !t.removed && t.address === a.address && (t.long || t.address > 127) === a.long)
+    .sort((x, y) => x.name.localeCompare(y.name));
+}
+
+/** How a train node is called: the names of its roster locomotives, else its address; undefined for other nodes. */
+export function trainNodeName(id: string, trains: Record<string, Train>): string | undefined {
+  const a = trainNodeAddress(id);
+  if (!a) return undefined;
+  const at = trainsAtNode(id, trains);
+  return at.length > 0 ? at.map((t) => t.name).join(" / ") : `Locomotive ${addressName(a.address, a.long)}`;
+}
+
 export function aliasHex(alias: number): string {
   return "0x" + alias.toString(16).toUpperCase().padStart(3, "0");
 }

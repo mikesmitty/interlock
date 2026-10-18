@@ -1,6 +1,17 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router";
-import { api, aliasHex, nodeModel, nodeName, type NodeInfo } from "../api";
+import {
+  addressName,
+  aliasHex,
+  api,
+  nodeModel,
+  nodeName,
+  trainNodeAddress,
+  trainNodeName,
+  trainsAtNode,
+  type NodeInfo,
+  type Train,
+} from "../api";
 import { Lamp } from "../components/Lamp";
 import { Empty, Page } from "../components/Page";
 import { plural, relativeTime, useNow } from "../format";
@@ -19,15 +30,23 @@ function sortNodes(nodes: NodeInfo[]): NodeInfo[] {
   });
 }
 
+/** Train nodes by locomotive address, those online first. */
+function sortTrainNodes(nodes: NodeInfo[]): NodeInfo[] {
+  return [...nodes].sort((a, b) => {
+    if (a.online !== b.online) return a.online ? -1 : 1;
+    return (trainNodeAddress(a.id)?.address ?? 0) - (trainNodeAddress(b.id)?.address ?? 0) || a.id.localeCompare(b.id);
+  });
+}
+
 export function Nodes() {
-  const { nodes, links, loaded } = useBus();
+  const { nodes, links, loaded, trains } = useBus();
   const now = useNow();
   const navigate = useNavigate();
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string>();
 
   const all = sortNodes(Object.values(nodes));
-  const trainNodes = all.filter((n) => isTrainNode(n));
+  const trainNodes = sortTrainNodes(all.filter((n) => isTrainNode(n)));
   const list = all.filter((n) => !isTrainNode(n));
   const others = list.filter((n) => !n.local);
   const online = others.filter((n) => n.online).length;
@@ -90,14 +109,34 @@ export function Nodes() {
             Made by the command station for the locomotives throttles asked for. Drive them from the{" "}
             <Link to="/throttle">throttle</Link>.
           </p>
-          <NodeTable list={trainNodes} now={now} onOpen={(id) => navigate(`/nodes/${id}`)} />
+          <NodeTable list={trainNodes} trains={trains} now={now} onOpen={(id) => navigate(`/nodes/${id}`)} />
         </>
       )}
     </Page>
   );
 }
 
-function NodeTable({ list, now, onOpen }: { list: NodeInfo[]; now: number; onOpen: (id: string) => void }) {
+/** A node's name and the line under it. A train node is named for its locomotive, from the roster when it has one. */
+function nodeTitle(n: NodeInfo, trains?: Record<string, Train>): { title: string; sub: string } {
+  const address = trains ? trainNodeAddress(n.id) : undefined;
+  if (!trains || !address) return { title: nodeName(n), sub: nodeModel(n) !== nodeName(n) ? nodeModel(n) : "" };
+  const named = trainsAtNode(n.id, trains).length > 0;
+  const sub = [named ? `Locomotive ${addressName(address.address, address.long)}` : "", nodeModel(n)];
+  return { title: trainNodeName(n.id, trains) ?? nodeName(n), sub: sub.filter(Boolean).join(" · ") };
+}
+
+function NodeTable({
+  list,
+  trains,
+  now,
+  onOpen,
+}: {
+  list: NodeInfo[];
+  /** Name train nodes for their locomotives. */
+  trains?: Record<string, Train>;
+  now: number;
+  onOpen: (id: string) => void;
+}) {
   return (
     <div className="panel">
       <table className="table table--rows">
@@ -129,10 +168,10 @@ function NodeTable({ list, now, onOpen }: { list: NodeInfo[]; now: number; onOpe
               </td>
               <td>
                 <div className="cell-title">
-                  {nodeName(n)}
+                  {nodeTitle(n, trains).title}
                   {n.local && <span className="faint"> (this controller)</span>}
                 </div>
-                {nodeModel(n) && nodeModel(n) !== nodeName(n) && <div className="cell-sub">{nodeModel(n)}</div>}
+                {nodeTitle(n, trains).sub && <div className="cell-sub">{nodeTitle(n, trains).sub}</div>}
                 {!n.snip && n.error && <div className="cell-sub">Did not answer identification</div>}
               </td>
               <td className="dim">{n.id}</td>

@@ -1,6 +1,19 @@
 import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
-import { api, aliasHex, nodeModel, nodeName, type CdiStatus, type MonitorEntry, type NodeInfo } from "../api";
+import {
+  addressID,
+  addressName,
+  aliasHex,
+  api,
+  nodeModel,
+  nodeName,
+  trainNodeAddress,
+  trainNodeName,
+  trainsAtNode,
+  type CdiStatus,
+  type MonitorEntry,
+  type NodeInfo,
+} from "../api";
 import { ConfigForm } from "../components/ConfigForm";
 import { EntityRows } from "../components/EntityRows";
 import { FirmwarePanel } from "../components/FirmwarePanel";
@@ -12,7 +25,7 @@ import { describeEndpoint } from "./Monitor";
 
 export function NodeDetail() {
   const { id = "" } = useParams();
-  const { nodes, entries, entities, loaded, firmware } = useBus();
+  const { nodes, entries, entities, loaded, firmware, trains } = useBus();
   const now = useNow();
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
@@ -68,12 +81,16 @@ export function NodeDetail() {
   }
 
   const snip = node.snip;
+  // A train node is the command station's stand-in for a locomotive.
+  const locomotive = trainNodeAddress(node.id);
+  const title = trainNodeName(node.id, trains) ?? nodeName(node);
+  const atAddress = trainsAtNode(node.id, trains);
   const configurable = !node.local && node.protocols?.includes("CDI") && node.protocols.includes("Memory Configuration");
   const upgradable = !node.local && (node.protocols?.includes("Firmware Upgrade") || firmware[node.id] !== undefined);
   return (
     <Page
-      title={nodeName(node)}
-      lead={node.local ? "This controller" : nodeModel(node) !== nodeName(node) ? nodeModel(node) : undefined}
+      title={title}
+      lead={node.local ? "This controller" : nodeModel(node) !== title ? nodeModel(node) : undefined}
       back={back}
       actions={
         !node.local && (
@@ -95,6 +112,11 @@ export function NodeDetail() {
             <button className="btn" onClick={() => void act("Identification", () => api.refreshNode(node.id), "Asked the node to identify itself again.")} disabled={busy}>
               Identify again
             </button>
+            {locomotive && (
+              <Link className="btn" to={`/throttle/${encodeURIComponent(atAddress[0]?.id ?? addressID(locomotive))}`}>
+                Drive
+              </Link>
+            )}
           </>
         )
       }
@@ -107,6 +129,22 @@ export function NodeDetail() {
           <dd>
             <Status color={node.online ? "green" : "red"}>{node.online ? "Online" : "Offline"}</Status>
           </dd>
+          {locomotive && (
+            <>
+              <dt>Locomotive</dt>
+              <dd>
+                {atAddress.map((t, i) => (
+                  <span key={t.id}>
+                    {i > 0 && ", "}
+                    <Link to={`/roster/${encodeURIComponent(t.id)}`}>{t.name}</Link>
+                  </span>
+                ))}
+                {atAddress.length > 0 ? ", address " : "Address "}
+                {addressName(locomotive.address, locomotive.long)}
+                {atAddress.length === 0 && <span className="muted">, not in the roster</span>}
+              </dd>
+            </>
+          )}
           <dt>Node ID</dt>
           <dd>{node.id}</dd>
           <dt>Alias</dt>

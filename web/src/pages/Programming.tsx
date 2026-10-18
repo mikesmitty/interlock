@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { api, type CVOp, type ProgrammingTrack } from "../api";
+import { addressID, api, type CVOp, type ProgrammingTrack } from "../api";
 import { DecoderPicker } from "../components/decoder/DecoderPicker";
 import { Status } from "../components/Lamp";
 import { Page } from "../components/Page";
@@ -283,7 +283,6 @@ function OnTheMain({
   onOp: (op: CVOp) => void;
 }) {
   // Locomotives are named by address here: that is what a write on the main reaches.
-  const addressID = (t: { address: number; long: boolean }) => (t.long && t.address <= 127 ? `${t.address}l` : String(t.address));
   const [train, setTrain] = useState("");
   const [cv, setCV] = useState("3");
   const [value, setValue] = useState<number>();
