@@ -29,8 +29,8 @@ changed elsewhere since. Values read or written in the current
 lamp. Before the first read or write on the programming track, Interlock
 [checks](./decoders.md#checking-the-decoder-on-the-track) that the
 decoder there is this one, by its model, its address and the values
-saved for it. [Setups](./decoders.md#setups) keep named copies of a
-decoder's values to load again later.
+saved for it. [Decoder profiles](./decoders.md#decoder-profiles) keep
+named copies of a decoder's values to load again later.
 
 To add a decoder, choose **Add a decoder** and identify it on the
 programming track or search for the model. A decoder opened from the

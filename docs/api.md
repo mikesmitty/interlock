@@ -122,12 +122,12 @@ POST   /api/v1/trains/{id}/decoders          {name, file, family, model, identit
 PATCH  /api/v1/trains/{id}/decoders/{dec}    {name, file, family, model, identity}
 DELETE /api/v1/trains/{id}/decoders/{dec}    with its CV values
 POST   /api/v1/trains/{id}/install           {decoder} fit one ("" for none); address and labels swap
-GET    /api/v1/trains/{id}/decoders/{dec}/cvs      {cvs, imported, updated, changes, session, setups}
+GET    /api/v1/trains/{id}/decoders/{dec}/cvs      {cvs, imported, updated, changes, session, profiles}
 PATCH  /api/v1/trains/{id}/decoders/{dec}/cvs      {cvs} save these values
 PUT    /api/v1/trains/{id}/decoders/{dec}/cvs      {cvs} replace them all
 PUT    /api/v1/trains/{id}/decoders/{dec}/changes  {changes} keep the changes not written yet
-POST   /api/v1/trains/{id}/decoders/{dec}/setups   {name, replace} keep a copy of its values -> {name, kept, cvs}
-DELETE /api/v1/trains/{id}/decoders/{dec}/setups/{name}  forget one
+POST   /api/v1/trains/{id}/decoders/{dec}/profiles {name, replace} keep a copy of its values -> {name, kept, cvs}
+DELETE /api/v1/trains/{id}/decoders/{dec}/profiles/{name}  forget one
 POST   /api/v1/trains/{id}/decoders/{dec}/check    is the decoder on the programming track this one?
 POST   /api/v1/trains/{id}/decoders/{dec}/session  begin the session though the check did not match
 DELETE /api/v1/trains/{id}/decoders/{dec}/session  end the session on it
@@ -161,9 +161,10 @@ began. It ends two hours after `last`, when `/programming/identify`
 finds a decoder, when another decoder is checked, when it is deleted,
 or when Interlock restarts.
 
-A setup copies `cvs` and `imported` under a name; keeping one by a name
-already kept answers 409 unless `replace` is set. Loading a setup
-happens in the browser, as changes.
+A decoder profile copies `cvs` and `imported` under a name; keeping one
+by a name already kept answers 409 unless `replace` is set. Loading a
+decoder profile happens in the browser, as changes. Decoder profiles are
+not the node profiles of `/api/v1/profiles`.
 
 `check` reads the decoder on the programming track and compares it with
 the roster decoder: `{match, differences, told, alike, others, read,

@@ -30,7 +30,7 @@ import {
   sourceOf,
   withSession,
   endSession,
-  loadSetup,
+  loadProfile,
   confirmed,
   type CVTable,
 } from "./values.ts";
@@ -327,12 +327,12 @@ test("changes not written yet are kept, survive a read and can be undone", () =>
   assert.deepEqual(settle(reopened, "29", 0x21, "read")["29"], { value: 0x21, state: "read", known: true, edited: 0 });
 });
 
-test("a kept setup loads as changes where it differs", () => {
+test("a kept profile loads as changes where it differs", () => {
   let t: CVTable = withImported(withSaved({}, { "1": 3, "3": 10, "29": 6 }), { "4": 8 });
   t = applyUpdates(t, [{ cv: "1", value: 4, bits: 0xff }], "edited");
   t["5"] = { value: 0, state: "unknown", known: false, edited: 0 };
   t["8"] = { value: 151, state: "read", known: true, edited: 0 };
-  const r = loadSetup(t, { "1": 5, "3": 10, "29": 7, "4": 8, "5": 0, "8": 99, "99": 1 }, (cv) => cv !== "8", () => 0xff);
+  const r = loadProfile(t, { "1": 5, "3": 10, "29": 7, "4": 8, "5": 0, "8": 99, "99": 1 }, (cv) => cv !== "8", () => 0xff);
   assert.equal(r.changed, 3, "CVs 1, 29 and 5, which had no value");
   assert.equal(r.replaced, 1, "the change to CV 1");
   assert.deepEqual(
@@ -347,9 +347,9 @@ test("a kept setup loads as changes where it differs", () => {
     ],
   );
   assert.equal(r.table["99"], undefined, "a CV the definition lacks is left out");
-  const back = loadSetup(t, { "1": 3 }, () => true, () => 0xff);
+  const back = loadProfile(t, { "1": 3 }, () => true, () => 0xff);
   assert.deepEqual([back.changed, back.replaced], [0, 1]);
-  assert.deepEqual(back.table["1"], { value: 3, state: "saved", known: true, edited: 0 }, "a setup that undoes a change drops it");
+  assert.deepEqual(back.table["1"], { value: 3, state: "saved", known: true, edited: 0 }, "a profile that undoes a change drops it");
   assert.deepEqual(pendingChanges(r.table)["29"], { value: 7, bits: 0xff });
   assert.deepEqual(discard(r.table, ["1", "29"])["1"], { value: 3, state: "saved", known: true, edited: 0 }, "undoing goes back to before the edits");
 });

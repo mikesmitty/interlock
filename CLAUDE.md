@@ -107,8 +107,9 @@ applied at the next start; the replaced files go to `before-restore-*/`.
   entry there shows it. Each entry has decoders, one fitted, whose
   address and labels swap with it; `CVStore` keeps each decoder's CV
   values (imported ones apart until a read confirms them), the
-  settings page's changes not written yet and named setups (copies of
-  its values to load again as changes) in `<data>/cvs/`, and in
+  settings page's changes not written yet and decoder profiles (named
+  copies of its values to load again as changes; not the node profiles
+  of `internal/profile`) in `<data>/cvs/`, and in
   memory each decoder's session (what was read and written since work on
   it began; Identify ends them all). Work on the programming track needs
   a session begun by `CheckDecoder` (`check.go`: model, address, saved

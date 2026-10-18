@@ -33,7 +33,8 @@ const SessionIdle = 2 * time.Hour
 const cvHeader = `# CV values of one decoder, as Interlock last read them from it or wrote
 # them to it; values imported from another roster that the decoder has not
 # been read for yet; changes made on its settings page that are not
-# written yet; and setups, copies of its values kept to load again.
+# written yet; and decoder profiles, named copies of its values to load
+# again.
 # Interlock rewrites this file; trains.yaml says which locomotive the
 # decoder belongs to.
 `
@@ -43,19 +44,19 @@ type cvDoc struct {
 	CVs      map[string]int      `yaml:"cvs"`
 	Imported map[string]int      `yaml:"imported,omitempty"`
 	Changes  map[string]CVChange `yaml:"changes,omitempty"`
-	Setups   []CVSetup           `yaml:"setups,omitempty"`
+	Profiles []DecoderProfile    `yaml:"profiles,omitempty"`
 }
 
-// CVSetup is a copy of a decoder's values kept under a name, such as how
-// it came or how it ran best, to load again as changes to write.
-type CVSetup struct {
+// DecoderProfile is a copy of a decoder's values kept under a name, such
+// as how it came or how it ran best, to load again as changes to write.
+type DecoderProfile struct {
 	Name string         `yaml:"name" json:"name"`
 	Kept time.Time      `yaml:"kept" json:"kept"`
 	CVs  map[string]int `yaml:"cvs" json:"cvs"`
 }
 
-// maxSetupName bounds a setup's name.
-const maxSetupName = 64
+// maxProfileName bounds a decoder profile's name.
+const maxProfileName = 64
 
 // CVValues are a decoder's saved CV values by the names its definition
 // uses for them ("29", "16.0.259"), and the changes not written to it
@@ -68,8 +69,8 @@ type CVValues struct {
 	Changes  map[string]CVChange `json:"changes,omitempty"`
 	// Session is the work on the decoder going on now, if any.
 	Session *CVSession `json:"session,omitempty"`
-	// Setups are the copies of its values kept, oldest first.
-	Setups []CVSetup `json:"setups,omitempty"`
+	// Profiles are the decoder profiles kept for it, oldest first.
+	Profiles []DecoderProfile `json:"profiles,omitempty"`
 }
 
 // CVSession is a spell of work on one decoder: the CVs read from it and
@@ -186,8 +187,8 @@ func (s *CVStore) Get(decoder string) (CVValues, error) {
 		return CVValues{}, err
 	}
 	v := CVValues{CVs: maps.Clone(d.CVs), Imported: maps.Clone(d.Imported), Updated: d.Updated, Changes: maps.Clone(d.Changes)}
-	for _, st := range d.Setups {
-		v.Setups = append(v.Setups, CVSetup{Name: st.Name, Kept: st.Kept, CVs: maps.Clone(st.CVs)})
+	for _, st := range d.Profiles {
+		v.Profiles = append(v.Profiles, DecoderProfile{Name: st.Name, Kept: st.Kept, CVs: maps.Clone(st.CVs)})
 	}
 	if ss := s.sessionLocked(decoder, false); ss != nil {
 		v.Session = &CVSession{Started: ss.started, Last: ss.last, Check: ss.check, Read: []string{}, Written: []string{}}
@@ -386,43 +387,43 @@ func (s *CVStore) SetChanges(decoder string, changes map[string]CVChange) error 
 	return nil
 }
 
-// KeepSetup keeps a copy of the decoder's values under a name: those read
-// from it or written to it, and imported ones not read since. Changes
-// not written yet are left out. A setup by the same name is replaced only
-// with replace.
-func (s *CVStore) KeepSetup(decoder, name string, replace bool) (CVSetup, error) {
+// KeepProfile keeps a copy of the decoder's values under a name: those
+// read from it or written to it, and imported ones not read since.
+// Changes not written yet are left out. A profile by the same name is
+// replaced only with replace.
+func (s *CVStore) KeepProfile(decoder, name string, replace bool) (DecoderProfile, error) {
 	if s == nil {
-		return CVSetup{}, nil
+		return DecoderProfile{}, nil
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	d, err := s.loadLocked(decoder)
 	if err != nil {
-		return CVSetup{}, err
+		return DecoderProfile{}, err
 	}
-	st := CVSetup{Name: name, Kept: time.Now().UTC().Truncate(time.Second), CVs: maps.Clone(d.Imported)}
+	st := DecoderProfile{Name: name, Kept: time.Now().UTC().Truncate(time.Second), CVs: maps.Clone(d.Imported)}
 	if st.CVs == nil {
 		st.CVs = make(map[string]int, len(d.CVs))
 	}
 	maps.Copy(st.CVs, d.CVs)
 	if len(st.CVs) == 0 {
-		return CVSetup{}, invalid("there are no values to keep yet; read the decoder first")
+		return DecoderProfile{}, invalid("there are no values to keep yet; read the decoder first")
 	}
-	i := slices.IndexFunc(d.Setups, func(x CVSetup) bool { return x.Name == name })
+	i := slices.IndexFunc(d.Profiles, func(x DecoderProfile) bool { return x.Name == name })
 	switch {
 	case i >= 0 && !replace:
-		return CVSetup{}, fmt.Errorf("%w: %s", ErrSetupExists, name)
+		return DecoderProfile{}, fmt.Errorf("%w: %s", ErrProfileExists, name)
 	case i >= 0:
-		d.Setups[i] = st
+		d.Profiles[i] = st
 	default:
-		d.Setups = append(d.Setups, st)
+		d.Profiles = append(d.Profiles, st)
 	}
 	s.markLocked(decoder)
 	return st, nil
 }
 
-// DeleteSetup forgets one of the decoder's setups.
-func (s *CVStore) DeleteSetup(decoder, name string) error {
+// DeleteProfile forgets one of the decoder's profiles.
+func (s *CVStore) DeleteProfile(decoder, name string) error {
 	if s == nil {
 		return nil
 	}
@@ -432,11 +433,11 @@ func (s *CVStore) DeleteSetup(decoder, name string) error {
 	if err != nil {
 		return err
 	}
-	i := slices.IndexFunc(d.Setups, func(x CVSetup) bool { return x.Name == name })
+	i := slices.IndexFunc(d.Profiles, func(x DecoderProfile) bool { return x.Name == name })
 	if i < 0 {
-		return fmt.Errorf("%w: no setup %s", ErrNotFound, name)
+		return fmt.Errorf("%w: no decoder profile %s", ErrNotFound, name)
 	}
-	d.Setups = slices.Delete(d.Setups, i, i+1)
+	d.Profiles = slices.Delete(d.Profiles, i, i+1)
 	s.markLocked(decoder)
 	return nil
 }

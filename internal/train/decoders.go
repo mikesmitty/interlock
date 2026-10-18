@@ -182,25 +182,26 @@ func (m *Manager) StartSession(id, decoder, check string) error {
 // check of it on the programming track, which work there needs first.
 func (m *Manager) SessionChecked(decoder string) bool { return m.opts.CVs.Checked(decoder) }
 
-// KeepSetup keeps a copy of one of a locomotive's decoders' values under
-// a name, replacing a setup by that name only with replace.
-func (m *Manager) KeepSetup(id, decoder, name string, replace bool) (CVSetup, error) {
+// KeepProfile keeps a copy of one of a locomotive's decoders' values as a
+// decoder profile, replacing one by that name only with replace.
+func (m *Manager) KeepProfile(id, decoder, name string, replace bool) (DecoderProfile, error) {
 	if err := m.hasDecoder(id, decoder); err != nil {
-		return CVSetup{}, err
+		return DecoderProfile{}, err
 	}
 	name = strings.TrimSpace(name)
-	if name == "" || len(name) > maxSetupName {
-		return CVSetup{}, invalid("a setup needs a name of up to %d characters", maxSetupName)
+	if name == "" || len(name) > maxProfileName {
+		return DecoderProfile{}, invalid("a decoder profile needs a name of up to %d characters", maxProfileName)
 	}
-	return m.opts.CVs.KeepSetup(decoder, name, replace)
+	return m.opts.CVs.KeepProfile(decoder, name, replace)
 }
 
-// DeleteSetup forgets one of the setups kept for a locomotive's decoder.
-func (m *Manager) DeleteSetup(id, decoder, name string) error {
+// DeleteProfile forgets one of the decoder profiles kept for a
+// locomotive's decoder.
+func (m *Manager) DeleteProfile(id, decoder, name string) error {
 	if err := m.hasDecoder(id, decoder); err != nil {
 		return err
 	}
-	return m.opts.CVs.DeleteSetup(decoder, name)
+	return m.opts.CVs.DeleteProfile(decoder, name)
 }
 
 // EndSession ends the session on one of a locomotive's decoders.

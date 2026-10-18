@@ -446,11 +446,11 @@ export interface SavedCVs {
   /** The work on the decoder going on now. */
   session?: DecoderSession;
   /** Copies of its values kept under a name, oldest first. */
-  setups?: CVSetup[];
+  profiles?: DecoderProfile[];
 }
 
 /** A copy of a decoder's values kept under a name, to load again as changes. */
-export interface CVSetup {
+export interface DecoderProfile {
   name: string;
   kept: string;
   cvs: Record<string, number>;
@@ -914,13 +914,13 @@ export const api = {
   checkDecoder: (id: string, decoder: string) =>
     request<DecoderCheck>(`${trainPath(id)}/decoders/${encodeURIComponent(decoder)}/check`, { method: "POST" }),
   /** Keeps a copy of a decoder's values; a name kept already is replaced only with replace. */
-  keepSetup: (id: string, decoder: string, name: string, replace = false) =>
-    request<CVSetup>(`${trainPath(id)}/decoders/${encodeURIComponent(decoder)}/setups`, {
+  keepProfile: (id: string, decoder: string, name: string, replace = false) =>
+    request<DecoderProfile>(`${trainPath(id)}/decoders/${encodeURIComponent(decoder)}/profiles`, {
       method: "POST",
       body: JSON.stringify({ name, replace }),
     }),
-  deleteSetup: (id: string, decoder: string, name: string) =>
-    request<void>(`${trainPath(id)}/decoders/${encodeURIComponent(decoder)}/setups/${encodeURIComponent(name)}`, { method: "DELETE" }),
+  deleteProfile: (id: string, decoder: string, name: string) =>
+    request<void>(`${trainPath(id)}/decoders/${encodeURIComponent(decoder)}/profiles/${encodeURIComponent(name)}`, { method: "DELETE" }),
   /** Begins the session on a decoder though its check did not match. */
   startSession: (id: string, decoder: string) =>
     request<DecoderSession>(`${trainPath(id)}/decoders/${encodeURIComponent(decoder)}/session`, { method: "POST" }),

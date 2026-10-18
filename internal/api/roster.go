@@ -22,8 +22,8 @@ import (
 //	PATCH  /api/v1/trains/{id}/decoders/{decoder}/cvs      {cvs} saves these values, keeping the others
 //	PUT    /api/v1/trains/{id}/decoders/{decoder}/cvs      {cvs} replaces them all
 //	PUT    /api/v1/trains/{id}/decoders/{decoder}/changes  {changes} keeps the changes not written yet
-//	POST   /api/v1/trains/{id}/decoders/{decoder}/setups   {name, replace} keeps a copy of its values -> setup
-//	DELETE /api/v1/trains/{id}/decoders/{decoder}/setups/{name}  forgets one
+//	POST   /api/v1/trains/{id}/decoders/{decoder}/profiles   {name, replace} keeps a copy of its values -> profile
+//	DELETE /api/v1/trains/{id}/decoders/{decoder}/profiles/{name}  forgets one
 //	POST   /api/v1/trains/{id}/decoders/{decoder}/session  begins the session though a check did not match -> session
 //	DELETE /api/v1/trains/{id}/decoders/{decoder}/session  ends the session on it
 //	POST   /api/v1/trains/import                           multipart: file (JMRI roster files or zips), plan
@@ -218,7 +218,7 @@ func (a *API) setDecoderChanges(w http.ResponseWriter, r *http.Request) {
 
 // endDecoderSession ends the session on a decoder: what was read and
 // written in it counts as saved from then on.
-func (a *API) keepSetup(w http.ResponseWriter, r *http.Request) {
+func (a *API) keepProfile(w http.ResponseWriter, r *http.Request) {
 	if !a.trainsReady(w) {
 		return
 	}
@@ -230,9 +230,9 @@ func (a *API) keepSetup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "body must be JSON with a name")
 		return
 	}
-	st, err := a.deps.Trains.KeepSetup(r.PathValue("id"), r.PathValue("decoder"), body.Name, body.Replace)
-	if errors.Is(err, train.ErrSetupExists) {
-		writeError(w, http.StatusConflict, "A setup named "+body.Name+" is kept already")
+	st, err := a.deps.Trains.KeepProfile(r.PathValue("id"), r.PathValue("decoder"), body.Name, body.Replace)
+	if errors.Is(err, train.ErrProfileExists) {
+		writeError(w, http.StatusConflict, "A decoder profile named "+body.Name+" is kept already")
 		return
 	}
 	if err != nil {
@@ -242,11 +242,11 @@ func (a *API) keepSetup(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, st)
 }
 
-func (a *API) deleteSetup(w http.ResponseWriter, r *http.Request) {
+func (a *API) deleteProfile(w http.ResponseWriter, r *http.Request) {
 	if !a.trainsReady(w) {
 		return
 	}
-	if err := a.deps.Trains.DeleteSetup(r.PathValue("id"), r.PathValue("decoder"), r.PathValue("name")); err != nil {
+	if err := a.deps.Trains.DeleteProfile(r.PathValue("id"), r.PathValue("decoder"), r.PathValue("name")); err != nil {
 		a.trainError(w, err)
 		return
 	}

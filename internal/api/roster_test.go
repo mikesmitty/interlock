@@ -136,28 +136,28 @@ func TestRosterDecoderEndpoints(t *testing.T) {
 		t.Errorf("changes after writing them = %v", body["changes"])
 	}
 
-	// Setups keep a copy of the values under a name.
-	const setups = "/api/v1/trains/gp40/decoders/loksound-5/setups"
-	if rec, body := ta.do(t, http.MethodPost, setups, `{"name": "As delivered"}`); rec.Code != http.StatusCreated || body["name"] != "As delivered" || body["cvs"].(map[string]any)["29"] != float64(6) {
-		t.Errorf("POST setups = %d %v", rec.Code, body)
+	// Decoder profiles keep a copy of the values under a name.
+	const profiles = "/api/v1/trains/gp40/decoders/loksound-5/profiles"
+	if rec, body := ta.do(t, http.MethodPost, profiles, `{"name": "As delivered"}`); rec.Code != http.StatusCreated || body["name"] != "As delivered" || body["cvs"].(map[string]any)["29"] != float64(6) {
+		t.Errorf("POST profiles = %d %v", rec.Code, body)
 	}
-	if rec, _ := ta.do(t, http.MethodPost, setups, `{"name": "As delivered"}`); rec.Code != http.StatusConflict {
-		t.Errorf("POST setups twice = %d", rec.Code)
+	if rec, _ := ta.do(t, http.MethodPost, profiles, `{"name": "As delivered"}`); rec.Code != http.StatusConflict {
+		t.Errorf("POST profiles twice = %d", rec.Code)
 	}
-	if rec, _ := ta.do(t, http.MethodPost, setups, `{"name": "As delivered", "replace": true}`); rec.Code != http.StatusCreated {
-		t.Errorf("POST setups to replace = %d", rec.Code)
+	if rec, _ := ta.do(t, http.MethodPost, profiles, `{"name": "As delivered", "replace": true}`); rec.Code != http.StatusCreated {
+		t.Errorf("POST profiles to replace = %d", rec.Code)
 	}
-	if rec, _ := ta.do(t, http.MethodPost, setups, `{"name": " "}`); rec.Code != http.StatusBadRequest {
-		t.Errorf("POST setups without a name = %d", rec.Code)
+	if rec, _ := ta.do(t, http.MethodPost, profiles, `{"name": " "}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("POST profiles without a name = %d", rec.Code)
 	}
-	if _, body = ta.do(t, http.MethodGet, "/api/v1/trains/gp40/decoders/loksound-5/cvs", ""); len(body["setups"].([]any)) != 1 {
-		t.Errorf("GET cvs with a setup = %v", body["setups"])
+	if _, body = ta.do(t, http.MethodGet, "/api/v1/trains/gp40/decoders/loksound-5/cvs", ""); len(body["profiles"].([]any)) != 1 {
+		t.Errorf("GET cvs with a profile = %v", body["profiles"])
 	}
-	if rec, _ := ta.do(t, http.MethodDelete, setups+"/As%20delivered", ""); rec.Code != http.StatusNoContent {
-		t.Errorf("DELETE setup = %d", rec.Code)
+	if rec, _ := ta.do(t, http.MethodDelete, profiles+"/As%20delivered", ""); rec.Code != http.StatusNoContent {
+		t.Errorf("DELETE profile = %d", rec.Code)
 	}
-	if rec, _ := ta.do(t, http.MethodDelete, setups+"/As%20delivered", ""); rec.Code != http.StatusNotFound {
-		t.Errorf("DELETE setup twice = %d", rec.Code)
+	if rec, _ := ta.do(t, http.MethodDelete, profiles+"/As%20delivered", ""); rec.Code != http.StatusNotFound {
+		t.Errorf("DELETE profile twice = %d", rec.Code)
 	}
 
 	// Identify names the roster decoder on the track.

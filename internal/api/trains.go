@@ -26,8 +26,8 @@ type Trains interface {
 	SetCVs(id, decoder string, values map[string]int, replace bool) error
 	SetChanges(id, decoder string, changes map[string]train.CVChange) error
 	Programmed(id, decoder, cv string, value int, written bool) error
-	KeepSetup(id, decoder, name string, replace bool) (train.CVSetup, error)
-	DeleteSetup(id, decoder, name string) error
+	KeepProfile(id, decoder, name string, replace bool) (train.DecoderProfile, error)
+	DeleteProfile(id, decoder, name string) error
 	StartSession(id, decoder, check string) error
 	SessionChecked(decoder string) bool
 	CheckDecoder(id, decoder string, track train.OnTrack, opts train.CheckOptions) (train.DecoderCheck, error)

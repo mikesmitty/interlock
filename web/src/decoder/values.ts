@@ -343,13 +343,13 @@ export function settle(t: CVTable, cv: string, value: number, state: "read" | "s
 }
 
 /**
- * A copy of the table with a kept setup's values as changes to write:
- * each writable CV whose value differs from the setup's, or has none,
- * takes the setup's whole value, and a change not written yet that the
- * setup undoes is dropped. changed counts the CVs it marks, replaced the
+ * A copy of the table with a kept profile's values as changes to write:
+ * each writable CV whose value differs from the profile's, or has none,
+ * takes the profile's whole value, and a change not written yet that the
+ * profile undoes is dropped. changed counts the CVs it marks, replaced the
  * changes not written yet it gives another value or drops.
  */
-export function loadSetup(
+export function loadProfile(
   t: CVTable,
   values: Record<string, number>,
   writable: (cv: string) => boolean,
