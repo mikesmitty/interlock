@@ -347,30 +347,39 @@ export function settle(t: CVTable, cv: string, value: number, state: "read" | "s
  * each writable CV whose value differs from the profile's, or has none,
  * takes the profile's whole value, and a change not written yet that the
  * profile undoes is dropped. changed counts the CVs it marks, replaced the
- * changes not written yet it gives another value or drops.
+ * changes not written yet it gives another value or drops, and unread the
+ * CVs that show the profile's value though it was not read or written in
+ * this session: left alone, or with all marked too, for a full restore.
  */
 export function loadProfile(
   t: CVTable,
   values: Record<string, number>,
   writable: (cv: string) => boolean,
   bits: (cv: string) => number,
-): { table: CVTable; changed: number; replaced: number } {
+  all = false,
+): { table: CVTable; changed: number; replaced: number; unread: number } {
   const out = { ...t };
   let changed = 0;
   let replaced = 0;
+  let unread = 0;
   for (const [cv, value] of Object.entries(values)) {
     const old = out[cv];
     if (!old || !writable(cv)) continue;
     if (old.state === "edited") {
       const prior = old.prior;
-      if (prior && prior.value === value && prior.state !== "unknown") {
+      if (prior && prior.value === value && prior.state !== "unknown" && (!all || inSession(prior.state))) {
         if (old.value !== value) replaced++;
+        if (!inSession(prior.state)) unread++;
         out[cv] = { value, state: prior.state, known: old.known, edited: 0 };
         continue;
       }
       if (old.value === value) continue;
       replaced++;
-    } else if (old.value === value && old.state !== "unknown") continue;
+    } else if (old.value === value && old.state !== "unknown") {
+      if (inSession(old.state)) continue;
+      unread++;
+      if (!all) continue;
+    }
     out[cv] = {
       value,
       state: "edited",
@@ -380,7 +389,12 @@ export function loadProfile(
     };
     changed++;
   }
-  return { table: out, changed, replaced };
+  return { table: out, changed, replaced, unread };
+}
+
+/** Whether a value in this state was read from the decoder or written to it in this session. */
+function inSession(state: CVState | undefined): boolean {
+  return state === "read" || state === "stored";
 }
 
 /**
@@ -389,8 +403,7 @@ export function loadProfile(
  * values trusted to be what the decoder holds now.
  */
 export function confirmed(cell: CVCell | undefined): boolean {
-  const state = cell?.state === "edited" ? cell.prior?.state : cell?.state;
-  return state === "read" || state === "stored";
+  return inSession(cell?.state === "edited" ? cell.prior?.state : cell?.state);
 }
 
 /** A copy of the table with the changes to these CVs undone. */

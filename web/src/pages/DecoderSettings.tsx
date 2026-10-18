@@ -767,8 +767,8 @@ export function DecoderSettings() {
           busy={busy}
           edited={anyEdited}
           onChange={setProfiles}
-          onLoad={(st, apply) => {
-            const r = loadProfile(tableRef.current, st.cvs, writable, fullBits);
+          onLoad={(st, apply, all) => {
+            const r = loadProfile(tableRef.current, st.cvs, writable, fullBits, all);
             if (apply) changeTable(r.table);
             return r;
           }}
@@ -904,22 +904,26 @@ function DecoderProfiles({
   /** Whether there are changes not written yet, which a profile leaves out. */
   edited: boolean;
   onChange: (profiles: DecoderProfile[]) => void;
-  /** What loading a profile would change; with apply, it does. */
-  onLoad: (profile: DecoderProfile, apply: boolean) => { changed: number; replaced: number };
+  /** What loading a profile would change; with apply, it does. all marks too what matches but was not read in this session. */
+  onLoad: (profile: DecoderProfile, apply: boolean, all: boolean) => { changed: number; replaced: number; unread: number };
 }) {
   const now = useNow();
   const [name, setName] = useState("");
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string>();
   const [note, setNote] = useState<string>();
+  // The profile loaded last, while values that match it may still hold
+  // something else on the decoder.
+  const [loaded, setLoaded] = useState<string>();
   // What waits for a yes: replacing a profile by the same name, deleting
   // one, or loading one over changes not written yet.
-  const [ask, setAskState] = useState<{ kind: "replace" | "delete" | "load"; profile: string; replaced?: number }>();
+  const [ask, setAskState] = useState<{ kind: "replace" | "delete" | "load"; profile: string; replaced?: number; all?: boolean }>();
   const setAsk = (a: typeof ask) => {
     setAskState(a);
     if (a) {
       setNote(undefined);
       setError(undefined);
+      setLoaded(undefined);
     }
   };
 
@@ -964,25 +968,33 @@ function DecoderProfiles({
     }
   }
 
-  function load(st: DecoderProfile, force: boolean) {
+  function load(st: DecoderProfile, force: boolean, all = false) {
     setError(undefined);
     setAsk(undefined);
-    const r = onLoad(st, false);
+    const r = onLoad(st, false, all);
     if (r.replaced > 0 && !force) {
-      setAsk({ kind: "load", profile: st.name, replaced: r.replaced });
+      setAsk({ kind: "load", profile: st.name, replaced: r.replaced, all });
       return;
     }
-    onLoad(st, true);
+    onLoad(st, true, all);
+    setLoaded(st.name);
+    const changes = `${r.changed.toLocaleString()} ${all ? "more value" : "change"}${r.changed === 1 ? "" : "s"}`;
     setNote(
-      r.changed > 0
-        ? `Loaded ${st.name}: ${r.changed.toLocaleString()} change${r.changed === 1 ? "" : "s"} to write, marked on their pages.`
-        : r.replaced > 0
-          ? `Loaded ${st.name}: the values now match it, with nothing to write.`
-          : `The values match ${st.name}; nothing to change.`,
+      all
+        ? `Marked ${changes} of ${st.name} to write.`
+        : r.changed > 0
+          ? `Loaded ${st.name}: ${changes} to write, marked on their pages.`
+          : r.replaced > 0
+            ? `Loaded ${st.name}: the values now match it, with nothing to write.`
+            : `The values here match ${st.name}; nothing to change.`,
     );
   }
 
   const disabled = busy || working;
+  // What a full load of the profile loaded last would still mark, counted
+  // afresh so reads since then take values off.
+  const last = loaded && !disabled ? profiles.find((st) => st.name === loaded) : undefined;
+  const unread = last ? onLoad(last, false, true).unread : 0;
   return (
     <section className="panel dec-profiles">
       <h2>Decoder profiles</h2>
@@ -1020,10 +1032,11 @@ function DecoderProfiles({
               {ask?.profile === st.name && ask.kind === "load" && (
                 <span className="confirm">
                   <span>
-                    Loading {st.name} replaces {ask.replaced === 1 ? "a change" : `${ask.replaced} changes`} not written yet.
+                    {ask.all ? `Marking every value of ${st.name}` : `Loading ${st.name}`} replaces{" "}
+                    {ask.replaced === 1 ? "a change" : `${ask.replaced} changes`} not written yet.
                   </span>
-                  <button className="btn btn--danger" disabled={disabled} onClick={() => load(st, true)}>
-                    Load
+                  <button className="btn btn--danger" disabled={disabled} onClick={() => load(st, true, ask.all)}>
+                    {ask.all ? "Mark all" : "Load"}
                   </button>
                   <button className="btn btn--quiet" onClick={() => setAsk(undefined)}>
                     Cancel
@@ -1062,6 +1075,18 @@ function DecoderProfiles({
       )}
       {edited && <p className="dim">Changes not written yet are left out of a profile.</p>}
       {note && <p>{note}</p>}
+      {last && unread > 0 && (
+        <span className="confirm">
+          <span>
+            {unread.toLocaleString()} value{unread === 1 ? " matches" : "s match"} {last.name} here but {unread === 1 ? "was" : "were"} not read
+            from the decoder in this session, so it may hold something else. Read their pages and load {last.name} again to check, or mark{" "}
+            {unread === 1 ? "it" : "them"} to write too.
+          </span>
+          <button className="btn" onClick={() => load(last, false, true)}>
+            Mark {unread === 1 ? "it" : "them"} too
+          </button>
+        </span>
+      )}
       {error && <p className="field__error">{error}</p>}
     </section>
   );

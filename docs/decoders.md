@@ -151,9 +151,13 @@ decoder, imported ones included; changes not written yet are left out. A
 name kept already is replaced only after you say so.
 
 **Load** marks every value that differs from the profile as a change,
-and drops changes not written yet that the profile undoes. Nothing
-reaches the decoder until you write the changes, page by page or with
-**Write changes on every page**. Loading over changes not written yet
+and drops changes not written yet that the profile undoes. Values that
+already match the profile but were not read from the decoder in this
+session are left alone, though the decoder may hold something else, and
+the panel says how many there are: read their pages and load the profile
+again to find any that differ, or choose **Mark them too** to write them
+as well, for a full restore. Nothing reaches the decoder until you write
+the changes, page by page or with **Write changes on every page**. Loading over changes not written yet
 asks first. Decoder profiles live with the decoder's values in the data
 folder, and backups include them. They are not the node
 [profiles](./entities.md) that turn LCC boards into entities.

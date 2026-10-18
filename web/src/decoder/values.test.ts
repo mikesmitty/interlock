@@ -335,6 +335,7 @@ test("a kept profile loads as changes where it differs", () => {
   const r = loadProfile(t, { "1": 5, "3": 10, "29": 7, "4": 8, "5": 0, "8": 99, "99": 1 }, (cv) => cv !== "8", () => 0xff);
   assert.equal(r.changed, 3, "CVs 1, 29 and 5, which had no value");
   assert.equal(r.replaced, 1, "the change to CV 1");
+  assert.equal(r.unread, 2, "CVs 3 and 4 match, though neither was read in this session");
   assert.deepEqual(
     ["1", "3", "29", "4", "5", "8"].map((cv) => [r.table[cv].state, r.table[cv].value]),
     [
@@ -348,10 +349,35 @@ test("a kept profile loads as changes where it differs", () => {
   );
   assert.equal(r.table["99"], undefined, "a CV the definition lacks is left out");
   const back = loadProfile(t, { "1": 3 }, () => true, () => 0xff);
-  assert.deepEqual([back.changed, back.replaced], [0, 1]);
+  assert.deepEqual([back.changed, back.replaced, back.unread], [0, 1, 1]);
   assert.deepEqual(back.table["1"], { value: 3, state: "saved", known: true, edited: 0 }, "a profile that undoes a change drops it");
   assert.deepEqual(pendingChanges(r.table)["29"], { value: 7, bits: 0xff });
   assert.deepEqual(discard(r.table, ["1", "29"])["1"], { value: 3, state: "saved", known: true, edited: 0 }, "undoing goes back to before the edits");
+});
+
+test("a kept profile loads in full where the session has not seen the decoder hold it", () => {
+  let t: CVTable = withImported(withSaved({}, { "1": 3, "3": 10, "29": 6 }), { "4": 8 });
+  t = withSession(t, { read: ["29"], written: [] });
+  t = applyUpdates(t, [{ cv: "1", value: 4, bits: 0x7f }], "edited");
+  const profile = { "1": 3, "3": 10, "29": 6, "4": 9 };
+  const r = loadProfile(t, profile, () => true, () => 0xff, true);
+  assert.deepEqual([r.changed, r.replaced, r.unread], [3, 1, 1], "CVs 1, 3 and 4; not 29, read in this session");
+  assert.deepEqual(
+    ["1", "3", "29", "4"].map((cv) => [r.table[cv].state, r.table[cv].value, r.table[cv].edited]),
+    [
+      ["edited", 3, 0xff],
+      ["edited", 10, 0xff],
+      ["read", 6, 0],
+      ["edited", 9, 0xff],
+    ],
+  );
+  assert.deepEqual(pendingChanges(r.table)["3"], { value: 10, bits: 0xff }, "a value marked though it matches is kept as a change");
+  const again = loadProfile(r.table, profile, () => true, () => 0xff, true);
+  assert.deepEqual([again.changed, again.replaced, again.unread], [0, 0, 0], "loading it again finds nothing more to mark");
+  // Loaded first for the differences, then in full.
+  const first = loadProfile(t, profile, () => true, () => 0xff);
+  assert.deepEqual([first.changed, first.unread], [1, 2], "CV 4 differs; CVs 1 and 3 are taken as they are");
+  assert.equal(loadProfile(first.table, profile, () => true, () => 0xff, true).changed, 2);
 });
 
 test("only values read or written in this session are confirmed", () => {
