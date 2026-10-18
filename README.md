@@ -22,7 +22,9 @@ only if / then editor, kept in `automations.yaml`, and every run leaves
 a trace you can read step by step (`docs/automations.md`). A Throttle
 page drives locomotives by DCC address through the command station's
 train nodes, and a Programming page reads and writes CVs on the
-programming track and on the main (`docs/trains.md`), or a decoder's
+programming track and on the main (`docs/trains.md`); phone throttle
+apps such as Engine Driver find Interlock on the network and drive
+through it over WiThrottle. The Programming page also sets a decoder's
 settings by name from the JMRI project's decoder definitions, fetched on
 demand (`docs/decoders.md`). The roster keeps each locomotive's decoders
 with their CV values, so a decoder's settings open without reading it

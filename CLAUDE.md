@@ -132,6 +132,11 @@ applied at the next start; the replaced files go to `before-restore-*/`.
   standard: Freeze, 64 byte writes to space 0xEF with retries, Unfreeze,
   then a watch for the restart and for a board that goes back to its old
   version. UF2 files are unpacked. One job at a time, progress published.
+- `internal/withrottle` — the WiThrottle server throttle apps (Engine
+  Driver, WiThrottle, WiTcontroller) connect to: roster, driving through
+  the train manager, turnouts, power, the fast clock; announced by mDNS.
+  One goroutine per app owns its state; the managers' changes reach it
+  queued.
 - `internal/clock` — the fast clock: a Broadcast Time server on
   Interlock's node, state in the store, minute callbacks for automations.
 - `internal/backup` — backups as one zip with a database snapshot;

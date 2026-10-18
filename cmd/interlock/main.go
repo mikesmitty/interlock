@@ -9,10 +9,12 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"sync"
 	"syscall"
 
@@ -35,6 +37,7 @@ import (
 	"github.com/mikesmitty/interlock/internal/store"
 	"github.com/mikesmitty/interlock/internal/train"
 	"github.com/mikesmitty/interlock/internal/version"
+	"github.com/mikesmitty/interlock/internal/withrottle"
 	"github.com/mikesmitty/interlock/openlcb"
 	"github.com/mikesmitty/interlock/openlcb/hub"
 	"github.com/mikesmitty/interlock/openlcb/memconfig"
@@ -303,6 +306,22 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		}
 	}
 
+	if cfg.WiThrottle.Listen != "" {
+		throttles := withrottle.New(withrottle.Options{
+			Listen: cfg.WiThrottle.Listen, Trains: trains, Turnouts: entities, Clock: fast,
+			Name: cfg.Node.Name, Version: version.Version, WebPort: port(cfg.Listen), Advertise: true, Logger: logger,
+		})
+		if err := throttles.Listen(); err != nil {
+			logger.Error("WiThrottle port unavailable; throttle apps cannot connect", "error", err)
+		} else {
+			go func() {
+				if err := throttles.Run(ctx); err != nil {
+					logger.Error("WiThrottle server stopped", "error", err)
+				}
+			}()
+		}
+	}
+
 	var wg sync.WaitGroup
 	wg.Add(8)
 	go func() {
@@ -384,6 +403,16 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return errRestart
 	}
 	return err
+}
+
+// port is the port of a listen address, zero when it has none.
+func port(address string) int {
+	_, p, err := net.SplitHostPort(address)
+	if err != nil {
+		return 0
+	}
+	n, _ := strconv.Atoi(p)
+	return n
 }
 
 // defaultDataDir is INTERLOCK_DATA, else an "interlock" directory under the

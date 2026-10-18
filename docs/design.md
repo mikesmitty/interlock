@@ -143,6 +143,8 @@ internal/profile/         YAML profiles that turn CDI groups into entities;
 internal/entity/          entity kinds and the manager: state from the bus,
                           commands, overrides and manual entities
 internal/automation/      automation engine: documents, triggers, runs, traces
+internal/withrottle/      WiThrottle server for throttle apps over the train
+                          manager, turnouts and clock; announced by mDNS
 internal/store/           sqlite access, migrations
 internal/config/          yaml config dir loading and writing
 internal/api/             HTTP handlers, WebSocket event stream
@@ -429,6 +431,16 @@ Panel editor, Home Assistant integration, multi-user
 auth, accessory decoder turnouts once `simple-dcc` sends accessory packets,
 train reservation protocol, function description information (space 0xFA).
 
+A DCC-EX native protocol server (the `<...>` commands a DCC-EX command
+station takes). WiThrottle already covers driving, turnouts, power and
+the clock; what the DCC-EX protocol adds is what Engine Driver offers in
+its DCC-EX mode and what tools made for DCC-EX use: reading and writing
+CVs on the programming track and on the main, reading a locomotive's
+address, and a command line. The Programming page does the CV work in
+the browser, Engine Driver's Web tab included, so this waits until a
+tool needs it. DCC-EX's track manager and EXRAIL have no LCC
+counterpart.
+
 ## Decisions on the open questions
 
 - **Node ID:** Interlock uses a locally assigned ID (0A prefix over 40
@@ -614,6 +626,16 @@ train reservation protocol, function description information (space 0xFA).
   0.15 s instead of 0.75 s). Verified against the simulator.
 - Still to do in Phase 7: reading on the main, which needs RailCom
   support in `simple-dcc`.
+- Throttle apps (2026-10-18): `internal/withrottle` serves the WiThrottle
+  protocol on port 12090 for Engine Driver, WiThrottle and WiTcontroller:
+  the roster with function labels and momentary functions, driving
+  through the train manager (one controller for every app; the train is
+  given up when the last app releases it), turnouts, track power, the
+  fast clock and the web interface's port. A watched app that goes quiet
+  has its trains emergency stopped; one that reconnects with the same
+  device ID replaces its old connection. Announced by mDNS
+  (`_withrottle._tcp`). Verified with a scripted client against the
+  simulator; not yet with the apps.
 - Next: the rest of Phase 7, and hardware verification against
   canbus-outpost and simple-dcc.
 

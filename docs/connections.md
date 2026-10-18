@@ -66,6 +66,11 @@ link and joins the bus like the others. The OpenLCB TCP server gives each
 client its own gateway, as the `olcbtcp` link type does for an outgoing
 connection.
 
+Throttle apps such as Engine Driver connect to a third server, the
+WiThrottle one on port 12090 (`withrottle.listen`); they drive trains
+through Interlock rather than joining the bus. [Trains](./trains.md#throttle-apps)
+has the details.
+
 ## Watching the links
 
 The status strip shows a lamp per link, and the Settings page shows each

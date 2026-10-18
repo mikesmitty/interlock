@@ -77,6 +77,51 @@ stopping every locomotive or cutting track power. Interlock watches for
 the same events from anyone else, so a stop pressed on a hardware
 throttle shows here too.
 
+## Throttle apps
+
+Throttle apps that speak WiThrottle can drive trains through Interlock:
+Engine Driver on Android, WiThrottle on iPhone and iPad, and handhelds
+such as WiTcontroller. Interlock announces itself on the local network,
+so the app lists it under Interlock's node name (Interlock unless it was
+renamed under `node:`); if an app does not find it, give it the
+computer's address and port 12090.
+
+The app sees:
+
+- the roster, with each locomotive's function labels. Functions marked
+  momentary in the roster act only while held. A locomotive taken by its
+  address, with nothing in the roster, keeps the app's own labels, and
+  its F2 (the horn on most decoders) is momentary;
+- the turnouts, to throw and close, except hidden ones and guesses not
+  confirmed on the Entities page;
+- track power, which switches it with Emergency Off and Clear Emergency
+  Off as the Throttle page does;
+- the fast clock;
+- the web interface, in Engine Driver's Web tab.
+
+Every app drives through Interlock's own node, so to the command station
+the apps and the Throttle page are one throttle. Several apps can hold
+the same locomotive, and each sees the others' changes. Interlock gives
+the train up when the last app releases it. Releasing a locomotive or
+closing the app leaves the train running at its speed, as other
+WiThrottle servers do; Engine Driver sets the speed to zero first unless
+told otherwise.
+
+An app that asks Interlock to watch it, as Engine Driver does once it
+holds a locomotive, and then sends nothing for 15 seconds has its trains
+brought to an emergency stop, for a phone that drops off the network
+with a train running. After 40 seconds its connection is closed. An app
+that connects again with the same device ID replaces its old connection
+without stopping anything.
+
+The server is set in `interlock.yaml`. Like the web interface, it lets
+anyone on the network connect.
+
+```yaml
+withrottle:
+  listen: ":12090"   # "" turns it off
+```
+
 ## In automations
 
 The `train` action drives a locomotive by address:

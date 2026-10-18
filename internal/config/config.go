@@ -36,6 +36,8 @@ type Config struct {
 	Links []LinkConfig `yaml:"links"`
 	// Hub configures the GridConnect TCP server other tools can join.
 	Hub HubConfig `yaml:"hub"`
+	// WiThrottle configures the server throttle apps connect to.
+	WiThrottle WiThrottleConfig `yaml:"withrottle"`
 	// Discovery controls how nodes on the bus are found and watched.
 	Discovery DiscoveryConfig `yaml:"discovery"`
 	// Decoders says where the DCC decoder definitions come from.
@@ -97,6 +99,13 @@ type HubConfig struct {
 	OpenLCBTCP string `yaml:"openlcb_tcp,omitempty"`
 }
 
+// WiThrottleConfig configures the WiThrottle server, which throttle apps
+// such as Engine Driver connect to.
+type WiThrottleConfig struct {
+	// Listen is the server's address; empty turns it off.
+	Listen string `yaml:"listen"`
+}
+
 // DiscoveryConfig controls node discovery.
 type DiscoveryConfig struct {
 	// Interval is how often every node is asked to check in. Zero turns
@@ -129,13 +138,14 @@ type LogConfig struct {
 // Default returns the configuration used when the file sets nothing.
 func Default() Config {
 	return Config{
-		Listen:    ":8080",
-		Node:      NodeConfig{Name: "Interlock"},
-		Links:     []LinkConfig{},
-		Hub:       HubConfig{Listen: ":12021"},
-		Discovery: DiscoveryConfig{Interval: 30 * time.Second},
-		Decoders:  DecodersConfig{Source: decoder.SourceGitHub, Ref: decoder.DefaultRef},
-		Log:       LogConfig{Level: "info", Format: "text"},
+		Listen:     ":8080",
+		Node:       NodeConfig{Name: "Interlock"},
+		Links:      []LinkConfig{},
+		Hub:        HubConfig{Listen: ":12021"},
+		WiThrottle: WiThrottleConfig{Listen: ":12090"},
+		Discovery:  DiscoveryConfig{Interval: 30 * time.Second},
+		Decoders:   DecodersConfig{Source: decoder.SourceGitHub, Ref: decoder.DefaultRef},
+		Log:        LogConfig{Level: "info", Format: "text"},
 	}
 }
 
@@ -180,6 +190,11 @@ links: []
 hub:
   listen: ":12021"
   openlcb_tcp: ""
+
+# The WiThrottle server, which throttle apps such as Engine Driver connect
+# to. Set listen to "" to turn it off.
+withrottle:
+  listen: ":12090"
 
 discovery:
   # How often every node is asked to check in. 0 turns the periodic check
