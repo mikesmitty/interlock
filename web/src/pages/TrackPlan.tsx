@@ -4,7 +4,7 @@ import { type LampColor, Status } from "../components/Lamp";
 import { Empty, Page } from "../components/Page";
 import { TrackDiagram, blockState, trainsIn } from "../components/TrackDiagram";
 import { useBus } from "../store";
-import { type Bounds, type Cell, DIRECTION_NAMES, PIECE_LABELS, backgroundBounds, bounds, cellKey, classify, drawStroke, erase, extendStroke, indexTiles, lineCells, makeID, normalizeDegrees, openEnds, straightTo, switches, type Tiles } from "../track";
+import { type Bounds, type Cell, DIRECTION_NAMES, PIECE_LABELS, backgroundBounds, bounds, cellKey, cellNear, classify, drawStroke, erase, extendStroke, indexTiles, lineCells, makeID, normalizeDegrees, openEnds, straightTo, switches, type Tiles } from "../track";
 
 type Tool = "select" | "track" | "platform" | "label" | "block" | "erase" | "background";
 
@@ -367,8 +367,10 @@ function Editor({ saved, session, setSession, entities }: { saved: TrackPlanStat
         const from = s.straight[s.straight.length - 1];
         s.cells = extendStroke(s.base.tiles, s.straight, lineCells(from, straightTo(from, cell)).slice(1), tool);
       } else {
+        const near = cellNear(at);
+        if (!near || (near.x === last.x && near.y === last.y)) return;
         s.straight = undefined;
-        s.cells = extendStroke(s.base.tiles, s.cells, lineCells(last, cell).slice(1), tool);
+        s.cells = extendStroke(s.base.tiles, s.cells, lineCells(last, near).slice(1), tool);
       }
       const result = drawStroke(s.base.tiles, s.cells, tool);
       s.error = result.error;

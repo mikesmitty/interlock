@@ -179,6 +179,15 @@ export function lineCells(from: Cell, to: Cell): Cell[] {
   return cells;
 }
 
+/** The cell whose middle a point is near, or undefined nearer a cell's
+ * edge. Freehand strokes take a cell only once the pointer nears its
+ * middle, so a drag across a corner goes diagonally rather than through
+ * the cell beside it, and grazing the next row doesn't stray into it. */
+export function cellNear(at: { x: number; y: number }, reach = 0.4): Cell | undefined {
+  const cell = { x: Math.floor(at.x), y: Math.floor(at.y) };
+  return Math.hypot(at.x - cell.x - 0.5, at.y - cell.y - 0.5) <= reach ? cell : undefined;
+}
+
 /** The cell nearest another on a straight line out of a cell, along the
  * one of the eight directions closest to it. */
 export function straightTo(from: Cell, to: Cell): Cell {

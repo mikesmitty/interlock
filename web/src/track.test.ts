@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { TrackDirection, TrackTile } from "./api.ts";
-import { backgroundBounds, cellKey, classify, drawStroke, erase, extendStroke, indexTiles, lineCells, makeID, normalizeDegrees, openEnds, straightTo, type Tiles } from "./track.ts";
+import { backgroundBounds, cellKey, cellNear, classify, drawStroke, erase, extendStroke, indexTiles, lineCells, makeID, normalizeDegrees, openEnds, straightTo, type Tiles } from "./track.ts";
 
 test("classify names the pieces as the server does", () => {
   const cases: [TrackDirection[], string | undefined][] = [
@@ -174,6 +174,20 @@ test("track drawn across a gap in a block joins the block", () => {
   assert.deepEqual(at(joined, 1, 0)?.track, ["e", "w"], "the ends of the gap are plain track again, not turnouts");
   const spur = draw(tiles, [1, 0], [2, 1], [3, 1]);
   assert.equal(at(spur, 2, 1)?.block, undefined, "track leading off a block stays out of it");
+});
+
+test("cellNear takes a cell only near its middle", () => {
+  assert.deepEqual(cellNear({ x: 3.5, y: 0.6 }), { x: 3, y: 0 });
+  assert.deepEqual(cellNear({ x: -1.3, y: 4.7 }), { x: -2, y: 4 });
+  assert.equal(cellNear({ x: 3.95, y: 0.9 }), undefined, "near a corner");
+  assert.equal(cellNear({ x: 3.5, y: 0.97 }), undefined, "grazing the next row");
+  // A slow drag along a diagonal, a little off it, takes no cell beside it.
+  const taken = new Set<string>();
+  for (let t = 0; t <= 3; t += 0.01) {
+    const c = cellNear({ x: 0.5 + t + 0.15, y: 0.5 + t - 0.15 });
+    if (c) taken.add(cellKey(c.x, c.y));
+  }
+  assert.deepEqual([...taken], ["0,0", "1,1", "2,2", "3,3"]);
 });
 
 test("straightTo keeps to the nearest of the eight directions", () => {

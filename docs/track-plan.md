@@ -48,6 +48,27 @@ and you can save yours over theirs or load theirs instead. An edit in
 progress is kept while you look at another page, but not when the
 browser reloads.
 
+### Curves
+
+The plan is a schematic, like the panel in a signal tower: track runs in
+eight directions, so a curve is drawn as a diagonal run between two
+straights. A cell where the track bends by 45 degrees is a curve, and
+one where it bends by 90 degrees a sharp curve; it can't bend more
+sharply than that in one cell.
+
+For a quarter turn from east to south, draw east, then a few cells
+diagonally southeast, then south. The more diagonal cells, the wider the
+sweep. A return loop carries on round the same way, southwest and then
+west. Drag freehand across the corners of the cells: a cell joins the
+line only once the pointer comes near its middle, so cutting across a
+corner goes diagonally rather than stepping through the cell beside it.
+Or hold Shift for each straight and diagonal run in turn.
+
+When tracing a background, line the straights up with the image and
+let the curves fall where the diagonals put them. The drawing doesn't
+need the curve's real radius, since a block's length comes from its
+**Length in mm**.
+
 ### Fixing a line that strayed
 
 While you are still dragging, go back over the track you just drew and
