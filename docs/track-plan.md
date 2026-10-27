@@ -23,7 +23,11 @@ appear above it. Nothing reaches the layout until you save, and **Undo**
   straight, diagonal, or bends by 45 or 90 degrees. Drag off the middle
   of a line to make a turnout there; drag straight across a line to make
   a crossing. A line ends where you stop dragging, as the end of a track.
-- **Platform** (P): drag to draw a platform beside the track.
+  Hold Shift to keep the line straight, along the nearest of the eight
+  directions from where you pressed it; let go of Shift to bend the line,
+  and press it again for the next straight.
+- **Platform** (P): drag to draw a platform beside the track. Shift
+  keeps it straight here too.
 - **Label** (L): click an empty cell to write a station name or a note
   there; change the text on the right.
 - **Block** (B): drag over track to put it in the block chosen under
@@ -43,6 +47,19 @@ If someone else saves the plan while you are editing, saving tells you,
 and you can save yours over theirs or load theirs instead. An edit in
 progress is kept while you look at another page, but not when the
 browser reloads.
+
+### Fixing a line that strayed
+
+While you are still dragging, go back over the track you just drew and
+it comes up again; then carry on the way you meant. Doubling back from
+a cell that strayed off the line, as when you slip a row and come
+straight back, leaves that cell out without your having to retrace.
+
+Undo takes back the whole drag. To fix part of a line once you've let
+go, erase just the cells that went wrong, then draw across the gap.
+Erasing cuts the track either side short at the gap, so the new track
+joins it as plain track, not as turnouts. When the track either side is
+in the same block, the new track is put in that block too.
 
 ## Tracing a plan from planning software
 

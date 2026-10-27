@@ -4,17 +4,17 @@ import { type LampColor, Status } from "../components/Lamp";
 import { Empty, Page } from "../components/Page";
 import { TrackDiagram, blockState, trainsIn } from "../components/TrackDiagram";
 import { useBus } from "../store";
-import { type Bounds, type Cell, DIRECTION_NAMES, PIECE_LABELS, backgroundBounds, bounds, cellKey, classify, drawStroke, erase, indexTiles, lineCells, makeID, normalizeDegrees, openEnds, switches, type Tiles } from "../track";
+import { type Bounds, type Cell, DIRECTION_NAMES, PIECE_LABELS, backgroundBounds, bounds, cellKey, classify, drawStroke, erase, extendStroke, indexTiles, lineCells, makeID, normalizeDegrees, openEnds, straightTo, switches, type Tiles } from "../track";
 
 type Tool = "select" | "track" | "platform" | "label" | "block" | "erase" | "background";
 
 const TOOLS: { tool: Tool; label: string; key: string; hint: string }[] = [
   { tool: "select", label: "Select", key: "v", hint: "Click a cell to see and change what it holds." },
-  { tool: "track", label: "Track", key: "t", hint: "Drag from cell to cell to lay track. Branch off a line to make a turnout, or cross one to make a crossing." },
-  { tool: "platform", label: "Platform", key: "p", hint: "Drag to draw a platform beside the track." },
+  { tool: "track", label: "Track", key: "t", hint: "Drag to lay track; Shift keeps it straight, and going back over it takes it up. Branch off a line for a turnout, or cross one for a crossing." },
+  { tool: "platform", label: "Platform", key: "p", hint: "Drag to draw a platform beside the track; hold Shift to keep it straight." },
   { tool: "label", label: "Label", key: "l", hint: "Click an empty cell to write a label there." },
   { tool: "block", label: "Block", key: "b", hint: "Drag over track to put it in the block chosen under Blocks. Hold Option or Alt to take track out of its block." },
-  { tool: "erase", label: "Erase", key: "e", hint: "Drag over cells to clear them." },
+  { tool: "erase", label: "Erase", key: "e", hint: "Drag over cells to clear them. Track either side stops short of them, so drawing across the gap joins it up again." },
   { tool: "background", label: "Background", key: "g", hint: "Drag to move the background image. Set its size and how faint it is under Background." },
 ];
 
@@ -220,6 +220,9 @@ function BlockTable({ plan, entities }: { plan: TrackPlan; entities: Record<stri
 interface Stroke {
   base: Draft;
   cells: Cell[];
+  /** The stroke as it was when Shift went down; a straight line goes on
+   * from its end while Shift is held. */
+  straight?: Cell[];
   tiles: Tiles;
   background?: TrackBackground;
   /** Where a background move started, to a fraction of a cell. */
@@ -344,7 +347,7 @@ function Editor({ saved, session, setSession, entities }: { saved: TrackPlanStat
     if (tool === "block") paint(s, [cell]);
   }
 
-  function onPointerMove(cell: Cell, _e: ReactPointerEvent<SVGSVGElement>, at: { x: number; y: number }) {
+  function onPointerMove(cell: Cell, e: ReactPointerEvent<SVGSVGElement>, at: { x: number; y: number }) {
     if (!hover || hover.x !== cell.x || hover.y !== cell.y) setHover(cell);
     const s = stroke.current;
     if (!s) return;
@@ -357,14 +360,24 @@ function Editor({ saved, session, setSession, entities }: { saved: TrackPlanStat
     }
     const last = s.cells[s.cells.length - 1];
     if (last.x === cell.x && last.y === cell.y) return;
-    const added = lineCells(last, cell).slice(1);
-    s.cells.push(...added);
     s.moved = true;
     if (tool === "track" || tool === "platform") {
+      if (e.shiftKey) {
+        s.straight ??= s.cells;
+        const from = s.straight[s.straight.length - 1];
+        s.cells = extendStroke(s.base.tiles, s.straight, lineCells(from, straightTo(from, cell)).slice(1), tool);
+      } else {
+        s.straight = undefined;
+        s.cells = extendStroke(s.base.tiles, s.cells, lineCells(last, cell).slice(1), tool);
+      }
       const result = drawStroke(s.base.tiles, s.cells, tool);
       s.error = result.error;
       setTiles(s, result.tiles);
-    } else if (tool === "erase") {
+      return;
+    }
+    const added = lineCells(last, cell).slice(1);
+    s.cells.push(...added);
+    if (tool === "erase") {
       let tiles = s.tiles;
       for (const c of added) tiles = erase(tiles, c);
       setTiles(s, tiles);

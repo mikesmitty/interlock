@@ -179,7 +179,52 @@ export function lineCells(from: Cell, to: Cell): Cell[] {
   return cells;
 }
 
+/** The cell nearest another on a straight line out of a cell, along the
+ * one of the eight directions closest to it. */
+export function straightTo(from: Cell, to: Cell): Cell {
+  const [dx, dy] = [to.x - from.x, to.y - from.y];
+  if (dx === 0 && dy === 0) return from;
+  // Eighths of a turn clockwise from east, as y grows downward.
+  const [sx, sy] = step(turn("e", Math.round(Math.atan2(dy, dx) / (Math.PI / 4))));
+  const n = Math.max(0, Math.round((dx * sx + dy * sy) / (sx * sx + sy * sy)));
+  return { x: from.x + n * sx, y: from.y + n * sy };
+}
+
 export type Layer = "track" | "platform";
+
+const sameCell = (a: Cell, b: Cell) => a.x === b.x && a.y === b.y;
+
+/** Takes a stroke on through more cells, each next to the one before.
+ * Going back to a cell the stroke was in a step or two ago takes back
+ * what it drew since, and a new cell it would turn back through more
+ * sharply than track can turn is left out, so a stray off the line can
+ * be corrected without starting over. */
+export function extendStroke(base: Tiles, cells: readonly Cell[], more: readonly Cell[], layer: Layer): Cell[] {
+  let out = [...cells];
+  const fresh = (c: Cell) => !base.get(cellKey(c.x, c.y))?.[layer]?.length && out.filter((o) => sameCell(o, c)).length === 1;
+  for (const next of more) {
+    for (;;) {
+      const n = out.length;
+      const back = [n - 2, n - 3].find((i) => i >= 0 && sameCell(out[i], next));
+      if (back !== undefined) {
+        out = out.slice(0, back + 1);
+        break;
+      }
+      if (n >= 2) {
+        const [a, b] = [out[n - 2], out[n - 1]];
+        const toA = directionOf(a.x - b.x, a.y - b.y);
+        const toNext = directionOf(next.x - b.x, next.y - b.y);
+        if (toA && toNext && apart(toA, toNext) === 1 && fresh(b)) {
+          out.pop();
+          continue;
+        }
+      }
+      out.push(next);
+      break;
+    }
+  }
+  return out;
+}
 
 function without<K extends keyof TrackTile>(tile: TrackTile, key: K): TrackTile {
   const copy = { ...tile };
@@ -197,12 +242,30 @@ export function drawStroke(base: Tiles, cells: readonly Cell[], layer: Layer): {
   let error: string | undefined;
   let n = cells.length;
   while (n > 1) {
-    const result = applyStroke(base, cells.slice(0, n), layer);
-    if (result.bad === undefined) return { tiles: result.tiles, error };
+    const drawn = cells.slice(0, n);
+    const result = applyStroke(base, drawn, layer);
+    if (result.bad === undefined) return { tiles: layer === "track" ? joinBlock(base, drawn, result.tiles) : result.tiles, error };
     error ??= result.reason;
     n = result.bad;
   }
   return { tiles: base, error };
+}
+
+/** Puts new track a stroke laid into the block of the track at both its
+ * ends, when that is the same block: track drawn across a gap erased in
+ * a block joins it again. */
+function joinBlock(base: Tiles, cells: readonly Cell[], tiles: Tiles): Tiles {
+  const first = cells[0];
+  const last = cells[cells.length - 1];
+  const block = base.get(cellKey(first.x, first.y))?.block;
+  if (!block || base.get(cellKey(last.x, last.y))?.block !== block) return tiles;
+  const out = new Map(tiles);
+  for (const c of cells) {
+    const key = cellKey(c.x, c.y);
+    const tile = out.get(key);
+    if (tile?.track && !base.get(key)?.track?.length) out.set(key, { ...tile, block });
+  }
+  return out;
 }
 
 /** Lays a whole stroke, or finds the first cell of it that can't take it. */
