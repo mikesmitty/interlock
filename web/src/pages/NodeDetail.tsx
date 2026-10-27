@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useLocation, useNavigate, useParams } from "react-router";
 import {
   addressID,
   addressName,
@@ -18,6 +18,7 @@ import {
 import { ConfigForm } from "../components/ConfigForm";
 import { EntityRows } from "../components/EntityRows";
 import { FirmwarePanel } from "../components/FirmwarePanel";
+import { ReplaceNode } from "../components/ReplaceNode";
 import { Status } from "../components/Lamp";
 import { Empty, Page } from "../components/Page";
 import { clockTime, relativeTime, useNow } from "../format";
@@ -32,6 +33,13 @@ export function NodeDetail() {
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string>();
+  const [replacing, setReplacing] = useState(false);
+  // Set when this node just took another's place.
+  const replaced = (useLocation().state as { replaced?: { from: string; count: number } } | null)?.replaced;
+  useEffect(() => {
+    setReplacing(false);
+    setMessage(undefined);
+  }, [id]);
   const node = nodes[id.toUpperCase()] ?? Object.values(nodes).find((n) => n.id.toUpperCase() === id.toUpperCase());
 
   const traffic = useMemo(() => {
@@ -65,6 +73,14 @@ export function NodeDetail() {
         <Empty title={`No node ${id} has been seen`}>
           <p>Nodes appear in the list when they announce themselves or answer a check-in.</p>
         </Empty>
+        {/^[0-9a-f]{2}(\.[0-9a-f]{2}){5}$/i.test(id) && (
+          <>
+            <p className="muted" style={{ marginTop: "1rem" }}>
+              If this node was forgotten after a new board took its place, what still names it can be moved to the new board.
+            </p>
+            <ReplaceNode id={id.toUpperCase()} nodes={nodes} />
+          </>
+        )}
       </Page>
     );
   }
@@ -111,6 +127,11 @@ export function NodeDetail() {
                 Forget node
               </button>
             )}
+            {!locomotive && (
+              <button className="btn btn--quiet" onClick={() => setReplacing(!replacing)} aria-expanded={replacing}>
+                Replace with another node
+              </button>
+            )}
             <button className="btn" onClick={() => void act("Identification", () => api.refreshNode(node.id), "Asked the node to identify itself again.")} disabled={busy}>
               Identify again
             </button>
@@ -124,6 +145,12 @@ export function NodeDetail() {
       }
     >
       {message && <p className="note">{message}</p>}
+      {replaced && (
+        <p className="note">
+          This node took the place of {replaced.from}: {replaced.count === 1 ? "one reference" : `${replaced.count} references`} to it now name this node.
+        </p>
+      )}
+      {replacing && <ReplaceNode id={node.id} node={node} nodes={nodes} onClose={() => setReplacing(false)} />}
       {node.error && !snip && <p className="note note--error">The node did not answer identification: {node.error}</p>}
       <div className="panel">
         <dl className="plate">

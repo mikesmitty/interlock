@@ -49,6 +49,7 @@ POST   /api/v1/nodes/refresh                 ask every node to check in
 GET    /api/v1/nodes/{id}
 POST   /api/v1/nodes/{id}/refresh            identify the node again
 DELETE /api/v1/nodes/{id}                    forget an offline node
+POST   /api/v1/nodes/{id}/replace            {with, apply, forget}: move what names the node to node "with"
 GET    /api/v1/nodes/{id}/cdi                the configuration description, expanded; ?format=xml for the source
 POST   /api/v1/nodes/{id}/cdi/refresh        read it from the node again
 POST   /api/v1/nodes/{id}/config/read        {space, address, size} -> {values}
@@ -62,6 +63,12 @@ GET    /api/v1/profiles                      node profiles, shipped and yours
 
 Configuration values are keyed `space:address` and carried as strings in
 the form the CDI gives them.
+
+Replacing a node without `apply` changes nothing and returns the
+`changes` it would make: each with its `area` (track plan, automations,
+entities), the `item` and `field` holding it, `from` and `to`, and
+`missing` for an entity the new node doesn't have yet. `notes` say what
+was left alone, such as events on boards of different models.
 
 ## Firmware
 

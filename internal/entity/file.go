@@ -3,6 +3,7 @@ package entity
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"sync"
 
@@ -75,6 +76,16 @@ func (f *File) Override(id string) Override {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.doc.Overrides[id]
+}
+
+// Overrides returns every stored override by entity ID.
+func (f *File) Overrides() map[string]Override {
+	if f == nil {
+		return nil
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return maps.Clone(f.doc.Overrides)
 }
 
 // SetOverride stores an entity's override and saves the file. An empty

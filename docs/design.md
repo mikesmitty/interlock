@@ -770,6 +770,14 @@ since its result could change the model.
   reporter, stations, undo, and a guarded save. A background image
   exported from planning software can be put under the grid to trace
   over. Verified against the simulator.
+- Replacing a node (2026-10-27): `internal/replace` moves what names
+  one node over to another, for a failed board swapped for a new one or
+  a board given a new node ID: the track plan's links, automations (their
+  entities, events and node triggers, at any depth) and entity settings,
+  each rewriting its own references through `internal/refs`. Events are
+  matched by their place in the two boards' configuration, and only on
+  the same model. It previews before it applies and can forget the old
+  node after. Verified against two simulated outposts.
 - Next: the rest of Phase 7, hardware verification against
   canbus-outpost and simple-dcc, and Phase 8's train tracking.
 

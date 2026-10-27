@@ -72,6 +72,39 @@ partition it is not running from, starts it on trial, and confirms it a
 few seconds after the node is up. Until the trial is over it refuses
 another upgrade, and Interlock says so.
 
+## Replacing a board
+
+Interlock names a board's entities after its node ID, as in
+`turnout.0aff9024a634.servo_1`. When a board fails and a new one takes
+its place, or a board is given a new node ID, its entities come back
+under new IDs, and everything that named the old ones would lose them.
+**Replace with another node** on the old node's page moves all of it
+over:
+
+- the track plan's links to its detectors, reporters and switch
+  machines;
+- automations that watch or command its entities, or watch the node
+  itself;
+- names and hidden settings you gave its entities.
+
+On the same kind of board, automations and hand-built entities that use
+the old board's events get the new board's events from the same places
+in its configuration. Events you set by hand on the old board aren't
+copied to the new one; set them on the new board's page if other
+devices on the bus use them.
+
+1. Connect the new board, so it shows up in the node list.
+2. Open the old node's page and choose **Replace with another node**.
+   The new node is chosen for you when there is one of the same kind.
+3. **Show what changes** lists every reference that will move, and any
+   entity the new node doesn't have yet.
+4. **Move everything** makes the changes. With **Forget this node
+   afterward**, which is ticked when the old node is offline, it is
+   removed from the node list too, and the new node's page opens.
+
+If the old node was already forgotten, open its page by its node ID,
+for example `/nodes/0A.FF.90.24.A6.34`, to do the same.
+
 ## Reading the bus
 
 The Monitor page shows every frame on the bus, decoded: who sent it, to

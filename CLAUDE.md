@@ -105,6 +105,13 @@ applied at the next start; the replaced files go to `before-restore-*/`.
   a name made from its contents; saves delete the ones not named. The
   browser applies the same piece rules in `web/src/track.ts`; keep them
   in step.
+- `internal/replace` — moves what names one node over to another, for a
+  replaced board or a new node ID: entity IDs (`entity.MoveID`), events
+  matched by their place in the two boards' configuration (same model
+  only) and node IDs. The track plan, the automation engine and the
+  entity manager each rewrite their own references through the
+  `Rewrite` method and the types in `internal/refs`; a new kind of
+  stored reference needs one too.
 - `internal/automation` — automations as declarative documents (JSON in
   the API, `<data>/automations.yaml` on disk): triggers, conditions and
   actions with Home Assistant semantics, run modes, and a trace per run

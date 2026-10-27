@@ -87,6 +87,8 @@ type Deps struct {
 	Backups Backups
 	// TrackPlan is the track diagram; nil disables its endpoints.
 	TrackPlan TrackPlan
+	// Replace moves what names one node over to another; nil disables it.
+	Replace Replacer
 	// Restart restarts the server; nil means it cannot.
 	Restart func()
 	// SerialPorts lists serial devices for the settings page; may be nil.
@@ -114,6 +116,7 @@ func New(deps Deps) *API {
 	a.mux.HandleFunc("GET /api/v1/nodes/{id}", a.getNode)
 	a.mux.HandleFunc("POST /api/v1/nodes/{id}/refresh", a.refreshNode)
 	a.mux.HandleFunc("DELETE /api/v1/nodes/{id}", a.forgetNode)
+	a.mux.HandleFunc("POST /api/v1/nodes/{id}/replace", a.replaceNode)
 	a.mux.HandleFunc("GET /api/v1/nodes/{id}/cdi", a.getCDI)
 	a.mux.HandleFunc("POST /api/v1/nodes/{id}/cdi/refresh", a.refreshCDI)
 	a.mux.HandleFunc("POST /api/v1/nodes/{id}/config/read", a.configRead)

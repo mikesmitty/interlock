@@ -33,6 +33,7 @@ import (
 	"github.com/mikesmitty/interlock/internal/profile"
 	"github.com/mikesmitty/interlock/internal/programmer"
 	"github.com/mikesmitty/interlock/internal/registry"
+	"github.com/mikesmitty/interlock/internal/replace"
 	"github.com/mikesmitty/interlock/internal/server"
 	"github.com/mikesmitty/interlock/internal/store"
 	"github.com/mikesmitty/interlock/internal/trackplan"
@@ -385,6 +386,9 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		}
 	}()
 
+	// Moving what names one node over to another, for a replaced board.
+	replacer := &replace.Replacer{Nodes: reg, Events: table, Entities: entities, Parts: []replace.Part{entities, trackPlan, engine}}
+
 	srv := server.New(server.Options{
 		Listen: cfg.Listen,
 		Logger: logger,
@@ -405,6 +409,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			Clock:       fast,
 			Backups:     &backup.Manager{Dir: *dataDir, DB: st, Version: version.Version},
 			TrackPlan:   trackPlan,
+			Replace:     replacer,
 			Restart:     restart,
 			SerialPorts: transport.SerialPorts,
 			Logger:      logger,

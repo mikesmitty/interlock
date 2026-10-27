@@ -1,7 +1,6 @@
 package profile
 
 import (
-	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
@@ -150,7 +149,7 @@ func (p *Profile) build(rule Rule, node entity.NodeInfo, inst instance, all []cd
 		}
 	}
 	spec := entity.Spec{
-		ID:        fmt.Sprintf("%s.%012x.%s", rule.Kind, uint64(node.ID), slug),
+		ID:        entity.ProfileID(rule.Kind, node.ID, slug),
 		Kind:      rule.Kind,
 		Name:      p.name(rule, node, inst, all, values),
 		Node:      node.ID,

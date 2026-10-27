@@ -471,3 +471,65 @@ select.input:focus-visible {
 .fw__outcome .status {
   margin-right: 0.25rem;
 }
+
+/* --- replacing a node ------------------------------------------------------ */
+
+.replace {
+  padding: 1rem 1.25rem;
+  margin-bottom: 1rem;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.replace p {
+  max-width: 70ch;
+}
+
+.replace__form {
+  display: grid;
+  gap: 0.6rem;
+  justify-items: start;
+}
+
+.replace__field {
+  display: grid;
+  gap: 0.2rem;
+  font-family: var(--font-condensed);
+  font-size: var(--fs-sm);
+  color: var(--ivory-dim);
+}
+
+.replace__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.replace__result {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.replace__result h3 {
+  font-size: var(--fs-md);
+  margin-bottom: 0.25rem;
+}
+
+/* The same columns in every area's table. */
+.replace__result table {
+  table-layout: fixed;
+}
+
+.replace__result td:first-child {
+  width: 40%;
+}
+
+.replace__ids {
+  font-family: var(--font-condensed);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.replace__missing {
+  color: var(--lamp-amber);
+}

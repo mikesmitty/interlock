@@ -347,6 +347,30 @@ export interface TrackPlanState {
   topology: TrackTopology;
 }
 
+// Replacing a node: moving what names one node over to another.
+
+export interface ReplaceChange {
+  /** Where it is kept: "Track plan", "Automations", "Entities". */
+  area: string;
+  /** What holds it there, by name. */
+  item: string;
+  field: string;
+  kind: "entity" | "event" | "node";
+  from: string;
+  to: string;
+  /** The new node has no such entity (yet). */
+  missing?: boolean;
+}
+
+export interface ReplaceResult {
+  from: string;
+  to: string;
+  changes: ReplaceChange[];
+  notes?: string[];
+  applied: boolean;
+  forgotten?: boolean;
+}
+
 // Automations: when / only if / then documents and the traces of their runs.
 
 export type AutomationMode = "single" | "restart" | "queued" | "parallel";
@@ -883,6 +907,8 @@ export const api = {
     }),
   serialPorts: () => request<{ ports: string[] }>("/api/v1/serial-ports").then((r) => r.ports),
   forgetNode: (id: string) => request<void>(nodePath(id), { method: "DELETE" }),
+  replaceNode: (id: string, withNode: string, apply: boolean, forget: boolean) =>
+    request<ReplaceResult>(`${nodePath(id)}/replace`, { method: "POST", body: JSON.stringify({ with: withNode, apply, forget }) }),
   restore: (file: File) => upload<{ restarting: boolean }>("/api/v1/restore", "file", file),
   restart: () => request<{ restarting: boolean }>("/api/v1/restart", { method: "POST" }),
   clock: () => request<ClockState>("/api/v1/clock"),
