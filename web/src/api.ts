@@ -288,11 +288,28 @@ export interface TrackStation {
   name: string;
 }
 
+/** An image drawn under the plan to trace over; place and size in cells. */
+export interface TrackBackground {
+  image: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  opacity: number;
+  /** Shown while operating too, not only while editing. */
+  operating?: boolean;
+  /** Drawn with light and dark swapped, for a plan drawn dark on white. */
+  invert?: boolean;
+}
+
 export interface TrackPlan {
   tiles: TrackTile[];
   blocks: TrackBlock[];
   stations: TrackStation[];
+  background?: TrackBackground;
 }
+
+export const backgroundURL = (image: string) => `/api/v1/trackplan/backgrounds/${encodeURIComponent(image)}`;
 
 export interface TrackPort {
   block: string;
@@ -923,6 +940,7 @@ export const api = {
   trackPlan: () => request<TrackPlanState>("/api/v1/trackplan"),
   saveTrackPlan: (plan: TrackPlan, revision: string) =>
     request<TrackPlanState>("/api/v1/trackplan", { method: "PUT", body: JSON.stringify({ plan, revision }) }),
+  uploadBackground: (file: File) => upload<{ image: string }>("/api/v1/trackplan/backgrounds", "file", file),
   eventNames: (node?: string) =>
     request<{ events: EventName[] }>(
       node ? `/api/v1/event-names?node=${encodeURIComponent(node)}` : "/api/v1/event-names",

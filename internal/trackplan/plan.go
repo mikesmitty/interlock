@@ -25,6 +25,8 @@ type Plan struct {
 	Tiles    []Tile    `json:"tiles" yaml:"tiles,omitempty"`
 	Blocks   []Block   `json:"blocks" yaml:"blocks,omitempty"`
 	Stations []Station `json:"stations" yaml:"stations,omitempty"`
+	// Background is an image drawn under the plan; nil for none.
+	Background *Background `json:"background,omitempty" yaml:"background,omitempty"`
 }
 
 // Tile is one cell of the grid. It holds track, a piece of platform or a
@@ -113,6 +115,11 @@ func (t Tile) cell() Cell { return Cell{X: t.X, Y: t.Y} }
 func (p Plan) Validate() error {
 	if len(p.Tiles) > MaxTiles {
 		return invalid("a plan can have at most %d cells", MaxTiles)
+	}
+	if p.Background != nil {
+		if err := p.Background.validate(); err != nil {
+			return err
+		}
 	}
 	stations := make(map[string]bool, len(p.Stations))
 	for _, s := range p.Stations {
@@ -227,9 +234,10 @@ func checkID(what, id, name string) error {
 // directions clockwise from north, names trimmed and no nil lists.
 func (p Plan) Normalize() Plan {
 	out := Plan{
-		Tiles:    make([]Tile, len(p.Tiles)),
-		Blocks:   make([]Block, len(p.Blocks)),
-		Stations: make([]Station, len(p.Stations)),
+		Tiles:      make([]Tile, len(p.Tiles)),
+		Blocks:     make([]Block, len(p.Blocks)),
+		Stations:   make([]Station, len(p.Stations)),
+		Background: p.Background,
 	}
 	for i, t := range p.Tiles {
 		t.Track = sortedDirections(t.Track)

@@ -44,6 +44,28 @@ and you can save yours over theirs or load theirs instead. An edit in
 progress is kept while you look at another page, but not when the
 browser reloads.
 
+## Tracing a plan from planning software
+
+To draw the layout from a plan made in track planning software, export
+the plan as an image and put it under the grid. PNG, JPEG, WebP, GIF and
+SVG images up to 25 MB work.
+
+1. Under **Background** in the editor, choose **Choose an image**. The
+   image goes under the grid, at the top left of what is drawn so far.
+   The **Background** tool (G) is selected.
+2. Drag the image with the Background tool to line it up with the grid.
+3. Set its **Width in cells** so that a known length on the plan, such
+   as the distance between two parallel tracks, comes out as whole
+   cells. Its height follows.
+4. Set its **Opacity** low enough that your own track stands out. On the
+   dark theme, a plan drawn dark on white is easier to trace with **Swap
+   light and dark** on.
+5. Draw the track over it.
+
+The image is saved with the plan. It shows only while editing, unless
+**Show it while operating too** is on. **Remove it** takes it away
+again; saving then deletes the image from the server.
+
 ## Blocks
 
 A block is a stretch of track a train is detected in. Add one under
@@ -64,8 +86,8 @@ leads: the next block, and the turnout positions on the way.
 
 ## The file
 
-The plan is `trackplan.yaml` in the data directory, and backups include
-it. Each tile is one cell, with x growing rightward and y downward:
+The plan is `trackplan.yaml` in the data directory, with the background
+image in its `backgrounds` folder; backups include both. Each tile is one cell, with x growing rightward and y downward:
 
 ```yaml
 tiles:

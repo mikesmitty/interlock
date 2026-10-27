@@ -224,7 +224,13 @@ See [The fast clock](./clock.md).
 ```
 GET    /api/v1/trackplan                     {plan, revision, topology}
 PUT    /api/v1/trackplan                     {plan, revision} -> {plan, revision, topology}
+POST   /api/v1/trackplan/backgrounds         multipart form, field "file": store an image -> {image}
+GET    /api/v1/trackplan/backgrounds/{image} a stored image
 ```
+
+A stored image becomes the plan's background when a plan whose
+`background.image` names it is saved; each save deletes the stored images
+the saved plan doesn't name.
 
 A save names the revision it was based on; when the plan was saved since,
 it gets 409 with the current `revision` in the body. The topology lists

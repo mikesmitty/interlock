@@ -17,6 +17,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -55,9 +56,17 @@ const (
 
 var plainFiles = []string{"interlock.yaml", "entities.yaml", "automations.yaml", "trains.yaml", "trackplan.yaml"}
 
-// yamlDirs hold YAML files that are backed up too: the user's profiles
-// and the roster's decoder CV values.
-var yamlDirs = []string{"profiles", "cvs"}
+// fileDirs hold files that are backed up too, with the extensions they
+// may have: the user's profiles, the roster's decoder CV values and the
+// track plan's background images.
+var fileDirs = []struct {
+	name string
+	exts []string
+}{
+	{"profiles", []string{".yaml", ".yml"}},
+	{"cvs", []string{".yaml", ".yml"}},
+	{"backgrounds", []string{".png", ".jpg", ".gif", ".webp", ".svg"}},
+}
 
 // allowed reports whether an archive entry may be restored, and the clean
 // path to restore it at.
@@ -75,8 +84,8 @@ func allowed(name string) (string, bool) {
 		}
 	}
 	dir, base := path.Split(clean)
-	for _, d := range yamlDirs {
-		if dir == d+"/" && (strings.HasSuffix(base, ".yaml") || strings.HasSuffix(base, ".yml")) {
+	for _, d := range fileDirs {
+		if dir == d.name+"/" && slices.Contains(d.exts, path.Ext(base)) {
 			return clean, true
 		}
 	}
@@ -123,15 +132,15 @@ func Write(ctx context.Context, w io.Writer, dir string, db DB, version string) 
 			return fmt.Errorf("backup %s: %w", name, err)
 		}
 	}
-	for _, d := range yamlDirs {
-		entries, err := os.ReadDir(filepath.Join(dir, d))
+	for _, d := range fileDirs {
+		entries, err := os.ReadDir(filepath.Join(dir, d.name))
 		if err != nil {
 			continue
 		}
 		for _, e := range entries {
-			name := d + "/" + e.Name()
+			name := d.name + "/" + e.Name()
 			if clean, ok := allowed(name); ok && !e.IsDir() {
-				if err := add(clean, filepath.Join(dir, d, e.Name())); err != nil {
+				if err := add(clean, filepath.Join(dir, d.name, e.Name())); err != nil {
 					return fmt.Errorf("backup %s: %w", name, err)
 				}
 			}

@@ -26,7 +26,7 @@ make docs-dev   # serve it with live reload
 
 Run `bin/interlock -data <dir>`; the data directory holds `interlock.yaml`
 (created with defaults on first start), `interlock.db`, `entities.yaml`,
-`automations.yaml`, `trains.yaml`, `trackplan.yaml`, decoder CV values in `cvs/` and user `profiles/`. Default: `$INTERLOCK_DATA`, else `interlock` under the user
+`automations.yaml`, `trains.yaml`, `trackplan.yaml` and its background image in `backgrounds/`, decoder CV values in `cvs/` and user `profiles/`. Default: `$INTERLOCK_DATA`, else `interlock` under the user
 config directory. A staged restore waits in `restore.pending/` and is
 applied at the next start; the replaced files go to `before-restore-*/`.
 
@@ -100,7 +100,9 @@ applied at the next start; the replaced files go to `before-restore-*/`.
   block and reporter entities, with lengths and stations. `Topology`
   works out open ends, each block's ends and the links between block
   ends with the turnout positions on the way, which is what scheduling
-  will route over. Saves name the revision they were based on. The
+  will route over. Saves name the revision they were based on. A
+  background image to trace over is kept in `<data>/backgrounds/` under
+  a name made from its contents; saves delete the ones not named. The
   browser applies the same piece rules in `web/src/track.ts`; keep them
   in step.
 - `internal/automation` — automations as declarative documents (JSON in

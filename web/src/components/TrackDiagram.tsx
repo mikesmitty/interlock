@@ -1,5 +1,5 @@
 import type { PointerEvent as ReactPointerEvent } from "react";
-import type { TrackDirection, Entity, TrackBlock, TrackTile } from "../api";
+import { type Entity, type TrackBackground, type TrackBlock, type TrackDirection, type TrackTile, backgroundURL } from "../api";
 import { type Bounds, type Cell, classify, step, switches } from "../track";
 
 /** How a block's track is drawn: by its detector's state when operating,
@@ -20,8 +20,12 @@ interface DiagramProps {
   selected?: Cell;
   hover?: Cell;
   openEnds?: { x: number; y: number; dir: TrackDirection }[];
-  onPointerDown?: (cell: Cell, e: ReactPointerEvent<SVGSVGElement>) => void;
-  onPointerMove?: (cell: Cell, e: ReactPointerEvent<SVGSVGElement>) => void;
+  /** An image drawn under everything else. */
+  background?: TrackBackground;
+  /** The pointer's cell, and where in the grid it is to a fraction of a
+   * cell. */
+  onPointerDown?: (cell: Cell, e: ReactPointerEvent<SVGSVGElement>, at: { x: number; y: number }) => void;
+  onPointerMove?: (cell: Cell, e: ReactPointerEvent<SVGSVGElement>, at: { x: number; y: number }) => void;
   onPointerUp?: (e: ReactPointerEvent<SVGSVGElement>) => void;
   onPointerLeave?: () => void;
   /** Clicking a linked turnout while operating. */
@@ -93,13 +97,14 @@ export function TrackDiagram(props: DiagramProps) {
   const width = area.maxX - area.minX + 1;
   const height = area.maxY - area.minY + 1;
 
-  const cellAt = (e: ReactPointerEvent<SVGSVGElement>): Cell => {
+  const pointAt = (e: ReactPointerEvent<SVGSVGElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
     return {
-      x: area.minX + Math.floor(((e.clientX - rect.left) / rect.width) * width),
-      y: area.minY + Math.floor(((e.clientY - rect.top) / rect.height) * height),
+      x: area.minX + ((e.clientX - rect.left) / rect.width) * width,
+      y: area.minY + ((e.clientY - rect.top) / rect.height) * height,
     };
   };
+  const cellAt = (at: { x: number; y: number }): Cell => ({ x: Math.floor(at.x), y: Math.floor(at.y) });
 
   // Each block's middle cell carries its name tag, or its train's.
   const members = new Map<string, TrackTile[]>();
@@ -126,11 +131,38 @@ export function TrackDiagram(props: DiagramProps) {
       viewBox={`${area.minX} ${area.minY} ${width} ${height}`}
       role="img"
       aria-label="Track diagram"
-      onPointerDown={props.onPointerDown && ((e) => props.onPointerDown?.(cellAt(e), e))}
-      onPointerMove={props.onPointerMove && ((e) => props.onPointerMove?.(cellAt(e), e))}
+      onPointerDown={
+        props.onPointerDown &&
+        ((e) => {
+          const at = pointAt(e);
+          props.onPointerDown?.(cellAt(at), e, at);
+        })
+      }
+      onPointerMove={
+        props.onPointerMove &&
+        ((e) => {
+          const at = pointAt(e);
+          props.onPointerMove?.(cellAt(at), e, at);
+        })
+      }
       onPointerUp={props.onPointerUp}
       onPointerLeave={props.onPointerLeave}
     >
+      {props.background && (
+        <image
+          className="trk-background"
+          href={backgroundURL(props.background.image)}
+          x={props.background.x}
+          y={props.background.y}
+          width={props.background.width}
+          height={props.background.height}
+          opacity={props.background.opacity}
+          preserveAspectRatio="none"
+          // Swapping light and dark, then turning the hues back round,
+          // keeps colored lines their color.
+          style={props.background.invert ? { filter: "invert(1) hue-rotate(180deg)" } : undefined}
+        />
+      )}
       {editing && (
         <>
           <defs>

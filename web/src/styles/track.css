@@ -50,6 +50,25 @@
   font-variant-numeric: tabular-nums;
 }
 
+.trk-background {
+  pointer-events: none;
+}
+
+.trk-file {
+  position: relative;
+}
+
+.trk-file.is-busy {
+  border-color: var(--enamel-line);
+  color: var(--ivory-faint);
+  cursor: default;
+}
+
+.trk-range {
+  accent-color: var(--brass);
+  width: 100%;
+}
+
 .trk-open {
   fill: var(--lamp-amber);
 }

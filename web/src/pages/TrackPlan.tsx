@@ -1,12 +1,12 @@
 import { type PointerEvent as ReactPointerEvent, type ReactNode, useEffect, useRef, useState } from "react";
-import { ApiError, api, type Entity, type EntityKind, type TrackBlock, type TrackPlan, type TrackPlanState, type TrackStation, type TrackTile } from "../api";
+import { ApiError, api, type Entity, type EntityKind, type TrackBackground, type TrackBlock, type TrackPlan, type TrackPlanState, type TrackStation, type TrackTile } from "../api";
 import { type LampColor, Status } from "../components/Lamp";
 import { Empty, Page } from "../components/Page";
 import { TrackDiagram, blockState, trainsIn } from "../components/TrackDiagram";
 import { useBus } from "../store";
 import { type Bounds, type Cell, DIRECTION_NAMES, PIECE_LABELS, bounds, cellKey, classify, drawStroke, erase, indexTiles, lineCells, makeID, openEnds, switches, type Tiles } from "../track";
 
-type Tool = "select" | "track" | "platform" | "label" | "block" | "erase";
+type Tool = "select" | "track" | "platform" | "label" | "block" | "erase" | "background";
 
 const TOOLS: { tool: Tool; label: string; key: string; hint: string }[] = [
   { tool: "select", label: "Select", key: "v", hint: "Click a cell to see and change what it holds." },
@@ -15,6 +15,7 @@ const TOOLS: { tool: Tool; label: string; key: string; hint: string }[] = [
   { tool: "label", label: "Label", key: "l", hint: "Click an empty cell to write a label there." },
   { tool: "block", label: "Block", key: "b", hint: "Drag over track to put it in the block chosen under Blocks. Hold Option or Alt to take track out of its block." },
   { tool: "erase", label: "Erase", key: "e", hint: "Drag over cells to clear them." },
+  { tool: "background", label: "Background", key: "g", hint: "Drag to move the background image. Set its size and how faint it is under Background." },
 ];
 
 const ZOOMS = [20, 28, 36, 44];
@@ -24,6 +25,7 @@ interface Draft {
   tiles: Tiles;
   blocks: TrackBlock[];
   stations: TrackStation[];
+  background?: TrackBackground;
 }
 
 interface Session {
@@ -32,13 +34,27 @@ interface Session {
   draft: Draft;
   past: Draft[];
   future: Draft[];
+  /** What the last change was to, when it was one of a run of changes
+   * (a slider moving) that undo takes back as one. */
+  run?: string;
 }
 
 /** An edit in progress, kept while another page is open. */
 let keptSession: Session | undefined;
 
-const draftOf = (plan: TrackPlan): Draft => ({ tiles: indexTiles(plan.tiles), blocks: plan.blocks, stations: plan.stations });
-const planOf = (d: Draft): TrackPlan => ({ tiles: [...d.tiles.values()], blocks: d.blocks, stations: d.stations });
+const draftOf = (plan: TrackPlan): Draft => ({ tiles: indexTiles(plan.tiles), blocks: plan.blocks, stations: plan.stations, background: plan.background });
+const planOf = (d: Draft): TrackPlan => ({ tiles: [...d.tiles.values()], blocks: d.blocks, stations: d.stations, background: d.background });
+
+/** The cells a background covers. */
+const backgroundBounds = (b?: TrackBackground): Bounds | undefined =>
+  b && { minX: Math.floor(b.x), minY: Math.floor(b.y), maxX: Math.ceil(b.x + b.width) - 1, maxY: Math.ceil(b.y + b.height) - 1 };
+
+function union(a?: Bounds, b?: Bounds): Bounds | undefined {
+  if (!a || !b) return a ?? b;
+  return { minX: Math.min(a.minX, b.minX), minY: Math.min(a.minY, b.minY), maxX: Math.max(a.maxX, b.maxX), maxY: Math.max(a.maxY, b.maxY) };
+}
+
+const round = (n: number, places: number) => Math.round(n * 10 ** places) / 10 ** places;
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 function pad(b: Bounds | undefined, margin: number, minWidth: number, minHeight: number): Bounds {
@@ -89,6 +105,7 @@ function Zoom({ zoom, setZoom }: { zoom: number; setZoom: (z: number) => void })
 
 function Viewer({ state, entities, onEdit }: { state: TrackPlanState; entities: Record<string, Entity>; onEdit: () => void }) {
   const { plan } = state;
+  const background = plan.background?.operating ? plan.background : undefined;
   const [zoom, setZoom] = useState(1);
   const [error, setError] = useState<string>();
   const lead = "The layout's track plan, lit by what the detectors and turnouts report.";
@@ -134,7 +151,15 @@ function Viewer({ state, entities, onEdit }: { state: TrackPlanState; entities: 
     >
       {error && <p className="note note--error">{error}</p>}
       <div className="panel trk-canvas">
-        <TrackDiagram tiles={plan.tiles} blocks={plan.blocks} entities={entities} area={pad(bounds(plan.tiles), 1, 1, 1)} cell={ZOOMS[zoom]} onTurnout={toggle} />
+        <TrackDiagram
+          tiles={plan.tiles}
+          blocks={plan.blocks}
+          entities={entities}
+          area={pad(union(bounds(plan.tiles), backgroundBounds(background)), 1, 1, 1)}
+          cell={ZOOMS[zoom]}
+          background={background}
+          onTurnout={toggle}
+        />
       </div>
       <p className="trk-legend muted">Click a turnout to throw or close it.</p>
       <BlockTable plan={plan} entities={entities} />
@@ -200,6 +225,9 @@ interface Stroke {
   base: Draft;
   cells: Cell[];
   tiles: Tiles;
+  background?: TrackBackground;
+  /** Where a background move started, to a fraction of a cell. */
+  from: { x: number; y: number };
   moved: boolean;
   unassign: boolean;
   error?: string;
@@ -223,11 +251,15 @@ function Editor({ saved, session, setSession, entities }: { saved: TrackPlanStat
   const sessionRef = useRef(session);
   sessionRef.current = session;
 
-  const area = frozenArea ?? pad(bounds(draft.tiles.values()), 6, 40, 24);
+  const area = frozenArea ?? pad(union(bounds(draft.tiles.values()), backgroundBounds(draft.background)), 6, 40, 24);
   const update = (change: (s: Session) => Session) => setSession(change(sessionRef.current));
-  const commit = (next: Draft) => update((s) => ({ ...s, draft: next, past: [...s.past, s.draft].slice(-HISTORY), future: [] }));
-  const undo = () => update((s) => (s.past.length ? { ...s, draft: s.past[s.past.length - 1], past: s.past.slice(0, -1), future: [s.draft, ...s.future] } : s));
-  const redo = () => update((s) => (s.future.length ? { ...s, draft: s.future[0], past: [...s.past, s.draft], future: s.future.slice(1) } : s));
+  /** Changes the plan as one step to undo; a change in the same run as
+   * the one before joins its step. */
+  const commit = (next: Draft, run?: string) =>
+    update((s) => (run && s.run === run ? { ...s, draft: next } : { ...s, draft: next, past: [...s.past, s.draft].slice(-HISTORY), future: [], run }));
+  const undo = () => update((s) => (s.past.length ? { ...s, draft: s.past[s.past.length - 1], past: s.past.slice(0, -1), future: [s.draft, ...s.future], run: undefined } : s));
+  const redo = () => update((s) => (s.future.length ? { ...s, draft: s.future[0], past: [...s.past, s.draft], future: s.future.slice(1), run: undefined } : s));
+  const tools = TOOLS.filter((t) => t.tool !== "background" || draft.background);
   const selectedTile = selected ? draft.tiles.get(cellKey(selected.x, selected.y)) : undefined;
 
   // Someone else saved while nothing here was changed: follow along.
@@ -263,7 +295,7 @@ function Editor({ saved, session, setSession, entities }: { saved: TrackPlanStat
       } else if (e.key === "Escape") {
         setSelected(undefined);
       } else if (!mod && !e.altKey) {
-        const t = TOOLS.find((t) => t.key === e.key);
+        const t = tools.find((t) => t.key === e.key);
         if (t) setTool(t.tool);
       }
     };
@@ -273,7 +305,7 @@ function Editor({ saved, session, setSession, entities }: { saved: TrackPlanStat
 
   function setTiles(s: Stroke, tiles: Tiles) {
     s.tiles = tiles;
-    setSession({ ...sessionRef.current, draft: { ...s.base, tiles } });
+    setSession({ ...sessionRef.current, draft: { ...s.base, tiles, background: s.background } });
   }
 
   function paint(s: Stroke, cells: Cell[]) {
@@ -295,7 +327,7 @@ function Editor({ saved, session, setSession, entities }: { saved: TrackPlanStat
     if (tiles !== s.tiles) setTiles(s, tiles);
   }
 
-  function onPointerDown(cell: Cell, e: ReactPointerEvent<SVGSVGElement>) {
+  function onPointerDown(cell: Cell, e: ReactPointerEvent<SVGSVGElement>, at: { x: number; y: number }) {
     if (e.button !== 0) return;
     setNote(undefined);
     const key = cellKey(cell.x, cell.y);
@@ -310,16 +342,23 @@ function Editor({ saved, session, setSession, entities }: { saved: TrackPlanStat
     }
     e.currentTarget.setPointerCapture(e.pointerId);
     setFrozenArea(area);
-    const s: Stroke = { base: draft, cells: [cell], tiles: draft.tiles, moved: false, unassign: e.altKey };
+    const s: Stroke = { base: draft, cells: [cell], tiles: draft.tiles, background: draft.background, from: at, moved: false, unassign: e.altKey };
     stroke.current = s;
     if (tool === "erase") setTiles(s, erase(s.tiles, cell));
     if (tool === "block") paint(s, [cell]);
   }
 
-  function onPointerMove(cell: Cell) {
+  function onPointerMove(cell: Cell, _e: ReactPointerEvent<SVGSVGElement>, at: { x: number; y: number }) {
     if (!hover || hover.x !== cell.x || hover.y !== cell.y) setHover(cell);
     const s = stroke.current;
     if (!s) return;
+    if (tool === "background" && s.base.background) {
+      const bg = s.base.background;
+      s.background = { ...bg, x: round(bg.x + at.x - s.from.x, 2), y: round(bg.y + at.y - s.from.y, 2) };
+      s.moved = true;
+      setTiles(s, s.tiles);
+      return;
+    }
     const last = s.cells[s.cells.length - 1];
     if (last.x === cell.x && last.y === cell.y) return;
     const added = lineCells(last, cell).slice(1);
@@ -343,14 +382,14 @@ function Editor({ saved, session, setSession, entities }: { saved: TrackPlanStat
     stroke.current = undefined;
     setFrozenArea(undefined);
     if (!s) return;
-    if (!s.moved && (tool === "track" || tool === "platform")) {
+    if (!s.moved && (tool === "track" || tool === "platform" || tool === "background")) {
       const key = cellKey(s.cells[0].x, s.cells[0].y);
       setSelected(draft.tiles.has(key) ? s.cells[0] : undefined);
       return;
     }
     if (s.error) setNote(s.error);
-    if (s.tiles !== s.base.tiles) {
-      setSession({ ...sessionRef.current, draft: { ...s.base, tiles: s.tiles }, past: [...sessionRef.current.past, s.base].slice(-HISTORY), future: [] });
+    if (s.tiles !== s.base.tiles || s.background !== s.base.background) {
+      setSession({ ...sessionRef.current, draft: { ...s.base, tiles: s.tiles, background: s.background }, past: [...sessionRef.current.past, s.base].slice(-HISTORY), future: [], run: undefined });
     }
   }
 
@@ -434,7 +473,7 @@ function Editor({ saved, session, setSession, entities }: { saved: TrackPlanStat
 
       <div className="trk-tools" role="toolbar" aria-label="Drawing tools">
         <span className="trk-tools__group" role="group" aria-label="Tool">
-          {TOOLS.map((t) => (
+          {tools.map((t) => (
             <button key={t.tool} type="button" className="btn btn--sm btn--quiet" aria-pressed={tool === t.tool} onClick={() => setTool(t.tool)} title={`${t.label} (${t.key.toUpperCase()})`}>
               {t.label}
             </button>
@@ -467,6 +506,7 @@ function Editor({ saved, session, setSession, entities }: { saved: TrackPlanStat
             selected={selected}
             hover={hover}
             openEnds={ends}
+            background={draft.background}
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}
@@ -488,6 +528,13 @@ function Editor({ saved, session, setSession, entities }: { saved: TrackPlanStat
           )}
           <Blocks draft={draft} entities={entities} active={activeBlock} setActive={setActiveBlock} commit={commit} topology={dirty ? undefined : saved.topology} />
           <Stations draft={draft} commit={commit} />
+          <Background
+            draft={draft}
+            area={area}
+            commit={commit}
+            onAdded={() => setTool("background")}
+            onRemoved={() => tool === "background" && setTool("select")}
+          />
           <Problems ends={ends.length} saved={dirty ? undefined : saved} />
         </aside>
       </div>
@@ -821,6 +868,122 @@ function Stations({ draft, commit }: { draft: Draft; commit: (d: Draft) => void 
         </button>
       </form>
       <p className="trk-sub muted">A block's station makes it one of the station's platform tracks.</p>
+    </Section>
+  );
+}
+
+/** The size an image is drawn at, as its height over its width. SVGs
+ * without a size of their own count as square. */
+function aspectOf(file: File): Promise<number> {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(img.naturalWidth > 0 && img.naturalHeight > 0 ? img.naturalHeight / img.naturalWidth : 1);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      resolve(1);
+    };
+    img.src = url;
+  });
+}
+
+function Background({ draft, area, commit, onAdded, onRemoved }: { draft: Draft; area: Bounds; commit: (d: Draft, run?: string) => void; onAdded: () => void; onRemoved: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  const bg = draft.background;
+  const set = (change: Partial<TrackBackground>, run?: string) => bg && commit({ ...draft, background: { ...bg, ...change } }, run);
+
+  async function choose(file: File | undefined) {
+    if (!file) return;
+    setBusy(true);
+    setError(undefined);
+    try {
+      const [aspect, { image }] = await Promise.all([aspectOf(file), api.uploadBackground(file)]);
+      if (bg) {
+        // A new image keeps the old one's place and width.
+        commit({ ...draft, background: { ...bg, image, height: round(bg.width * aspect, 3) } });
+      } else {
+        const placed = bounds(draft.tiles.values());
+        const width = placed ? Math.max(placed.maxX - placed.minX + 1, 20) : area.maxX - area.minX + 1;
+        commit({ ...draft, background: { image, x: placed?.minX ?? area.minX, y: placed?.minY ?? area.minY, width, height: round(width * aspect, 3), opacity: 0.4 } });
+        onAdded();
+      }
+    } catch (err) {
+      setError(message(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const picker = (label: string) => (
+    <label className={busy ? "btn btn--sm trk-file is-busy" : "btn btn--sm trk-file"}>
+      {busy ? "Uploading" : label}
+      <input
+        type="file"
+        className="sr-only"
+        accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml"
+        disabled={busy}
+        onChange={(e) => {
+          void choose(e.target.files?.[0]);
+          e.target.value = "";
+        }}
+      />
+    </label>
+  );
+
+  return (
+    <Section title="Background">
+      {!bg && <p className="trk-sub muted">Put a plan from your track planning software under the grid to draw over it: export it as an image (PNG, JPEG, WebP, GIF or SVG) and choose it here.</p>}
+      {bg && (
+        <>
+          <label className="trk-field">
+            <span>Width in cells</span>
+            <input
+              className="input input--num"
+              type="number"
+              min={0.1}
+              step={0.1}
+              value={bg.width}
+              onChange={(e) => {
+                const width = Number(e.target.value);
+                if (width > 0) set({ width: round(width, 2), height: round((bg.height / bg.width) * width, 3) }, "background-width");
+              }}
+            />
+          </label>
+          <label className="trk-field">
+            <span>Opacity {Math.round(bg.opacity * 100)}%</span>
+            <input type="range" className="trk-range" min={5} max={100} step={5} value={Math.round(bg.opacity * 100)} onChange={(e) => set({ opacity: Number(e.target.value) / 100 }, "background-opacity")} />
+          </label>
+          <label className="check">
+            <input type="checkbox" checked={bg.invert ?? false} onChange={(e) => set({ invert: e.target.checked || undefined })} />
+            Swap light and dark, for a plan drawn dark on white
+          </label>
+          <label className="check">
+            <input type="checkbox" checked={bg.operating ?? false} onChange={(e) => set({ operating: e.target.checked || undefined })} />
+            Show it while operating too
+          </label>
+          <p className="trk-sub muted">Move it with the Background tool. Match a known length on the plan, such as the distance between two parallel tracks, to whole cells.</p>
+        </>
+      )}
+      {error && <p className="note note--error">{error}</p>}
+      <p className="trk-note__actions">
+        {picker(bg ? "Replace the image" : "Choose an image")}
+        {bg && (
+          <button
+            type="button"
+            className="btn btn--sm btn--quiet"
+            onClick={() => {
+              commit({ ...draft, background: undefined });
+              onRemoved();
+            }}
+          >
+            Remove it
+          </button>
+        )}
+      </p>
     </Section>
   );
 }

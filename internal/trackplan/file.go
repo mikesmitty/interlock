@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"sync"
 
@@ -21,8 +22,9 @@ const FileName = "trackplan.yaml"
 const fileHeader = `# The track plan. Each tile is a cell of the grid (x rightward, y
 # downward) holding track, a platform or a label. Track lists the
 # directions it leaves the cell by (n, ne, e, se, s, sw, w, nw); the piece
-# follows from them. The web interface edits this file; restart Interlock
-# after editing it yourself.
+# follows from them. A background image is kept in the backgrounds folder.
+# The web interface edits this file; restart Interlock after editing it
+# yourself.
 `
 
 // ErrConflict means the plan was saved by someone else since the revision
@@ -95,6 +97,13 @@ func (f *File) Put(plan Plan, base string) (State, error) {
 	if err := plan.Validate(); err != nil {
 		return State{}, err
 	}
+	keep := ""
+	if plan.Background != nil {
+		keep = plan.Background.Image
+		if _, err := f.BackgroundFile(keep); err != nil {
+			return State{}, invalid("the background image isn't on the server any more; choose it again")
+		}
+	}
 	body, err := encode(plan)
 	if err != nil {
 		return State{}, fmt.Errorf("encode %s: %w", f.path, err)
@@ -117,6 +126,9 @@ func (f *File) Put(plan Plan, base string) (State, error) {
 	}
 	f.mu.Unlock()
 
+	if err := f.pruneBackgrounds(keep); err != nil {
+		slog.Warn("could not delete background images no longer used", "error", err)
+	}
 	for _, fn := range subs {
 		fn(state)
 	}

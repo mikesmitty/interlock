@@ -275,6 +275,11 @@ and crossings forming as track is dragged across a line.
 Saves name the revision they were based on, so two editors can't
 silently overwrite each other.
 
+A plan from track planning software can be traced. Its exported image
+is stored in `<data>/backgrounds/` under a name made from its contents.
+The plan places it in cells, with an opacity and an option to swap
+light and dark. Saving deletes the images the plan doesn't name.
+
 ### Automations
 
 Modeled on Home Assistant automations because that model is understood by
@@ -762,8 +767,9 @@ since its result could change the model.
   detectors, names the trains RailCom reports and sets turnouts with a
   click. Editing, it has drag drawing that forms turnouts and crossings,
   platforms, labels, block painting, blocks linked to their detector and
-  reporter, stations, undo, and a guarded save. Verified against the
-  simulator.
+  reporter, stations, undo, and a guarded save. A background image
+  exported from planning software can be put under the grid to trace
+  over. Verified against the simulator.
 - Next: the rest of Phase 7, hardware verification against
   canbus-outpost and simple-dcc, and Phase 8's train tracking.
 
