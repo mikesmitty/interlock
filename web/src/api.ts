@@ -1045,10 +1045,13 @@ export function nodeModel(n: NodeInfo): string {
   return `${n.snip.Manufacturer} ${n.snip.Model}`.trim();
 }
 
-/** The DCC address in a train node's ID: 06.01, then the address in the low 14 bits, with 0xC000 set for a long one. */
+/**
+ * The DCC address in a train node's ID: 06.01.00.00, then the address in the low 14 bits, with 0xC000 set for a
+ * long one. Other IDs in 06.01 are not train nodes; a command station may use one for itself.
+ */
 export function trainNodeAddress(id: string): { address: number; long: boolean } | undefined {
   const b = id.split(".").map((h) => parseInt(h, 16));
-  if (b.length !== 6 || b[0] !== 0x06 || b[1] !== 0x01) return undefined;
+  if (b.length !== 6 || b[0] !== 0x06 || b[1] !== 0x01 || b[2] !== 0 || b[3] !== 0) return undefined;
   const v = (b[4] << 8) | b[5];
   const address = v & 0x3fff;
   return { address, long: (v & 0xc000) === 0xc000 || address > 127 };

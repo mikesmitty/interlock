@@ -45,6 +45,10 @@ These are facts from the firmware, and they drive the first milestones.
   therefore needs its own hub so it can join several links into one bus.
 - Command station node with CDI (user identification, auto-claim, RailCom
   cutout, current limits, pin assignments, display, MCP2515).
+- The command station's own node ID is `0A` plus the last five bytes of
+  the board ID. Firmware before simple-dcc `bd2cf79` used `06.01` plus four
+  bytes, inside the DCC train node range, so Interlock counts only
+  `06.01.00.00.xx.xx` as train nodes.
 - Train nodes created on demand through the Train Search protocol, or when a
   throttle verifies a node ID in the DCC proxy range `06.01.00.00.xx.xx`
   (long addresses set bit 0xC000). Each train node speaks Train Control:

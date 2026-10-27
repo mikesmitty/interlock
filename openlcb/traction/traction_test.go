@@ -208,6 +208,9 @@ func TestDCCNodeIDs(t *testing.T) {
 	if _, _, ok := DCCAddress(0x0A0000000001); ok {
 		t.Error("a non-DCC node ID should not decode")
 	}
+	if _, _, ok := DCCAddress(0x0601496D834F); ok {
+		t.Error("a node elsewhere in 06.01 (a command station's own) should not decode")
+	}
 	for _, c := range []struct {
 		addr uint16
 		long bool

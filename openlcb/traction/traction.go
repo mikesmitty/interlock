@@ -404,10 +404,13 @@ func ParseCommand(payload []byte) (Command, error) {
 
 // --- DCC node IDs -------------------------------------------------------
 
-// Node ID ranges reserved for legacy protocols.
+// Node ID ranges reserved for legacy protocols. A DCC train node is
+// 06.01.00.00 followed by the address, so NodeIDMask covers all four
+// bytes above it. OpenMRN checks only 06.01, but a command station may
+// give its own node an ID elsewhere in 06.01, and that is no locomotive.
 const (
 	NodeIDDCC     openlcb.NodeID = 0x060100000000
-	NodeIDMask    openlcb.NodeID = 0xFFFF00000000
+	NodeIDMask    openlcb.NodeID = 0xFFFFFFFF0000
 	dccLongSelect openlcb.NodeID = 0xC000
 	// ShortAddressMax is the highest DCC short (primary) address.
 	ShortAddressMax = 127

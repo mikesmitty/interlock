@@ -17,9 +17,9 @@ import { Empty, Page } from "../components/Page";
 import { plural, relativeTime, useNow } from "../format";
 import { useBus } from "../store";
 
-/** Train nodes live in the DCC range 06.01.xx.xx.xx.xx; command stations make them for locomotives. */
+/** Train nodes live in the DCC range 06.01.00.00.xx.xx; command stations make them for locomotives. */
 function isTrainNode(n: NodeInfo): boolean {
-  return n.id.startsWith("06.01.");
+  return trainNodeAddress(n.id) !== undefined;
 }
 
 function sortNodes(nodes: NodeInfo[]): NodeInfo[] {
