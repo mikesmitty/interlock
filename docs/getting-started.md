@@ -77,9 +77,14 @@ links:
     device: /dev/cu.usbmodem1234   # a canbus-outpost or simple-dcc USB port
 ```
 
-The device is the board's serial port: `/dev/cu.usbmodem…` on macOS,
-usually `/dev/ttyACM0` on Linux and a name like `COM3` on Windows. The
-Settings page lists the ones it can see.
+The device is the board's serial port: `/dev/cu.usbmodem…` on macOS, a
+name like `COM3` on Windows, and on Linux the board's name under
+`/dev/serial/by-id/`, such as
+`/dev/serial/by-id/usb-simple-dcc_DCC_Command_Station_E6625C05E7A1B42F-if00`.
+Use that name rather than `/dev/ttyACM0`: the numbers follow the order
+boards appear in and can change when one is plugged in again, while the
+by-id name stays with the board. The Settings page lists the ports it
+can see, on Linux by their by-id names.
 
 [Connections](./connections.md) describes the link types: serial and
 TCP GridConnect, OpenLCB TCP and SocketCAN. Interlock also serves a

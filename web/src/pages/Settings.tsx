@@ -167,7 +167,7 @@ export function Settings() {
         {!portsError && ports === undefined && <p className="empty">Looking…</p>}
         {ports && ports.length === 0 && <p className="empty">None found. Plug in a USB device and reload this page.</p>}
         {ports && ports.length > 0 && (
-          <ul className="plate" style={{ listStyle: "none", gridTemplateColumns: "1fr" }}>
+          <ul className="plate" style={{ listStyle: "none", gridTemplateColumns: "1fr", overflowWrap: "anywhere" }}>
             {ports.map((p) => (
               <li key={p}>{p}</li>
             ))}
@@ -186,7 +186,8 @@ function examplePort(os: string | undefined): string {
     case "darwin":
       return "/dev/cu.usbmodem1234";
     default:
-      return "/dev/ttyACM0";
+      // udev's stable name; /dev/ttyACM0 and the like change on replug
+      return "/dev/serial/by-id/usb-Raspberry_Pi_Pico_E6614103E7452D2F-if00";
   }
 }
 

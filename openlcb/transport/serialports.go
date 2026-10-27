@@ -2,6 +2,8 @@ package transport
 
 import (
 	"cmp"
+	"os"
+	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
@@ -9,14 +11,54 @@ import (
 	"go.bug.st/serial"
 )
 
+// serialByID is where udev keeps a stable name for every USB serial
+// device, made from its maker, product and serial number.
+const serialByID = "/dev/serial/by-id"
+
 // SerialPorts lists the serial ports a user might plug a node into, with
-// the operating system's own pseudo devices left out.
+// the operating system's own pseudo devices left out. On Linux a port
+// with a name under /dev/serial/by-id is listed by that name, since the
+// ttyACM and ttyUSB numbers follow the order boards appear in and change
+// when one is plugged in again.
 func SerialPorts() ([]string, error) {
 	ports, err := serial.GetPortsList()
 	if err != nil {
 		return nil, err
 	}
+	if runtime.GOOS == "linux" {
+		ports = preferByID(ports, serialByID)
+	}
 	return FilterSerialPorts(ports, runtime.GOOS), nil
+}
+
+// preferByID replaces each port that a link in dir points to with that
+// link. Ports without one, and all of them when dir can't be read (no
+// udev, or no USB serial devices), keep their names.
+func preferByID(ports []string, dir string) []string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return ports
+	}
+	byTarget := make(map[string]string)
+	for _, e := range entries {
+		link := filepath.Join(dir, e.Name())
+		target, err := filepath.EvalSymlinks(link)
+		if err != nil {
+			continue
+		}
+		// ReadDir sorts by name, so the first link wins if there are two.
+		if _, ok := byTarget[target]; !ok {
+			byTarget[target] = link
+		}
+	}
+	out := make([]string, len(ports))
+	for i, p := range ports {
+		out[i] = p
+		if link, ok := byTarget[p]; ok {
+			out[i] = link
+		}
+	}
+	return out
 }
 
 // FilterSerialPorts drops devices that are never a node: on macOS the
