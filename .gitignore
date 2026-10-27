@@ -37,6 +37,8 @@ go.work.sum
 # after the first as built from a modified tree.
 bin/
 /dist/
+# What a plain `go build ./cmd/interlock` leaves at the root
+/interlock
 
 # Web interface: dependencies and build output (the Go binary embeds dist/)
 web/node_modules/
