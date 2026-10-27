@@ -277,8 +277,8 @@ silently overwrite each other.
 
 A plan from track planning software can be traced. Its exported image
 is stored in `<data>/backgrounds/` under a name made from its contents.
-The plan places it in cells, with an opacity and an option to swap
-light and dark. Saving deletes the images the plan doesn't name.
+The plan places it in cells, turned about its center by any angle, with
+an opacity and an option to swap light and dark. Saving deletes the images the plan doesn't name.
 
 ### Automations
 

@@ -158,6 +158,11 @@ export function TrackDiagram(props: DiagramProps) {
           height={props.background.height}
           opacity={props.background.opacity}
           preserveAspectRatio="none"
+          transform={
+            props.background.rotation
+              ? `rotate(${props.background.rotation} ${props.background.x + props.background.width / 2} ${props.background.y + props.background.height / 2})`
+              : undefined
+          }
           // Swapping light and dark, then turning the hues back round,
           // keeps colored lines their color.
           style={props.background.invert ? { filter: "invert(1) hue-rotate(180deg)" } : undefined}

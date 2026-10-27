@@ -300,6 +300,8 @@ export interface TrackBackground {
   operating?: boolean;
   /** Drawn with light and dark swapped, for a plan drawn dark on white. */
   invert?: boolean;
+  /** Degrees clockwise about its center, 0 up to 360. */
+  rotation?: number;
 }
 
 export interface TrackPlan {

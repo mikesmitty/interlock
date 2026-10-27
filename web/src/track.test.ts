@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { TrackDirection, TrackTile } from "./api.ts";
-import { cellKey, classify, drawStroke, erase, indexTiles, lineCells, makeID, openEnds, type Tiles } from "./track.ts";
+import { backgroundBounds, cellKey, classify, drawStroke, erase, indexTiles, lineCells, makeID, normalizeDegrees, openEnds, type Tiles } from "./track.ts";
 
 test("classify names the pieces as the server does", () => {
   const cases: [TrackDirection[], string | undefined][] = [
@@ -114,4 +114,20 @@ test("makeID turns names into IDs that aren't taken", () => {
   assert.equal(makeID("Times Sq–42 St", new Set(), "station"), "times_sq_42_st");
   assert.equal(makeID("Track 1", new Set(["track_1"]), "block"), "track_1_2");
   assert.equal(makeID("—", new Set(["block"]), "block"), "block_2");
+});
+
+test("backgroundBounds covers a background as it is turned", () => {
+  const bg = { image: "background-0123456789abcdef.png", x: 0, y: 0, width: 4, height: 2, opacity: 1 };
+  assert.deepEqual(backgroundBounds(bg), { minX: 0, minY: 0, maxX: 3, maxY: 1 });
+  assert.deepEqual(backgroundBounds({ ...bg, rotation: 90 }), { minX: 1, minY: -1, maxX: 2, maxY: 2 });
+  assert.deepEqual(backgroundBounds({ ...bg, rotation: 180 }), { minX: 0, minY: 0, maxX: 3, maxY: 1 });
+  const tilted = backgroundBounds({ ...bg, rotation: 45 })!;
+  assert.ok(tilted.minY < 0 && tilted.maxY > 1, "a tilted image reaches past its unturned box");
+  assert.equal(backgroundBounds(undefined), undefined);
+});
+
+test("normalizeDegrees brings angles into a turn", () => {
+  assert.equal(normalizeDegrees(-90), 270);
+  assert.equal(normalizeDegrees(360), 0);
+  assert.equal(normalizeDegrees(450), 90);
 });

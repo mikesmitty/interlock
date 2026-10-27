@@ -64,6 +64,18 @@
   cursor: default;
 }
 
+.trk-rotate {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.5rem;
+  align-items: end;
+}
+
+.trk-rotate__turns {
+  display: inline-flex;
+  gap: 0.25rem;
+}
+
 .trk-range {
   accent-color: var(--brass);
   width: 100%;

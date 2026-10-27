@@ -40,6 +40,9 @@ type Background struct {
 	// Invert draws the image with its light and dark swapped, so a plan
 	// drawn dark on white reads light on the dark theme.
 	Invert bool `json:"invert,omitempty" yaml:"invert,omitempty"`
+	// Rotation turns the image clockwise about its center, in degrees
+	// from 0 up to 360.
+	Rotation float64 `json:"rotation,omitempty" yaml:"rotation,omitempty"`
 }
 
 // Images are kept under a name made from their contents, so a changed
@@ -59,10 +62,13 @@ func (b *Background) validate() error {
 	if !backgroundName.MatchString(b.Image) {
 		return invalid("the background image %q is not one Interlock stored", b.Image)
 	}
-	for _, v := range []float64{b.X, b.Y, b.Width, b.Height, b.Opacity} {
+	for _, v := range []float64{b.X, b.Y, b.Width, b.Height, b.Opacity, b.Rotation} {
 		if math.IsNaN(v) || math.IsInf(v, 0) {
-			return invalid("the background's place, size and opacity must be numbers")
+			return invalid("the background's place, size, opacity and rotation must be numbers")
 		}
+	}
+	if b.Rotation < 0 || b.Rotation >= 360 {
+		return invalid("the background's rotation must be from 0 up to 360 degrees")
 	}
 	if math.Abs(b.X) > MaxCoord || math.Abs(b.Y) > MaxCoord {
 		return invalid("the background must start within the grid (%d to %d)", -MaxCoord, MaxCoord)

@@ -54,6 +54,10 @@ SVG images up to 25 MB work.
    image goes under the grid, at the top left of what is drawn so far.
    The **Background** tool (G) is selected.
 2. Drag the image with the Background tool to line it up with the grid.
+   If the plan is drawn at an angle, or with another side up, turn it:
+   **Rotation** takes any angle clockwise, to a tenth of a degree, and
+   the ↺ and ↻ buttons turn it a quarter turn at a time. It turns about
+   its center.
 3. Set its **Width in cells** so that a known length on the plan, such
    as the distance between two parallel tracks, comes out as whole
    cells. Its height follows.

@@ -2,7 +2,7 @@
 // ways out of a cell and the pieces of track they make, and the edits the
 // track plan editor makes to cells. Keep the rules in step with the Go
 // package.
-import type { TrackDirection, TrackTile } from "./api";
+import type { TrackBackground, TrackDirection, TrackTile } from "./api";
 
 export const DIRECTIONS: readonly TrackDirection[] = ["n", "ne", "e", "se", "s", "sw", "w", "nw"];
 
@@ -322,6 +322,37 @@ export function bounds(tiles: Iterable<TrackTile>): Bounds | undefined {
   }
   return b;
 }
+
+/** The cells a background covers, turned as it is drawn. */
+export function backgroundBounds(b: TrackBackground | undefined): Bounds | undefined {
+  if (!b) return undefined;
+  const turn = ((b.rotation ?? 0) * Math.PI) / 180;
+  const [cos, sin] = [Math.cos(turn), Math.sin(turn)];
+  const [cx, cy] = [b.x + b.width / 2, b.y + b.height / 2];
+  const xs: number[] = [];
+  const ys: number[] = [];
+  for (const [dx, dy] of [
+    [-1, -1],
+    [1, -1],
+    [1, 1],
+    [-1, 1],
+  ]) {
+    const [px, py] = [(dx * b.width) / 2, (dy * b.height) / 2];
+    xs.push(cx + px * cos - py * sin);
+    ys.push(cy + px * sin + py * cos);
+  }
+  // A hair of slack, so a corner on a cell's edge doesn't claim the next.
+  const eps = 1e-9;
+  return {
+    minX: Math.floor(Math.min(...xs) + eps),
+    minY: Math.floor(Math.min(...ys) + eps),
+    maxX: Math.ceil(Math.max(...xs) - eps) - 1,
+    maxY: Math.ceil(Math.max(...ys) - eps) - 1,
+  };
+}
+
+/** An angle in degrees brought into 0 up to 360. */
+export const normalizeDegrees = (deg: number): number => ((deg % 360) + 360) % 360;
 
 /** A name made into an ID: lowercase letters, digits, - and _, not one
  * of those taken. */

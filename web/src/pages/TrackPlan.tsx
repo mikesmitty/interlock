@@ -4,7 +4,7 @@ import { type LampColor, Status } from "../components/Lamp";
 import { Empty, Page } from "../components/Page";
 import { TrackDiagram, blockState, trainsIn } from "../components/TrackDiagram";
 import { useBus } from "../store";
-import { type Bounds, type Cell, DIRECTION_NAMES, PIECE_LABELS, bounds, cellKey, classify, drawStroke, erase, indexTiles, lineCells, makeID, openEnds, switches, type Tiles } from "../track";
+import { type Bounds, type Cell, DIRECTION_NAMES, PIECE_LABELS, backgroundBounds, bounds, cellKey, classify, drawStroke, erase, indexTiles, lineCells, makeID, normalizeDegrees, openEnds, switches, type Tiles } from "../track";
 
 type Tool = "select" | "track" | "platform" | "label" | "block" | "erase" | "background";
 
@@ -44,10 +44,6 @@ let keptSession: Session | undefined;
 
 const draftOf = (plan: TrackPlan): Draft => ({ tiles: indexTiles(plan.tiles), blocks: plan.blocks, stations: plan.stations, background: plan.background });
 const planOf = (d: Draft): TrackPlan => ({ tiles: [...d.tiles.values()], blocks: d.blocks, stations: d.stations, background: d.background });
-
-/** The cells a background covers. */
-const backgroundBounds = (b?: TrackBackground): Bounds | undefined =>
-  b && { minX: Math.floor(b.x), minY: Math.floor(b.y), maxX: Math.ceil(b.x + b.width) - 1, maxY: Math.ceil(b.y + b.height) - 1 };
 
 function union(a?: Bounds, b?: Bounds): Bounds | undefined {
   if (!a || !b) return a ?? b;
@@ -953,6 +949,29 @@ function Background({ draft, area, commit, onAdded, onRemoved }: { draft: Draft;
               }}
             />
           </label>
+          <div className="trk-rotate">
+            <label className="trk-field">
+              <span>Rotation in degrees, clockwise</span>
+              <input
+                className="input input--num"
+                type="number"
+                step={0.1}
+                value={bg.rotation ?? 0}
+                onChange={(e) => {
+                  const deg = Number(e.target.value);
+                  if (Number.isFinite(deg)) set({ rotation: round(normalizeDegrees(deg), 2) || undefined }, "background-rotation");
+                }}
+              />
+            </label>
+            <span className="trk-rotate__turns" role="group" aria-label="Quarter turns">
+              <button type="button" className="btn btn--sm btn--quiet" onClick={() => set({ rotation: normalizeDegrees((bg.rotation ?? 0) - 90) || undefined })} title="Turn a quarter left">
+                ↺ 90°
+              </button>
+              <button type="button" className="btn btn--sm btn--quiet" onClick={() => set({ rotation: normalizeDegrees((bg.rotation ?? 0) + 90) || undefined })} title="Turn a quarter right">
+                ↻ 90°
+              </button>
+            </span>
+          </div>
           <label className="trk-field">
             <span>Opacity {Math.round(bg.opacity * 100)}%</span>
             <input type="range" className="trk-range" min={5} max={100} step={5} value={Math.round(bg.opacity * 100)} onChange={(e) => set({ opacity: Number(e.target.value) / 100 }, "background-opacity")} />
