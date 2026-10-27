@@ -15,6 +15,7 @@ import {
   type MonitorEntry,
   type NodeInfo,
   type Trace,
+  type TrackPlanState,
   type Train,
 } from "./api";
 
@@ -44,6 +45,8 @@ export interface BusState {
   firmware: Record<string, FirmwareJob>;
   /** The fast clock, as of its last change or minute. */
   clock?: ClockState;
+  /** The track plan as last saved. */
+  trackPlan?: TrackPlanState;
 }
 
 const MAX_LIVE_TRACES = 50;
@@ -118,6 +121,9 @@ class BusStore {
         return;
       }
       this.set({ nodes: { ...this.state.nodes, [info.id]: info } });
+    });
+    es.addEventListener("trackplan", (ev) => {
+      this.set({ trackPlan: JSON.parse((ev as MessageEvent<string>).data) as TrackPlanState });
     });
     es.addEventListener("clock", (ev) => {
       this.set({ clock: JSON.parse((ev as MessageEvent<string>).data) as ClockState });
@@ -220,6 +226,7 @@ class BusStore {
         api.consists().catch(() => ({ consists: [] as Consist[] })),
       ]);
       const clock = await api.clock().catch(() => undefined);
+      const trackPlan = await api.trackPlan().catch(() => undefined);
       const firmware: Record<string, FirmwareJob> = {};
       for (const j of firmwareJobs) firmware[j.node] = j;
       const trains: Record<string, Train> = {};
@@ -249,6 +256,7 @@ class BusStore {
         layout: trainsResponse.layout,
         firmware,
         clock,
+        trackPlan,
         entries,
         lastSeq: Math.max(this.state.lastSeq, backlog.last_seq),
         lagged: false,

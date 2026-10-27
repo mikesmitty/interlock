@@ -16,6 +16,7 @@ import { Programming } from "./pages/Programming";
 import { Roster } from "./pages/Roster";
 import { Settings } from "./pages/Settings";
 import { Throttle } from "./pages/Throttle";
+import { TrackPlanPage } from "./pages/TrackPlan";
 import { bus, useBus } from "./store";
 
 function Shell() {
@@ -31,6 +32,9 @@ function Shell() {
         </NavLink>
         <NavLink className="rail__link" to="/nodes">
           Nodes
+        </NavLink>
+        <NavLink className="rail__link" to="/track">
+          Track
         </NavLink>
         <NavLink className="rail__link" to="/entities">
           Entities
@@ -82,6 +86,7 @@ export default function App() {
         <Route index element={<Navigate to="/nodes" replace />} />
         <Route path="nodes" element={<Nodes />} />
         <Route path="nodes/:id" element={<NodeDetail />} />
+        <Route path="track" element={<TrackPlanPage />} />
         <Route path="entities" element={<Entities />} />
         <Route path="automations" element={<Automations />} />
         <Route path="automations/new" element={<AutomationEditor />} />

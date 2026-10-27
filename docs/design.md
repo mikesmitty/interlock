@@ -29,7 +29,6 @@ not.
 - A decoder definition database of our own. Interlock reads the
   definitions the JMRI project maintains (Phase 7) rather than keeping a
   second set.
-- Panel editor (track diagram). Automations and entity dashboards come first.
 - Being a general purpose home automation hub. Interlock talks LCC; it can
   expose itself to Home Assistant later (MQTT or a native integration).
 
@@ -245,6 +244,37 @@ kinds:
 Every entity change and every raw event report goes on an internal bus;
 the WebSocket stream and the automation engine both subscribe to it.
 
+### Track plan
+
+The track diagram is the layout's model as well as its picture: the
+scheduling work in Phase 8 routes over it. It is drawn on a grid. Each
+cell holds track, a piece of platform or a label. A cell's track is the
+list of directions it leaves the cell by: the middles of the four sides
+and the four corners. The piece follows from that list, so the file
+needs no piece names or rotations. One direction is the end of a
+track. Two are a straight or a 45 or 90 degree curve. Three are a
+turnout (a straight with a 45 degree branch) or a wye. Four are two
+straights crossing. Anything else is refused. Track joins a neighboring
+cell when both lead into each other.
+
+Blocks are named stretches of track. Track cells name their block, and
+the block links its block entity (occupied or clear) and its reporter
+entity (which locomotives). It also carries its length in millimeters,
+since the drawing is schematic, and its station, if it is a platform
+track. Turnout cells link their turnout entity: closed is the straight
+way, thrown the branch.
+
+The topology is worked out on every save. It finds track that leads
+nowhere. It finds each block's ends, the places where track leaves the
+block. For each pair of block ends joined by track outside any block, it
+finds the link between them and the turnout positions it needs. A way
+that would need one turnout in two positions is no link. The browser
+applies the same piece rules while drawing, so the editor shows turnouts
+and crossings forming as track is dragged across a line.
+
+Saves name the revision they were based on, so two editors can't
+silently overwrite each other.
+
 ### Automations
 
 Modeled on Home Assistant automations because that model is understood by
@@ -274,7 +304,8 @@ document shape. Scripting beyond that (Lua) is a later option.
 **Decision:** declarative configuration lives in a config directory as YAML
 files edited by both the UI and the user, so it diffs and backs up well:
 `interlock.yaml` (server, node ID, links), `automations.yaml`, `entities.yaml`
-(manual entities and overrides), `profiles/*.yaml` (user profiles).
+(manual entities and overrides), `trackplan.yaml` (the track diagram),
+`profiles/*.yaml` (user profiles).
 Runtime data lives in a sqlite database in the same directory: node cache
 (SNIP, PIP, CDI XML, event tables), event log, entity history, automation
 traces, RailCom sightings. `modernc.org/sqlite` keeps the build cgo free.
@@ -431,7 +462,7 @@ acceleration by name, and see the change after a fresh read.
 
 ### Later
 
-Panel editor, Home Assistant integration, multi-user
+Home Assistant integration, multi-user
 auth, accessory decoder turnouts once `simple-dcc` sends accessory packets,
 train reservation protocol, function description information (space 0xFA).
 
@@ -474,6 +505,54 @@ still to come:
   the USB to CAN adapters; Interlock's hub joins whatever links it has.
 - **Unknown nodes:** CDI name heuristics suggest entities and the user
   confirms or corrects them in the UI. Shipped profiles need no confirmation.
+
+### Phase 8: track plan and scheduling
+
+Timetabled operation in the spirit of iTrain: trains that keep a
+schedule and stop at stations precisely, on a layout modeled on the NYC
+subway with Metro-North traffic to come. It builds up in layers, each
+useful on its own:
+
+1. **Track plan.** The diagram and its topology (above), drawn first so
+   that drawing the layout shapes the model the rest uses.
+2. **Train tracking.** Which train is in which block, which end leads,
+   and where its tail is.
+3. **Interlocking.** Routes that set and lock their turnouts and are
+   released behind the train. Optionally a trip stop: an emergency stop
+   for any train that enters a block it has no route into.
+4. **Automatic driving.** A speed profile for each locomotive, from a
+   calibration run over a measured block and refined in normal running,
+   and braking curves that stop a train at a stop marker. Markers are set
+   per platform, direction and train length, like the car markers on
+   subway platforms.
+5. **Timetable.** Service patterns (a list of stations, each a stop or
+   passed), trips made from headway rules, runs chained through turnbacks
+   at terminals, roster trains assigned to runs, timing points, and the
+   dispatcher's cancel, short turn and swap. Times are on the fast clock;
+   run times are measured on the layout.
+6. **Views.** A time-distance graph of the timetable, a board of trains
+   and how late they are, and platform countdown clocks.
+
+What the hardware gives this, as of 2026-10-27:
+
+- canbus-outpost detects occupancy only through RailCom. A track is
+  occupied while a decoder in it answers on channel 1, so cars without a
+  decoder can't be seen, and a train's tail has to be worked out from its
+  length.
+- An entry is reported after two matching address readings, a few DCC
+  packets. An exit is reported only after a second with no reading. So
+  entries are the timing references for braking, and exits only release
+  track behind a train.
+- Two decoders in one track's section garble each other. A multiple-unit
+  train should have one decoder broadcasting its address (CV 28 bit 0).
+- Channel 2 is counted but not decoded, so there is no speed feedback
+  from RailCom. Speeds come from timing entries over known lengths.
+- simple-dcc sends speed packets at high priority and stops at emergency
+  priority over USB. Decoder momentum is the larger variable, so
+  Interlock should do the braking itself.
+
+Stopping precision is the riskiest part. Test it on the bench early,
+since its result could change the model.
 
 ## Status
 
@@ -675,8 +754,18 @@ still to come:
   left the bus or Interlock restarted, and breaks one up only when the
   lead is stopped. The simulator passes the lead's commands on as the
   firmware does, up to four members.
-- Next: the rest of Phase 7, and hardware verification against
-  canbus-outpost and simple-dcc.
+- Phase 8 track plan (2026-10-27): `internal/trackplan` (directions,
+  pieces from the directions a cell's track leaves by, plan validation,
+  topology with open ends, block ends and links through turnout
+  positions, `trackplan.yaml` with revisions), its API and server-sent
+  event, and the Track page. Operating, the page lights blocks by their
+  detectors, names the trains RailCom reports and sets turnouts with a
+  click. Editing, it has drag drawing that forms turnouts and crossings,
+  platforms, labels, block painting, blocks linked to their detector and
+  reporter, stations, undo, and a guarded save. Verified against the
+  simulator.
+- Next: the rest of Phase 7, hardware verification against
+  canbus-outpost and simple-dcc, and Phase 8's train tracking.
 
 ## References
 

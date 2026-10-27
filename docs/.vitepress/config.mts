@@ -23,6 +23,7 @@ export default defineConfig({
           { text: "Connections", link: "/connections" },
           { text: "Nodes and firmware", link: "/nodes" },
           { text: "Entities", link: "/entities" },
+          { text: "The track plan", link: "/track-plan" },
           { text: "Automations", link: "/automations" },
           { text: "Trains", link: "/trains" },
           { text: "The roster", link: "/roster" },

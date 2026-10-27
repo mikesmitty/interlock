@@ -1,0 +1,214 @@
+/* --- the track plan ------------------------------------------------------- */
+
+.trk-canvas {
+  overflow: auto;
+  max-height: 72vh;
+  background: var(--enamel-deep);
+}
+
+.trk-diagram {
+  display: block;
+  font-family: var(--font-condensed);
+  user-select: none;
+}
+
+.trk-diagram--editing {
+  cursor: crosshair;
+  touch-action: none;
+}
+
+/* Opaque, so the pieces of a platform don't show where they overlap. */
+.trk-platforms {
+  fill: color-mix(in srgb, var(--ivory-faint) 40%, var(--enamel-deep));
+  stroke: color-mix(in srgb, var(--ivory-faint) 40%, var(--enamel-deep));
+}
+
+.trk-label {
+  fill: var(--ivory-dim);
+  font-weight: 500;
+}
+
+.trk-blockname {
+  fill: var(--ivory-faint);
+}
+
+.trk-blockname--active {
+  fill: var(--brass);
+  font-weight: 600;
+}
+
+/* A train's name in its block, like a berth on a train describer. */
+.trk-train rect {
+  fill: var(--enamel-deep);
+  stroke: var(--lamp-red);
+  stroke-width: 0.04;
+}
+
+.trk-train text {
+  fill: var(--ivory);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.trk-open {
+  fill: var(--lamp-amber);
+}
+
+.trk-switch {
+  fill: transparent;
+  cursor: pointer;
+}
+
+.trk-switch:hover {
+  stroke: var(--brass);
+  stroke-width: 0.05;
+}
+
+.trk-hover {
+  fill: none;
+  stroke: var(--ivory-faint);
+  stroke-width: 0.04;
+  pointer-events: none;
+}
+
+.trk-selected {
+  fill: color-mix(in srgb, var(--brass) 12%, transparent);
+  stroke: var(--brass);
+  stroke-width: 0.06;
+  pointer-events: none;
+}
+
+.trk-legend {
+  margin-top: 0.5rem;
+  font-size: var(--fs-sm);
+}
+
+.trk-h2 {
+  margin: 1.5rem 0 0.5rem;
+}
+
+.trk-zoom {
+  display: inline-flex;
+  gap: 0.25rem;
+}
+
+.trk-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  align-items: center;
+}
+
+.trk-tools__group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+/* Room for two lines, so the diagram doesn't move as the hint changes. */
+.trk-hint {
+  margin: 0.5rem 0 0.75rem;
+  font-size: var(--fs-sm);
+  min-height: 3em;
+}
+
+.trk-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 20rem;
+  gap: 1rem;
+  align-items: start;
+}
+
+.trk-side {
+  display: grid;
+  gap: 1rem;
+}
+
+.trk-side .panel + .panel {
+  margin-top: 0;
+}
+
+.trk-section {
+  padding: 0.75rem 1rem 1rem;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.trk-section h3 {
+  font-size: var(--fs-md);
+  margin-top: 0.25rem;
+}
+
+.trk-field {
+  display: grid;
+  gap: 0.2rem;
+  font-family: var(--font-condensed);
+  font-size: var(--fs-sm);
+  color: var(--ivory-dim);
+}
+
+.trk-field .input {
+  min-width: 0;
+  width: 100%;
+}
+
+.trk-sub {
+  font-size: var(--fs-sm);
+}
+
+.trk-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.trk-block,
+.trk-add {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.trk-add {
+  border-top: 1px solid var(--enamel-line);
+  padding-top: 0.75rem;
+  justify-items: start;
+}
+
+.trk-add .trk-field {
+  width: 100%;
+}
+
+.trk-links ul,
+.trk-problems {
+  margin: 0.25rem 0 0;
+  padding-left: 1.1rem;
+  font-size: var(--fs-sm);
+}
+
+.trk-station {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.5rem;
+  align-items: end;
+}
+
+.trk-note {
+  margin-bottom: 1rem;
+}
+
+.trk-note__actions {
+  margin-top: 0.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+@media (max-width: 720px) {
+  .trk-editor {
+    grid-template-columns: 1fr;
+  }
+
+  .trk-canvas {
+    max-height: 60vh;
+  }
+}

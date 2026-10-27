@@ -56,7 +56,7 @@ PowerShell.
 The data directory holds everything Interlock keeps: `interlock.yaml`
 (written with defaults and comments on first start), the database, and
 the files the web interface edits: `entities.yaml`, `automations.yaml`,
-`trains.yaml` and your `profiles/`. Without `-data` it uses
+`trains.yaml`, `trackplan.yaml` and your `profiles/`. Without `-data` it uses
 `$INTERLOCK_DATA`, else an `interlock` folder under your user
 configuration directory: `~/.config` on Linux, `~/Library/Application
 Support` on macOS and `%AppData%` on Windows.

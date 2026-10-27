@@ -85,6 +85,8 @@ type Deps struct {
 	Clock Clock
 	// Backups writes and restores backups; nil disables those endpoints.
 	Backups Backups
+	// TrackPlan is the track diagram; nil disables its endpoints.
+	TrackPlan TrackPlan
 	// Restart restarts the server; nil means it cannot.
 	Restart func()
 	// SerialPorts lists serial devices for the settings page; may be nil.
@@ -201,6 +203,8 @@ func New(deps Deps) *API {
 		a.mux.HandleFunc("GET /api/v1/backup", a.downloadBackup)
 		a.mux.HandleFunc("POST /api/v1/restore", a.restore)
 	}
+	a.mux.HandleFunc("GET /api/v1/trackplan", a.getTrackPlan)
+	a.mux.HandleFunc("PUT /api/v1/trackplan", a.putTrackPlan)
 	a.mux.HandleFunc("POST /api/v1/restart", a.restart)
 	a.mux.HandleFunc("GET /api/v1/links", a.links)
 	a.mux.HandleFunc("GET /api/v1/monitor", a.monitorEntries)

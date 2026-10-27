@@ -19,6 +19,7 @@ import "./styles/throttle.css";
 import "./styles/clock.css";
 import "./styles/decoder.css";
 import "./styles/roster.css";
+import "./styles/track.css";
 import App from "./App";
 
 createRoot(document.getElementById("root")!).render(

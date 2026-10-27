@@ -10,7 +10,7 @@ DCC addresses (`1234`, `3` short, `3l` long).
 ## Live updates
 
 ```
-GET /api/v1/events?topics=nodes,links,monitor,entities,automations,trains,clock
+GET /api/v1/events?topics=nodes,links,monitor,entities,automations,trains,clock,trackplan
 ```
 
 is a server-sent event stream; the default is every topic. Events:
@@ -27,6 +27,7 @@ is a server-sent event stream; the default is every topic. Events:
 | `automation`, `trace` | automations | an automation's status; a run's trace as it moves |
 | `train`, `layout`, `cv`, `consist` | trains | a train; track power and emergency stop; a finished CV operation; a consist |
 | `clock` | clock | the fast clock, on every change and fast minute |
+| `trackplan` | trackplan | the track plan, its revision and topology, after each save |
 | `lagged` | | the client fell behind and missed events |
 
 ## Controller
@@ -217,6 +218,20 @@ POST   /api/v1/clock                         {running, rate, time, date}, any su
 ```
 
 See [The fast clock](./clock.md).
+
+## Track plan
+
+```
+GET    /api/v1/trackplan                     {plan, revision, topology}
+PUT    /api/v1/trackplan                     {plan, revision} -> {plan, revision, topology}
+```
+
+A save names the revision it was based on; when the plan was saved since,
+it gets 409 with the current `revision` in the body. The topology lists
+`problems` (track leading nowhere, empty or split blocks), each block's
+`ends` (a cell of the block and the direction track leaves it by) and the
+`links` between block ends with the turnout positions on the way. See
+[The track plan](./track-plan.md).
 
 ## Monitor
 

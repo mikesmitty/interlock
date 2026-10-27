@@ -253,6 +253,81 @@ export interface Profile {
   entities: { kind: EntityKind; group?: string }[];
 }
 
+// The track plan: track drawn on a grid of cells, the blocks and stations
+// it is divided into, and the topology the server works out from it.
+
+export type TrackDirection = "n" | "ne" | "e" | "se" | "s" | "sw" | "w" | "nw";
+
+export interface TrackTile {
+  x: number;
+  y: number;
+  /** The directions track leaves the cell by. */
+  track?: TrackDirection[];
+  /** The directions a platform continues into neighboring cells. */
+  platform?: TrackDirection[];
+  label?: string;
+  /** The turnout entity that sets a turnout or wye. */
+  turnout?: string;
+  /** The ID of the block the track is part of. */
+  block?: string;
+}
+
+export interface TrackBlock {
+  id: string;
+  name: string;
+  /** The block entity that reports it occupied or clear. */
+  occupancy?: string;
+  /** The reporter entity that names the locomotives in it. */
+  reporter?: string;
+  length_mm?: number;
+  station?: string;
+}
+
+export interface TrackStation {
+  id: string;
+  name: string;
+}
+
+export interface TrackPlan {
+  tiles: TrackTile[];
+  blocks: TrackBlock[];
+  stations: TrackStation[];
+}
+
+export interface TrackPort {
+  block: string;
+  x: number;
+  y: number;
+  dir: TrackDirection;
+}
+
+export interface TrackLink {
+  from: TrackPort;
+  to: TrackPort;
+  turnouts?: { x: number; y: number; turnout?: string; position: "closed" | "thrown" }[];
+  cells: number;
+}
+
+export interface TrackProblem {
+  kind: "open_end" | "misaligned" | "block_empty" | "block_split";
+  cell?: { x: number; y: number };
+  dir?: TrackDirection;
+  block?: string;
+  message: string;
+}
+
+export interface TrackTopology {
+  problems: TrackProblem[];
+  blocks: { id: string; cells: number; ends: TrackPort[] }[];
+  links: TrackLink[];
+}
+
+export interface TrackPlanState {
+  plan: TrackPlan;
+  revision: string;
+  topology: TrackTopology;
+}
+
 // Automations: when / only if / then documents and the traces of their runs.
 
 export type AutomationMode = "single" | "restart" | "queued" | "parallel";
@@ -845,6 +920,9 @@ export const api = {
       method: "DELETE",
     }),
   refreshEntities: () => request<{ status: string }>("/api/v1/entities/refresh", { method: "POST" }),
+  trackPlan: () => request<TrackPlanState>("/api/v1/trackplan"),
+  saveTrackPlan: (plan: TrackPlan, revision: string) =>
+    request<TrackPlanState>("/api/v1/trackplan", { method: "PUT", body: JSON.stringify({ plan, revision }) }),
   eventNames: (node?: string) =>
     request<{ events: EventName[] }>(
       node ? `/api/v1/event-names?node=${encodeURIComponent(node)}` : "/api/v1/event-names",

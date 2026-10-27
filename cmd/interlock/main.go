@@ -35,6 +35,7 @@ import (
 	"github.com/mikesmitty/interlock/internal/registry"
 	"github.com/mikesmitty/interlock/internal/server"
 	"github.com/mikesmitty/interlock/internal/store"
+	"github.com/mikesmitty/interlock/internal/trackplan"
 	"github.com/mikesmitty/interlock/internal/train"
 	"github.com/mikesmitty/interlock/internal/version"
 	"github.com/mikesmitty/interlock/internal/withrottle"
@@ -237,6 +238,12 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	defer func() { _ = decoders.Close() }()
 	upgrader := firmware.New(firmware.Options{Bus: local, Memory: mem, Nodes: reg, Logger: logger})
 
+	// The track plan.
+	trackPlan, err := trackplan.OpenFile(filepath.Join(*dataDir, trackplan.FileName))
+	if err != nil {
+		return err
+	}
+
 	// The fast clock, broadcast on the bus.
 	fast := clock.New(ctx, clock.Options{Bus: local, Store: st, Logger: logger})
 
@@ -397,6 +404,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			Firmware:    upgrader,
 			Clock:       fast,
 			Backups:     &backup.Manager{Dir: *dataDir, DB: st, Version: version.Version},
+			TrackPlan:   trackPlan,
 			Restart:     restart,
 			SerialPorts: transport.SerialPorts,
 			Logger:      logger,
