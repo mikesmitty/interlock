@@ -184,7 +184,14 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 
 	// The named event table and the entities built over it.
 	table := eventtable.New(nodeCfg, reg, st, logger)
-	nodeCfg.OnWritten(table.Invalidate)
+	nodeCfg.OnWritten(func(id openlcb.NodeID) {
+		table.Invalidate(id)
+		// The values written may include the node's name, which its SNIP
+		// reply carries; identify it again so the new name shows at once.
+		if err := reg.RefreshNode(ctx, id); err != nil {
+			logger.Debug("could not identify a node again after a write", "node", id, "error", err)
+		}
+	})
 	table.Restore(ctx, reg.List())
 	profiles, err := profile.Load(filepath.Join(*dataDir, profile.DirName))
 	if err != nil {
