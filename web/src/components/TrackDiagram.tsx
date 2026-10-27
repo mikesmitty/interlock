@@ -1,4 +1,4 @@
-import type { PointerEvent as ReactPointerEvent } from "react";
+import { type PointerEvent as ReactPointerEvent, useEffect, useRef } from "react";
 import { type Entity, type TrackBackground, type TrackBlock, type TrackDirection, type TrackTile, backgroundURL } from "../api";
 import { type Bounds, type Cell, classify, step, switches } from "../track";
 
@@ -92,6 +92,18 @@ export function trainsIn(block: TrackBlock | undefined, entities: Record<string,
  * layout's state. */
 export function TrackDiagram(props: DiagramProps) {
   const { area, cell, editing = false, entities, activeBlock } = props;
+  const svgRef = useRef<SVGSVGElement>(null);
+
+  // A firm press on a Mac trackpad opens Look Up, a dictionary, which
+  // nobody drawing track wants. Safari lets a page cancel it; Chrome
+  // doesn't, but finds no word to look up on the grid.
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!editing || !svg) return;
+    const cancel = (e: Event) => e.preventDefault();
+    svg.addEventListener("webkitmouseforcewillbegin", cancel);
+    return () => svg.removeEventListener("webkitmouseforcewillbegin", cancel);
+  }, [editing]);
   const tiles = [...props.tiles];
   const blocks = new Map(props.blocks.map((b) => [b.id, b]));
   const width = area.maxX - area.minX + 1;
@@ -125,6 +137,7 @@ export function TrackDiagram(props: DiagramProps) {
 
   return (
     <svg
+      ref={svgRef}
       className={editing ? "trk-diagram trk-diagram--editing" : "trk-diagram"}
       width={width * cell}
       height={height * cell}
@@ -147,6 +160,8 @@ export function TrackDiagram(props: DiagramProps) {
       }
       onPointerUp={props.onPointerUp}
       onPointerLeave={props.onPointerLeave}
+      // The grid is a drawing surface: a right-click there opens no menu.
+      onContextMenu={editing ? (e) => e.preventDefault() : undefined}
     >
       {props.background && (
         <image

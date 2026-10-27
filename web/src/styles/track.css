@@ -17,6 +17,12 @@
   touch-action: none;
 }
 
+/* Names and labels let the pointer through to the grid, so a firm press
+   on one finds no word for Look Up. */
+.trk-diagram text {
+  pointer-events: none;
+}
+
 /* Opaque, so the pieces of a platform don't show where they overlap. */
 .trk-platforms {
   fill: color-mix(in srgb, var(--ivory-faint) 40%, var(--enamel-deep));
