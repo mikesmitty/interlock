@@ -213,7 +213,8 @@ func TestManagerFollowsTheBus(t *testing.T) {
 	if g := h.get(t, guess); !g.Suggested || g.Source != SourceGuess {
 		t.Errorf("guess = %+v", g)
 	}
-	// The node is asked for its states once it has entities.
+	// The node is asked for its states once it has entities, and each
+	// reporter's detector for the locomotives it sees.
 	waitFor(t, "identify events", func() bool {
 		_, msgs := h.bus.sent()
 		for _, msg := range msgs {
@@ -223,6 +224,21 @@ func TestManagerFollowsTheBus(t *testing.T) {
 		}
 		return false
 	})
+	waitFor(t, "identify producer on the reporter's range", func() bool {
+		_, msgs := h.bus.sent()
+		for _, msg := range msgs {
+			if msg.MTI == openlcb.MTIIdentifyProducer && len(msg.Payload) == 8 && openlcb.EventIDFromBytes([8]byte(msg.Payload)) == detector.Range(evReporter).Base {
+				return true
+			}
+		}
+		return false
+	})
+	// A detector that sees nothing answers Valid to address 0 leaving,
+	// which says the track is clear.
+	h.identified(openlcb.MTIProducerIdentifiedValid, detector.Range(evReporter).Base)
+	if r := h.get(t, reporter); r.State != StateClear {
+		t.Errorf("reporter after address 0 exit from unknown: %+v", r)
+	}
 
 	// Feedback from identification, then commands and feedback on the bus.
 	h.identified(openlcb.MTIProducerIdentifiedValid, evClosed)

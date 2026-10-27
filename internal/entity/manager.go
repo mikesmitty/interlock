@@ -570,6 +570,24 @@ func (m *Manager) sendIdentify(ctx context.Context, node openlcb.NodeID) {
 		err := m.opts.Bus.Send(ctx, openlcb.Message{MTI: openlcb.MTIIdentifyEventsAddressed, Dest: openlcb.NodeHandle{ID: node}})
 		if err != nil {
 			m.log.Debug("identify events failed", "node", node, "error", err)
+			return
+		}
+		// Identify Events brings back only a reporter's range. Asked about
+		// the range's first event ("long address 0 left"), a detector also
+		// lists the locomotives it sees, or answers Valid when it sees none.
+		m.mu.RLock()
+		var bases []openlcb.EventID
+		for _, rb := range m.ranges {
+			if ent := m.entities[rb.id]; ent != nil && ent.Node == node {
+				bases = append(bases, rb.rng.Base)
+			}
+		}
+		m.mu.RUnlock()
+		for _, ev := range bases {
+			if err := m.opts.Bus.Send(ctx, openlcb.Message{MTI: openlcb.MTIIdentifyProducer, Payload: ev.AsSlice()}); err != nil {
+				m.log.Debug("identify producer failed", "event", ev, "error", err)
+				return
+			}
 		}
 		return
 	}
