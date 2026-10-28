@@ -89,7 +89,7 @@ Interlock can connect to it, and can serve OpenLCB TCP (`hub.openlcb_tcp`).
 ```bash
 make test         # Go tests
 make lint         # golangci-lint, the TypeScript type check and Prettier's check
-make fmt          # gofmt and goimports, and Prettier on the web interface
+make fmt          # gofmt and goimports, and Prettier on the web interface and docs
 make run          # Go server from source on :8080
 make dev          # Vite dev server with hot reload, proxying /api to :8080
 make docs         # the documentation site, from docs/

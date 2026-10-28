@@ -31,11 +31,13 @@ test:
 lint:
 	golangci-lint run
 	@if [ -d web/node_modules ]; then cd web && npm run typecheck && npm run format:check; else echo "web/node_modules missing; skipping typecheck and format check (run make web)"; fi
+	@if [ -d docs/node_modules ]; then cd docs && npm run format:check; else echo "docs/node_modules missing; skipping the docs format check (run make docs)"; fi
 
-## fmt: format Go and apply lint fixes, and format the web interface with Prettier
+## fmt: format Go and apply lint fixes, and format the web interface and docs with Prettier
 fmt:
 	golangci-lint fmt
 	@if [ -d web/node_modules ]; then cd web && npm run format; else echo "web/node_modules missing; skipping Prettier (run make web)"; fi
+	@if [ -d docs/node_modules ]; then cd docs && npm run format; else echo "docs/node_modules missing; skipping Prettier on the docs (run make docs)"; fi
 
 ## run: run the server from source
 run:
