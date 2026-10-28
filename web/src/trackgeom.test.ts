@@ -15,7 +15,7 @@ import {
   normalizeDegrees,
   openEnds,
   outward,
-  pieceShapes,
+  PIECES,
   placePiece,
   routePath,
   tangentAngle,
@@ -55,7 +55,7 @@ test("arcFrom lays a curve that sets off and ends as arcInfo says", () => {
 });
 
 test("a placed turnout's branch leaves along its curve", () => {
-  const right = pieceShapes(33, 310).find((p) => p.id === "t4r")!;
+  const right = PIECES.find((p) => p.id === "t4r")!;
   const placed = placePiece(right, { x: 1000, y: 0 }, 180);
   near(placed.ends[1].x, 1000 - 126);
   assert.ok(placed.ends[2].y < 0, "heading west, right is up the plan");
@@ -64,9 +64,9 @@ test("a placed turnout's branch leaves along its curve", () => {
   near(turnDiff(junctionOutward("turnout", placed.ends, center, 2), 180 + 15), 0, "branch", 0.01);
   near(turnDiff(junctionOutward("turnout", placed.ends, center, 0), 0), 0, "points", 0.01);
   assert.match(routePath("turnout", placed.ends, center, { from: 0, to: 2 }), /^M1000 0Q/);
-  const cross = placePiece(pieceShapes(33, 310).find((p) => p.id === "xdl")!, { x: 0, y: 0 }, 0);
-  assert.deepEqual(cross.ends[2], { x: 0, y: -33 });
-  assert.match(routePath("double_crossover", cross.ends, junctionCenter({}, cross.ends), { from: 0, to: 3 }), /^M0 0C155 0 155 -33 310 -33$/);
+  const cross = placePiece(PIECES.find((p) => p.id === "xd")!, { x: 0, y: 0 }, 0);
+  assert.deepEqual(cross.ends[2], { x: 0, y: 33 });
+  assert.match(routePath("double_crossover", cross.ends, junctionCenter({}, cross.ends), { from: 0, to: 3 }), /^M0 0C155 0 155 33 310 33$/);
 });
 
 const line: TrackPlan = {

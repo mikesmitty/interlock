@@ -266,7 +266,13 @@ export interface PieceShape {
   kind: JunctionKind;
   ends: Vec[];
   at?: Vec;
+  /** A crossover, drawn here to the track on the right; placePiece
+   * puts it to the track on the left instead when asked. */
+  across?: boolean;
 }
+
+/** How far apart Kato's double track and crossovers put two tracks. */
+export const TRACK_SPACING = 33;
 
 function turnoutShape(id: string, label: string, kind: JunctionKind, closed: number, radius: number, deg: number, side: 1 | -1): PieceShape {
   const leg = (s: number): Vec => ({ x: radius * Math.sin(radians(deg)), y: s * radius * (1 - Math.cos(radians(deg))) });
@@ -275,40 +281,44 @@ function turnoutShape(id: string, label: string, kind: JunctionKind, closed: num
   return { id, label, kind, ends: [{ x: 0, y: 0 }, { x: closed, y: 0 }, leg(side)], at };
 }
 
-function crossoverShape(id: string, label: string, kind: JunctionKind, length: number, spacing: number, side: 1 | -1): PieceShape {
-  return {
-    id,
-    label,
-    kind,
-    ends: [
-      { x: 0, y: 0 },
-      { x: length, y: 0 },
-      { x: 0, y: side * spacing },
-      { x: length, y: side * spacing },
-    ],
-  };
+// A crossover's thrown route leads from the first end of its track a to
+// the far end of b. With b to the right, that turns a train off to the
+// right: a right hand crossover. A left hand one starts on the other
+// track, so it lists that one first.
+function crossoverShape(id: string, label: string, kind: JunctionKind, length: number, hand: "left" | "right"): PieceShape {
+  const near = [
+    { x: 0, y: 0 },
+    { x: length, y: 0 },
+  ];
+  const other = [
+    { x: 0, y: TRACK_SPACING },
+    { x: length, y: TRACK_SPACING },
+  ];
+  return { id, label, kind, ends: hand === "right" ? [...near, ...other] : [...other, ...near], across: true };
 }
 
-/** The junction pieces offered for placing, as Kato makes them. */
-export function pieceShapes(spacing: number, crossoverLength: number): PieceShape[] {
-  return [
-    turnoutShape("t4r", "#4 turnout, right", "turnout", 126, 481, 15, 1),
-    turnoutShape("t4l", "#4 turnout, left", "turnout", 126, 481, 15, -1),
-    turnoutShape("t6r", "#6 turnout, right", "turnout", 186, 718, 15, 1),
-    turnoutShape("t6l", "#6 turnout, left", "turnout", 186, 718, 15, -1),
-    turnoutShape("wye", "Wye", "wye", 0, 481, 15, 1),
-    crossoverShape("xdr", "Double crossover, track to the right", "double_crossover", crossoverLength, spacing, 1),
-    crossoverShape("xdl", "Double crossover, track to the left", "double_crossover", crossoverLength, spacing, -1),
-    crossoverShape("xsr", "Crossover to the track on the right", "crossover", crossoverLength, spacing, 1),
-    crossoverShape("xsl", "Crossover to the track on the left", "crossover", crossoverLength, spacing, -1),
-  ];
-}
+/** The junction pieces offered for placing, as Kato makes them: the
+ * single crossovers are two #4 turnouts in 248 mm, the double crossover
+ * 310 mm long. */
+export const PIECES: readonly PieceShape[] = [
+  turnoutShape("t4r", "#4 turnout, right", "turnout", 126, 481, 15, 1),
+  turnoutShape("t4l", "#4 turnout, left", "turnout", 126, 481, 15, -1),
+  turnoutShape("t6r", "#6 turnout, right", "turnout", 186, 718, 15, 1),
+  turnoutShape("t6l", "#6 turnout, left", "turnout", 186, 718, 15, -1),
+  turnoutShape("wye", "Wye", "wye", 0, 481, 15, 1),
+  crossoverShape("xsr", "Single crossover, right hand", "crossover", 248, "right"),
+  crossoverShape("xsl", "Single crossover, left hand", "crossover", 248, "left"),
+  crossoverShape("xd", "Double crossover", "double_crossover", 310, "right"),
+];
 
 /** The curve radii of Kato Unitrack N, in millimeters. */
 export const KATO_RADII = [216, 249, 282, 315, 348, 381, 414, 481, 718];
 
-/** Places a piece with its first end at origin, leading off along heading. */
-export function placePiece(piece: PieceShape, origin: Vec, heading: number): { ends: Vec[]; at?: Vec } {
+/** Places a piece with its first end at origin, leading off along
+ * heading. A crossover goes to the track on the side given, 1 for the
+ * right and -1 for the left, keeping its hand: to the left, the two
+ * tracks swap places in its list of ends. */
+export function placePiece(piece: PieceShape, origin: Vec, heading: number, side: 1 | -1 = 1): { ends: Vec[]; at?: Vec } {
   const along = unit(heading);
   const right = unit(heading + 90);
   // To a thousandth of a millimeter, and never -0.
@@ -317,7 +327,12 @@ export function placePiece(piece: PieceShape, origin: Vec, heading: number): { e
     const p = add(origin, add(scale(along, v.x), scale(right, v.y)));
     return { x: tidy(p.x), y: tidy(p.y) };
   };
-  return { ends: piece.ends.map(place), at: piece.at && place(piece.at) };
+  let ends = piece.ends;
+  if (piece.across && side < 0) {
+    const mirrored = ends.map((v) => ({ x: v.x, y: -v.y }));
+    ends = [mirrored[2], mirrored[3], mirrored[0], mirrored[1]];
+  }
+  return { ends: ends.map(place), at: piece.at && place(piece.at) };
 }
 
 // IDs and merging.
@@ -454,8 +469,29 @@ export function endNear(index: PlanIndex, at: Vec, reach: number, except?: strin
   return best;
 }
 
-/** How close new track must come to a free end to join it. */
-const JOIN = 1;
+/** How close new track must come to a free end to join it. RailModeller
+ * exports positions to a millimeter, so its track ends can be that far
+ * from where Kato's pieces put them. */
+const JOIN = 2;
+
+/** The side of the track at end that a crossover put there goes to, 1
+ * for the right and -1 for the left: the side where another track ends
+ * beside it, running the same way. With track on both sides or neither,
+ * the side the pointer is on. */
+export function crossoverSide(index: PlanIndex, end: End, pointer: Vec): 1 | -1 {
+  const right = unit(end.heading + 90);
+  const beside = ([1, -1] as const).filter((side) => {
+    const there = add(end.point, scale(right, side * TRACK_SPACING));
+    return freeEnds(index).some((p) => {
+      if (p.id === end.point.id || dist(p, there) >= JOIN) return false;
+      const heading = outward(index, index.at.get(p.id)![0]);
+      return heading !== undefined && Math.abs(turnDiff(heading, end.heading)) < 5;
+    });
+  });
+  if (beside.length === 1) return beside[0];
+  const off = sub(pointer, end.point);
+  return off.x * right.x + off.y * right.y < 0 ? -1 : 1;
+}
 
 /** A point for new track to end at: the given one, a free end already
  * where pos is, or a new point. Track continuing from a buffer stop

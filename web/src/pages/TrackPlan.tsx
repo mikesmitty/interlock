@@ -10,6 +10,7 @@ import {
   type End,
   KATO_RADII,
   KINDS,
+  PIECES,
   addJunction,
   addTrack,
   allRefs,
@@ -17,6 +18,7 @@ import {
   arcInfo,
   backgroundBounds,
   corners,
+  crossoverSide,
   dist,
   endNear,
   exists,
@@ -31,7 +33,6 @@ import {
   moveSelection,
   normalizeDegrees,
   openEnds,
-  pieceShapes,
   placePiece,
   planBounds,
   refsInBox,
@@ -60,7 +61,7 @@ const TOOLS: { tool: Tool; label: string; key: string; hint: string }[] = [
   { tool: "select", label: "Select", key: "v", hint: "Click to select, Shift-click to add or take away, or drag a box around what to select; ⌘A selects everything. Drag the selection to move it; Delete or Backspace removes it." },
   { tool: "track", label: "Straight", key: "t", hint: "Drag from the end of a track to carry it on straight, or from anywhere to lay a straight between grid points. Let go on another end to join it." },
   { tool: "curve", label: "Curve", key: "c", hint: "Drag from the end of a track to curve it at the radius below, a step at a time. Let go on another end to join it with the curve that fits." },
-  { tool: "piece", label: "Turnout", key: "w", hint: "Click the end of a track to put the piece chosen below there. Its other ends join any track already in place." },
+  { tool: "piece", label: "Turnout", key: "w", hint: "Click the end of a track to put the piece chosen below there. Its other ends join any track already in place. A crossover goes to the track beside, or with track on both sides, to the side of the end the pointer is on." },
   { tool: "platform", label: "Platform", key: "p", hint: "Drag along where a platform goes, from one end to the other." },
   { tool: "label", label: "Label", key: "l", hint: "Click to write a label there; change the text on the right." },
   { tool: "block", label: "Block", key: "b", hint: "Drag over track to put it in the block chosen under Blocks. Hold Option or Alt to take track out of its block." },
@@ -341,7 +342,6 @@ interface Options {
   radius: number;
   step: number;
   piece: string;
-  crossLength: number;
   platformWidth: number;
 }
 
@@ -367,7 +367,7 @@ function Editor({
   const [hover, setHover] = useState<ElementRef>();
   const [activeBlock, setActiveBlock] = useState<string | undefined>(draft.blocks[0]?.id);
   const [activeLayer, setActiveLayer] = useState<string>();
-  const [options, setOptions] = useState<Options>({ radius: 216, step: 15, piece: "t4r", crossLength: 310, platformWidth: 39 });
+  const [options, setOptions] = useState<Options>({ radius: 216, step: 15, piece: "t4r", platformWidth: 39 });
   const [preview, setPreview] = useState<{ paths: string[]; snapTo?: Vec }>({ paths: [] });
   const [note, setNote] = useState<string>();
   const [error, setError] = useState<string>();
@@ -385,8 +385,7 @@ function Editor({
   const [zoom, setZoom] = useState(() => fitZoom(area));
   const reach = SNAP_PX / ZOOMS[zoom];
   const grid = draft.grid || 33;
-  const shapes = pieceShapes(grid, options.crossLength);
-  const shape = shapes.find((p) => p.id === options.piece) ?? shapes[0];
+  const shape = PIECES.find((p) => p.id === options.piece) ?? PIECES[0];
 
   const update = (change: (s: Session) => Session) => setSession(change(sessionRef.current));
   /** Changes the plan as one step to undo; a change in the same run as
@@ -476,9 +475,10 @@ function Editor({
     }
   }
 
-  /** Where the piece tool would put its piece, at the end under the pointer. */
-  function placeAt(end: End) {
-    return placePiece(shape, end.point, end.heading);
+  /** Where the piece tool would put its piece, at the end under the
+   * pointer; a crossover goes to the track beside it. */
+  function placeAt(end: End, pointer: Vec) {
+    return placePiece(shape, end.point, end.heading, shape.across ? crossoverSide(index, end, pointer) : 1);
   }
 
   function onPointerDown(at: Vec, e: ReactPointerEvent<SVGSVGElement>, target?: ElementRef) {
@@ -522,8 +522,10 @@ function Editor({
         setNote("Click the end of a track: the piece goes on from there.");
         return;
       }
-      const placed = placeAt(end);
-      commit(addJunction(draft, index, shape.kind, [end.point.id, ...placed.ends.slice(1)], placed.at, onLayer));
+      const placed = placeAt(end, at);
+      // A left hand crossover lists the clicked end third, not first.
+      const ends = placed.ends.map((v) => (dist(v, end.point) < 0.01 ? end.point.id : v));
+      commit(addJunction(draft, index, shape.kind, ends, placed.at, onLayer));
       setPreview({ paths: [] });
       return;
     }
@@ -550,7 +552,7 @@ function Editor({
       // would go.
       const end = tool === "track" || tool === "curve" || tool === "piece" ? endNear(index, at, reach) : undefined;
       if (tool === "piece" && end) {
-        const placed = placeAt(end);
+        const placed = placeAt(end, at);
         const center = junctionCenter({ at: placed.at }, placed.ends);
         setPreview({ paths: KINDS[shape.kind].routes.map((r) => routePath(shape.kind, placed.ends, center, r)), snapTo: end.point });
       } else if (end?.point !== preview.snapTo || preview.paths.length) {
@@ -614,7 +616,9 @@ function Editor({
       to = join ? join.point : snap(at, grid);
       b = join ? join.point.id : to;
     }
-    if (dist(from, to) < 1) {
+    // A click on a track end, moving the pointer a pixel or two, would
+    // lay a stub a millimeter long; only a drag or a join lays track.
+    if (dist(from, to) < 1 || (!join && dist(s.start, at) < reach / 2)) {
       s.result = undefined;
       setPreview({ paths: [] });
       return;
@@ -834,14 +838,13 @@ function Editor({
             <label className="trk-option">
               <span>Piece</span>
               <select className="input input--select" value={shape.id} onChange={(e) => set({ piece: e.target.value })}>
-                {shapes.map((p) => (
+                {PIECES.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.label}
                   </option>
                 ))}
               </select>
             </label>
-            {shape.kind.includes("crossover") && <NumberOption label="Length in mm" value={options.crossLength} min={50} onChange={(crossLength) => set({ crossLength })} />}
           </>
         )}
         {tool === "platform" && <NumberOption label="Width in mm" value={options.platformWidth} min={1} onChange={(platformWidth) => set({ platformWidth })} />}

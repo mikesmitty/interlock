@@ -5,12 +5,13 @@ import {
   addJunction,
   addTrack,
   arcInfo,
+  crossoverSide,
   endNear,
   indexPlan,
   layerRefs,
   moveSelection,
   openEnds,
-  pieceShapes,
+  PIECES,
   placePiece,
   refsInBox,
   removeElements,
@@ -42,19 +43,61 @@ test("track drawn from a free end joins it and takes its buffer stop away", () =
   );
 });
 
-test("a crossover placed between two parallel ends joins both", () => {
-  let plan = addTrack(empty, indexPlan(empty), { x: 0, y: 0 }, { x: 100, y: 0 }, 0);
-  plan = addTrack(plan, indexPlan(plan), { x: 0, y: 33 }, { x: 100, y: 33 }, 0);
+// Four tracks 33 mm apart, each broken for 248 mm from x = 100, as
+// RailModeller's export leaves them where its single crossovers were.
+function fourTracks(): TrackPlan {
+  let plan = empty;
+  for (const y of [0, 33, 66, 99]) {
+    plan = addTrack(plan, indexPlan(plan), { x: 0, y }, { x: 100, y }, 0);
+    plan = addTrack(plan, indexPlan(plan), { x: 348, y }, { x: 448, y }, 0);
+  }
+  return plan;
+}
+
+/** Places a piece where the piece tool would, clicked at pointer. */
+function place(plan: TrackPlan, id: string, pointer: { x: number; y: number }): TrackPlan {
   const index = indexPlan(plan);
-  const end = endNear(index, { x: 100, y: 0 }, 5)!;
-  const shape = pieceShapes(33, 310).find((p) => p.id === "xdr")!;
-  const placed = placePiece(shape, end.point, end.heading);
-  plan = addJunction(plan, index, shape.kind, [end.point.id, ...placed.ends.slice(1)], placed.at);
-  const j = plan.junctions[0];
-  assert.equal(j.kind, "double_crossover");
-  assert.equal(j.ends[0], "p2");
-  assert.equal(j.ends[2], "p4", "the lower track's end, not a new point");
-  assert.equal(plan.points.length, 6);
+  const end = endNear(index, pointer, 5)!;
+  const shape = PIECES.find((p) => p.id === id)!;
+  const placed = placePiece(shape, end.point, end.heading, crossoverSide(index, end, pointer));
+  const ends = placed.ends.map((v) => (v.x === end.point.x && v.y === end.point.y ? end.point.id : v));
+  return addJunction(plan, index, shape.kind, ends, placed.at);
+}
+
+/** Where a crossover's thrown route runs from and to. */
+function thrown(plan: TrackPlan): string[] {
+  const j = plan.junctions[plan.junctions.length - 1];
+  const at = (i: number) => plan.points.find((p) => p.id === j.ends[i])!;
+  return [at(0), at(3)].map((p) => `${p.x},${p.y}`).sort();
+}
+
+test("a crossover goes to the track beside the end clicked and joins it", () => {
+  const plan = fourTracks();
+  const index = indexPlan(plan);
+  const end = (y: number) => endNear(index, { x: 100, y }, 5)!;
+  assert.equal(crossoverSide(index, end(0), { x: 100, y: -3 }), 1, "the only track beside is to the right, heading east");
+  assert.equal(crossoverSide(index, end(99), { x: 100, y: 102 }), -1);
+  assert.equal(crossoverSide(index, end(33), { x: 100, y: 31 }), -1, "track on both sides: the pointer's side");
+  assert.equal(crossoverSide(index, end(33), { x: 100, y: 35 }), 1);
+
+  const double = place(plan, "xd", { x: 100, y: 0 });
+  assert.equal(double.junctions[0].kind, "double_crossover");
+  assert.equal(double.points.length, plan.points.length + 2, "it joined both near ends; 310 mm runs past the far ones");
+});
+
+test("a single crossover keeps its hand whichever end it goes on from", () => {
+  const plan = fourTracks();
+  // Right hand: heading east on the top track, a train turns off to the
+  // right, down the plan.
+  const placed = place(plan, "xsr", { x: 100, y: 0 });
+  const right = thrown(placed);
+  assert.deepEqual(right, ["100,0", "348,33"]);
+  assert.equal(placed.points.length, plan.points.length, "all four ends joined track already there");
+  assert.deepEqual(thrown(place(plan, "xsr", { x: 100, y: 31 })), right, "from the second track's end, to the track on its left");
+  assert.deepEqual(thrown(place(plan, "xsr", { x: 348, y: 0 })), right, "from the far end, heading west");
+  const left = place(plan, "xsl", { x: 100, y: 99 });
+  assert.deepEqual(thrown(left), ["100,99", "348,66"]);
+  assert.equal(left.points.length, plan.points.length);
 });
 
 test("removing track drops the points left with nothing", () => {

@@ -88,8 +88,11 @@
   width: 100%;
 }
 
+/* The pointer reaches the track under a mark, so a short piece ending
+   there can still be clicked. */
 .trk-open {
   fill: var(--lamp-amber);
+  pointer-events: none;
 }
 
 .trk-legend {
