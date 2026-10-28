@@ -3,13 +3,18 @@ import assert from "node:assert/strict";
 import type { TrackPlan } from "./api.ts";
 import {
   addJunction,
+  addMarker,
   addTrack,
+  allRefs,
+  alongTrack,
   arcInfo,
   crossoverSide,
   endNear,
   indexPlan,
   layerRefs,
+  markerPlace,
   moveSelection,
+  nearestAlong,
   openEnds,
   PIECES,
   placePiece,
@@ -224,4 +229,33 @@ test("turning about a selection's middle and back puts it back", () => {
     const q = back.points.find((x) => x.id === p.id)!;
     assert.ok(Math.abs(q.x - p.x) < 0.05 && Math.abs(q.y - p.y) < 0.05, `${p.id} back at ${p.x}, ${p.y}, not ${q.x}, ${q.y}`);
   }
+});
+
+test("a stop marker stands where it is put along its track, and goes with it", () => {
+  // A quarter circle of 216 mm radius, turning right from heading east.
+  let plan = addTrack(empty, indexPlan(empty), { x: 0, y: 0 }, { x: 216, y: 216 }, 90, "upper");
+  plan = addTrack(plan, indexPlan(plan), { x: 216, y: 216 }, { x: 216, y: 464 }, 0);
+  let index = indexPlan(plan);
+  const length = arcInfo({ x: 0, y: 0 }, { x: 216, y: 216 }, 90).length;
+  const halfway = alongTrack(index, "t1", length / 2)!;
+  assert.ok(Math.abs(halfway.heading - 45) < 1e-9, `heading ${halfway.heading}`);
+  const along = nearestAlong(index, "t1", { x: halfway.at.x + 3, y: halfway.at.y - 3 })!;
+  assert.ok(Math.abs(along - length / 2) < 0.01, `${along} along, want ${length / 2}`);
+
+  const added = addMarker(plan, "t1", along);
+  plan = updateElement(added.plan, { kind: "marker", id: added.id }, { reverse: true, length: 456 });
+  assert.deepEqual(plan.markers, [{ id: "m1", track: "t1", at: Math.round(along * 100) / 100, reverse: true, length: 456 }]);
+  index = indexPlan(plan);
+  const place = markerPlace(index, plan.markers![0])!;
+  assert.ok(Math.abs(place.heading - 225) < 0.01, "it faces trains running back toward A");
+  assert.deepEqual(layerRefs(plan, "upper"), [
+    { kind: "track", id: "t1" },
+    { kind: "marker", id: "m1" },
+  ]);
+  assert.equal(allRefs(plan, new Set(["upper"])).length, 1, "hidden with its track's layer");
+  // Moving its track carries it along; removing the track takes it away.
+  const moved = moveSelection(plan, [{ kind: "track", id: "t1" }], { x: 10, y: 0 });
+  assert.ok(Math.abs(markerPlace(indexPlan(moved), moved.markers![0])!.at.x - place.at.x - 10) < 1e-6);
+  assert.deepEqual(removeElements(plan, [{ kind: "track", id: "t1" }]).markers, []);
+  assert.equal(setLayer(plan, [{ kind: "marker", id: "m1" }], undefined).markers![0].id, "m1");
 });

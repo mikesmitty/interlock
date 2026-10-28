@@ -853,9 +853,30 @@ since its result could change the model.
   against the simulated layout: a route over the crossover set, refused
   a conflicting route and a command to the crossover, and was released
   about 3 s after the train's front reached the next block.
+- Automatic driving (2026-10-28): stop markers in the track plan, each
+  on a track for trains running one way and up to a length, like a
+  subway platform's car markers. Tracking measures a train's speed at
+  each step it holds over a whole run from one block into the next, and
+  moves trains by those speeds, falling back on the decoder's speed
+  curve; entries are put a detector's report delay further in.
+  `internal/driving` drives a train to a block: it finds the way over
+  the interlocking's routes (fewest blocks, the way the train faces
+  first), sets them, runs the train, and brakes it so that its leading
+  end stands at the marker for its length and way, or short of the
+  block's end: at a chosen rate or the decoder's momentum if slower,
+  down to an approach speed, then stopped where the momentum brings it
+  to a stand. A moving train waits short of routes still setting. A
+  throttle's speed takes a train over; an emergency stop, a canceled
+  route or a moved turnout ahead ends the drive. A speed measuring run
+  drives a train around as the turnouts lie, setting routes ahead as it
+  goes, until each of a list of steps is measured over two runs.
+  Verified against the simulated layout through the bus: with real
+  tracking, trains stopped 1.0 and 1.9 mm from the marker; steps
+  measured within 0.1 mm/s of the simulator's.
 - Next: the rest of Phase 7, hardware verification against
-  canbus-outpost and simple-dcc, and Phase 8's automatic driving, with
-  signals, approach locking and a trip stop to round out interlocking.
+  canbus-outpost and simple-dcc, Phase 8's timetable, and signals,
+  approach locking and a trip stop to round out interlocking. Stopping
+  precision should be tried on the bench with a real decoder.
 
 ## References
 

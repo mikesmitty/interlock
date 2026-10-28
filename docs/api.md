@@ -10,7 +10,7 @@ DCC addresses (`1234`, `3` short, `3l` long).
 ## Live updates
 
 ```
-GET /api/v1/events?topics=nodes,links,monitor,entities,automations,trains,clock,trackplan,tracking,interlocking
+GET /api/v1/events?topics=nodes,links,monitor,entities,automations,trains,clock,trackplan,tracking,interlocking,driving
 ```
 
 is a server-sent event stream; the default is every topic. Events:
@@ -31,6 +31,7 @@ is a server-sent event stream; the default is every topic. Events:
 | `tracked`                                              | tracking     | a tracked train, when it moves (a few times a second), is seen or is lost, or with `removed` when it is no longer followed                                      |
 | `route`                                                | interlocking | a route that was set, changed or was released                                                                                                                   |
 | `routes`                                               | interlocking | `{"routes": [...]}`, every route, when a save of the track plan changed them                                                                                    |
+| `drive`                                                | driving      | a drive that began, moved on (a few times a second) or ended                                                                                                    |
 | `lagged`                                               |              | the client fell behind and missed events                                                                                                                        |
 
 ## Controller
@@ -274,7 +275,10 @@ it gets 409 with the current `revision` in the body. The topology lists
 blocks), each block's `length` in millimeters and its `ends` (the point
 where track leaves it and the heading it leaves by), and the `links`
 between block ends with their length and the junction positions on the
-way. See [The track plan](./track-plan.md).
+way. The plan's `markers` are its stop markers, each on a `track` at `at`
+millimeters from its A end, for trains running toward B or, with
+`reverse`, toward A, and up to a `length` in millimeters when given. See
+[The track plan](./track-plan.md).
 
 ## Train tracking
 
@@ -292,7 +296,9 @@ reported in and whether a detector `seen`
 it now, whether tracking has `placed` it (knows where it is in its block
 and which way it faces), the `blocks` it is in with its front first, its
 `direction`, its estimated `speed` and measured `top_speed` in
-millimeters a second, its `length`, whether its decoder's `momentum` is
+millimeters a second, the `speeds` measured at the steps it held over a
+whole run from one block into the next (`step`, `speed`, and the `runs`
+measured over), its `length`, whether its decoder's `momentum` is
 on record, and while placed, its `line` on the plan from rear to front
 and its `decoder`'s place. See [Train tracking](./tracking.md).
 
@@ -325,6 +331,39 @@ Setting a route set already moves back any of its turnouts that have
 moved away. While a route holds a turnout, a command that would move
 it, from any client, gets 409 with the route named. See
 [Routes and interlocking](./interlocking.md).
+
+## Driving
+
+```
+GET    /api/v1/driving                       {drives: [...]} the drives going, and each train's last
+GET    /api/v1/driving/{train}               a train's drive, by its tracked ID
+POST   /api/v1/driving/{train}               {to, marker?, speed?, direction?, braking?} drive it to a block; 409 {error} if it can't
+POST   /api/v1/driving/{train}/measure       {steps?, direction?} run it around to measure its speeds
+POST   /api/v1/driving/{train}/stop          brake it to a stand and end the drive; 409 if it isn't being driven
+```
+
+A drive takes a tracked train to the block `to`, at the speed step
+`speed` (60 when not given), braking at `braking` mm/s² (40), and stops
+its leading end at the block's stop marker for its length and the way it
+runs, or at `marker` when given. It goes the way the train faces, or
+backs it if the block can't be reached that way; `direction` makes it
+go one way. The answer is the drive as it begins, its routes set or
+setting; the drive goes on after it. A train tracking doesn't follow
+gets 404, and a drive that can't begin gets 409 with the reason: the
+train not placed or not measured, its momentum not on record, no way
+there, a route that can't be set.
+
+Each drive has its `train`, `name` and `kind` (`drive` or `measure`),
+its `to` block, `marker` and `routes`, its `direction`, the `speed` it
+runs at and the `step` it is set to now, its `braking`, and its
+`state`: `starting` while its routes set, `running`, `braking`,
+`stopping` once set to stop, then `arrived`, `measured`, `stopped` or
+`failed`. `remaining` is how far it has to go in millimeters, `off` how
+far short of where it was to stop it came to a stand (negative past
+it), and `error` why it ended early. A measuring run has `measuring`
+with its `steps`, the step it is `at`, and those `done` and `skipped`.
+`started`, `ended` and `updated` are times. See
+[Driving trains](./driving.md).
 
 ## Monitor
 

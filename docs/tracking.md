@@ -42,10 +42,18 @@ this.
    smoothly. It never passes into the next detected block before a
    detector there sees it.
 4. **At each entry** tracking puts the train back where its decoder
-   really is. The time from one entry to the next over the track
-   between them measures how fast the train goes at full speed. The
-   first measure comes from the second block it enters, and each run
-   refines it.
+   really is, allowing for the moment the detector takes to report it.
+   The time from one entry to the next over the track between them
+   measures how fast the train goes at full speed on its decoder's
+   speed curve. The first measure comes from the second block it
+   enters, and each run refines it.
+5. **At each step held.** A run from one entry to the next at a speed
+   step held all the way, from before the first entry, measures the
+   train's speed at that step. Once a step has been measured, tracking
+   goes by it rather than by the speed curve: between two steps
+   measured, by the two in proportion; beyond them, by the curve from
+   the nearest. [Driving](./driving.md#measuring-a-train-s-speeds) can
+   run a train around to measure several steps at once.
 
 Detectors report a decoder leaving a block only a second after it left,
 so the blocks a train is in come from where tracking has it, not from
@@ -69,7 +77,8 @@ Each train tracking has placed is drawn on its track as a bar, pointed
 at the end that leads, with a red dot where its decoder is. A train
 whose place in its block isn't known yet is named in the block. The
 **Trains** table lists each train with the blocks it is in, the way it
-is going, its speed, and what would help follow it better. **Forget…**
+is going, its speed and the steps measured, and what would help follow
+it better. **Forget…**
 there drops a train that has been taken off the layout, so it no longer
 fills a block; tracking finds it again when a detector next sees it run
 into a block. The

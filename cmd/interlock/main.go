@@ -24,6 +24,7 @@ import (
 	"github.com/mikesmitty/interlock/internal/clock"
 	"github.com/mikesmitty/interlock/internal/config"
 	"github.com/mikesmitty/interlock/internal/decoder"
+	"github.com/mikesmitty/interlock/internal/driving"
 	"github.com/mikesmitty/interlock/internal/entity"
 	"github.com/mikesmitty/interlock/internal/eventtable"
 	"github.com/mikesmitty/interlock/internal/firmware"
@@ -264,6 +265,12 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	tracker.Subscribe(interlock.HandleTrain)
 	trackPlan.Subscribe(interlock.HandlePlan)
 
+	// Driving: trains run to their stops over the routes the interlocking
+	// sets, at the speeds tracking has measured.
+	driver := driving.New(driving.Options{Tracking: tracker, Interlocking: interlock, Trains: trains, Plan: trackPlan, Entities: entities, Logger: logger})
+	trains.Subscribe(driver.HandleTrain)
+	trains.SubscribeLayout(driver.HandleLayout)
+
 	// The fast clock, broadcast on the bus.
 	fast := clock.New(ctx, clock.Options{Bus: local, Store: st, Logger: logger})
 
@@ -357,7 +364,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	}
 
 	var wg sync.WaitGroup
-	wg.Add(10)
+	wg.Add(11)
 	go func() {
 		defer wg.Done()
 		if err := decoders.Download(ctx); err != nil && ctx.Err() == nil {
@@ -416,6 +423,10 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			logger.Error("the interlocking stopped", "error", err)
 		}
 	}()
+	go func() {
+		defer wg.Done()
+		_ = driver.Run(ctx)
+	}()
 
 	// Moving what names one node over to another, for a replaced board.
 	replacer := &replace.Replacer{Nodes: reg, Events: table, Entities: entities, Parts: []replace.Part{entities, trackPlan, engine}}
@@ -442,6 +453,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			TrackPlan:    trackPlan,
 			Tracking:     tracker,
 			Interlocking: interlock,
+			Driving:      driver,
 			Replace:      replacer,
 			Restart:      restart,
 			SerialPorts:  transport.SerialPorts,

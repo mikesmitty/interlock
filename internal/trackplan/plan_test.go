@@ -76,6 +76,10 @@ func TestValidate(t *testing.T) {
 			p.Blocks[0].Station = "times-sq"
 		}, ""},
 		{"unknown station", func(p *Plan) { p.Blocks[0].Station = "nope" }, "station \"nope\""},
+		{"marker", func(p *Plan) { p.Markers = []Marker{{ID: "m1", Track: "t1", At: 50, Length: 456}} }, ""},
+		{"marker off the plan", func(p *Plan) { p.Markers = []Marker{{ID: "m1", Track: "nope"}} }, "track \"nope\""},
+		{"marker for a negative length", func(p *Plan) { p.Markers = []Marker{{ID: "m1", Track: "t1", Length: -1}} }, "length between"},
+		{"two markers alike", func(p *Plan) { p.Markers = []Marker{{ID: "m1", Track: "t1"}, {ID: "m1", Track: "t2"}} }, "two of the plan's markers"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -99,7 +103,13 @@ func TestNormalize(t *testing.T) {
 	p.Points[1].X = 300.004
 	p.Tracks[0], p.Tracks[3] = p.Tracks[3], p.Tracks[0]
 	p.Labels = []Label{{ID: "l1", X: 1, Y: 2, Text: " Times Sq "}}
+	p.Markers = []Marker{{ID: "m2", Track: "t1", At: 1e6}, {ID: "m1", Track: "gone"}, {ID: "m3", Track: "t1", At: -5, Length: 456.004}}
 	n := p.Normalize()
+	if len(n.Markers) != 2 || n.Markers[0].ID != "m2" || n.Markers[1].At != 0 || n.Markers[1].Length != 456 {
+		t.Errorf("markers %+v; want m2 and m3, on their track, the one on a track gone dropped", n.Markers)
+	} else if length := n.trackLengths()["t1"]; n.Markers[0].At != round2(length) {
+		t.Errorf("a marker past its track's end is at %v; want its end, %v", n.Markers[0].At, length)
+	}
 	if n.Grid != DefaultGrid {
 		t.Errorf("grid = %v, want the default %v", n.Grid, DefaultGrid)
 	}

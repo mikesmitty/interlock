@@ -101,8 +101,9 @@ applied at the next start; the replaced files go to `before-restore-*/`.
   scale in millimeters: points, track between two of them (straight or
   turning by an angle), junctions (turnout, wye, crossing, crossover,
   double crossover; their ends in a fixed order and fixed routes),
-  platforms, labels, layers, blocks linked to their block and reporter
-  entities, stations. `Topology` works out open ends, kinks, each
+  platforms, stop markers (a spot on a track, for trains running one way,
+  up to a length), labels, layers, blocks linked to their block and
+  reporter entities, stations. `Topology` works out open ends, kinks, each
   block's ends and length, and the links between block ends with their
   length and the junction positions on the way, which is what
   scheduling will route over. `ImportJMRI` reads a JMRI Layout Editor
@@ -120,7 +121,8 @@ applied at the next start; the replaced files go to `before-restore-*/`.
   into the next, lays it out again around the decoder when the roster
   changes the train, moves it on between reports at its decoder's
   speed curve and momentum (`train/motion.go`, CVs from the CV store)
-  times a top speed measured between entries, never into a detected
+  times a top speed measured between entries, or the speeds measured
+  at each step held over a run (`motion.go`), never into a detected
   block unseen, and keeps places over a restart in the store. One
   goroutine owns the state (`layout.go`); handlers only queue. Its
   tests run the simulated layout and check against true positions.
@@ -132,6 +134,15 @@ applied at the next start; the replaced files go to `before-restore-*/`.
   client), released leg by leg behind the train by tracking's stretch
   with a clearance (`Network.Fouls` says which legs share track), and
   kept over a restart. One goroutine owns the state (`state.go`).
+- `internal/driving` — drives trains: a drive finds the way to a block
+  over the interlocking's routes (`course.go`), sets them, and each tick
+  sets the train's speed from tracking's estimate (`Tracker.Estimate`)
+  to brake it to a stand at the block's stop marker (`control.go`, by
+  the train's `tracking.Motion`); a measuring run (`measure.go`) runs a
+  train around as the turnouts lie until tracking has measured its
+  speed at each step asked. One goroutine per drive; a throttle's speed
+  takes the train over. Its tests drive the simulated layout in
+  simulated time with the real interlocking.
 - `internal/layoutsim` — the simulated layout: trains as stretches
   along the plan's `Network` (`trackplan/network.go`, legs through track
   and junction routes; `trackplan/stretch.go`, the track a train covers)

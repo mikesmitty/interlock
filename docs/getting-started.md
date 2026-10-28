@@ -129,7 +129,8 @@ record, so [train tracking](./tracking.md) can follow them. The test layout is a
 Park Av and Main St. A siding at Main St lets one train pass another, and
 a crossover east of Park Av turns trains back. Its nine blocks and three
 turnouts are already linked to the simulated outposts, so
-[routes](./interlocking.md) can be set over them.
+[routes](./interlocking.md) can be set over them, and its platforms have
+stop markers for [driving](./driving.md) trains to.
 
 Its trains run along the plan at the speed their decoders are set to,
 with the decoders' momentum (CVs 3 and 4) and speed curve (CVs 2, 5

@@ -1,7 +1,7 @@
 // Track plan geometry, worked out as internal/trackplan does: track to
 // scale in millimeters, x rightward and y downward, headings in degrees
 // clockwise from rightward. Keep the rules in step with the Go package.
-import type { JunctionKind, PlanJunction, PlanPlatform, PlanPoint, PlanTrack, TrackBackground, TrackPlan, Vec } from "./api";
+import type { JunctionKind, PlanJunction, PlanMarker, PlanPlatform, PlanPoint, PlanTrack, TrackBackground, TrackPlan, Vec } from "./api";
 
 export const add = (a: Vec, b: Vec): Vec => ({ x: a.x + b.x, y: a.y + b.y });
 export const sub = (a: Vec, b: Vec): Vec => ({ x: a.x - b.x, y: a.y - b.y });
@@ -256,6 +256,46 @@ export function trackMiddle(index: PlanIndex, t: PlanTrack): Vec | undefined {
   return a && b ? arcAt(a, b, t.angle, 0.5) : undefined;
 }
 
+/** The place a distance along a track from its A end, the heading of
+ * the track there going toward B, and the track's length. */
+export function alongTrack(index: PlanIndex, track: string, at: number): { at: Vec; heading: number; length: number } | undefined {
+  const t = index.tracks.get(track);
+  const a = t && index.points.get(t.a);
+  const b = t && index.points.get(t.b);
+  if (!t || !a || !b) return undefined;
+  const info = arcInfo(a, b, t.angle);
+  const f = info.length > 0 ? Math.min(Math.max(at / info.length, 0), 1) : 0;
+  return { at: arcAt(a, b, t.angle, f), heading: info.startHeading + (t.angle ?? 0) * f, length: info.length };
+}
+
+/** How far along a track from its A end the place on it nearest p is. */
+export function nearestAlong(index: PlanIndex, track: string, p: Vec): number | undefined {
+  const t = index.tracks.get(track);
+  const a = t && index.points.get(t.a);
+  const b = t && index.points.get(t.b);
+  if (!t || !a || !b) return undefined;
+  const off = (f: number) => dist(arcAt(a, b, t.angle, f), p);
+  const steps = 64;
+  let best = 0;
+  for (let i = 1; i <= steps; i++) if (off(i / steps) < off(best / steps)) best = i;
+  // Narrow it down between the samples either side.
+  let lo = Math.max(best - 1, 0) / steps;
+  let hi = Math.min(best + 1, steps) / steps;
+  for (let i = 0; i < 40; i++) {
+    const m1 = lo + (hi - lo) / 3;
+    const m2 = hi - (hi - lo) / 3;
+    if (off(m1) < off(m2)) hi = m2;
+    else lo = m1;
+  }
+  return ((lo + hi) / 2) * arcInfo(a, b, t.angle).length;
+}
+
+/** Where a stop marker stands, and the way trains stopping at it run. */
+export function markerPlace(index: PlanIndex, m: PlanMarker): { at: Vec; heading: number } | undefined {
+  const along = alongTrack(index, m.track, m.at);
+  return along && { at: along.at, heading: m.reverse ? along.heading + 180 : along.heading };
+}
+
 // Kato Unitrack N, the pieces that aren't plain track. Each is given
 // with its first end at the origin, the track leading off along +x and
 // +y to the right of it.
@@ -338,9 +378,9 @@ export function placePiece(piece: PieceShape, origin: Vec, heading: number, side
 // IDs and merging.
 
 /** Makes IDs with a prefix and a number not yet used in the plan. */
-export function idMaker(plan: Pick<TrackPlan, "points" | "tracks" | "junctions" | "platforms" | "labels">): (prefix: string) => string {
+export function idMaker(plan: Pick<TrackPlan, "points" | "tracks" | "junctions" | "platforms" | "labels" | "markers">): (prefix: string) => string {
   const next = new Map<string, number>();
-  for (const list of [plan.points, plan.tracks, plan.junctions, plan.platforms, plan.labels]) {
+  for (const list of [plan.points, plan.tracks, plan.junctions, plan.platforms, plan.labels, plan.markers ?? []]) {
     for (const { id } of list) {
       const m = /^([a-z]+)(\d+)$/.exec(id);
       if (m) next.set(m[1], Math.max(next.get(m[1]) ?? 1, Number(m[2]) + 1));
@@ -438,7 +478,7 @@ export const snap = (v: Vec, grid: number): Vec => ({ x: Math.round(v.x / grid) 
 // Editing: the changes the track plan editor makes. Each returns a new
 // plan, so every version can be put back by Undo.
 
-export type ElementKind = "track" | "junction" | "platform" | "label";
+export type ElementKind = "track" | "junction" | "platform" | "label" | "marker";
 
 /** Something drawn on the plan, by kind and ID. */
 export interface ElementRef {
@@ -530,6 +570,13 @@ export function addJunction(plan: TrackPlan, index: PlanIndex, kind: JunctionKin
   return { ...next, junctions: [...next.junctions, junction] };
 }
 
+/** Adds a stop marker at a distance along a track, for trains running
+ * toward its B end. */
+export function addMarker(plan: TrackPlan, track: string, at: number): { plan: TrackPlan; id: string } {
+  const id = idMaker(plan)("m");
+  return { plan: { ...plan, markers: [...(plan.markers ?? []), { id, track, at: round(at, 2) }] }, id };
+}
+
 /** Drops points no track or junction ends at. */
 export function prunePoints(plan: TrackPlan): TrackPlan {
   const used = new Set<string>();
@@ -539,11 +586,14 @@ export function prunePoints(plan: TrackPlan): TrackPlan {
   return points.length === plan.points.length ? plan : { ...plan, points };
 }
 
-/** Deletes elements, and the points left with nothing at them. */
+/** Deletes elements, and the points and markers left with nothing to
+ * stand on. */
 export function removeElements(plan: TrackPlan, refs: ElementRef[]): TrackPlan {
   const gone = (kind: ElementKind, id: string) => refs.some((r) => r.kind === kind && r.id === id);
+  const markers = plan.markers?.filter((m) => !gone("marker", m.id) && !gone("track", m.track));
   return prunePoints({
     ...plan,
+    ...(markers ? { markers } : {}),
     tracks: plan.tracks.filter((t) => !gone("track", t.id)),
     junctions: plan.junctions.filter((j) => !gone("junction", j.id)),
     platforms: plan.platforms.filter((p) => !gone("platform", p.id)),
@@ -580,12 +630,17 @@ export function updateElement(plan: TrackPlan, ref: ElementRef, change: Record<s
       return { ...plan, platforms: plan.platforms.map(apply) };
     case "label":
       return { ...plan, labels: plan.labels.map(apply) };
+    case "marker":
+      return { ...plan, markers: (plan.markers ?? []).map(apply) };
   }
 }
 
 // Selections: many elements moved, turned or changed together.
 
 const refKey = (r: ElementRef) => `${r.kind}:${r.id}`;
+
+/** The layer a marker is on: its track's. */
+const markerLayer = (plan: TrackPlan, m: PlanMarker) => plan.tracks.find((t) => t.id === m.track)?.layer;
 
 /** Everything on the plan that isn't on a hidden layer. */
 export function allRefs(plan: TrackPlan, hidden?: ReadonlySet<string>): ElementRef[] {
@@ -595,12 +650,17 @@ export function allRefs(plan: TrackPlan, hidden?: ReadonlySet<string>): ElementR
     ...plan.junctions.filter((j) => shown(j.layer)).map((j) => ({ kind: "junction" as const, id: j.id })),
     ...plan.platforms.filter((p) => shown(p.layer)).map((p) => ({ kind: "platform" as const, id: p.id })),
     ...plan.labels.filter((l) => shown(l.layer)).map((l) => ({ kind: "label" as const, id: l.id })),
+    ...(plan.markers ?? []).filter((m) => shown(markerLayer(plan, m))).map((m) => ({ kind: "marker" as const, id: m.id })),
   ];
 }
 
 /** Everything on a layer. */
 export const layerRefs = (plan: TrackPlan, layer: string): ElementRef[] =>
   allRefs(plan).filter((r) => {
+    if (r.kind === "marker") {
+      const m = plan.markers?.find((x) => x.id === r.id);
+      return !!m && markerLayer(plan, m) === layer;
+    }
     const list: { id: string; layer?: string }[] = { track: plan.tracks, junction: plan.junctions, platform: plan.platforms, label: plan.labels }[r.kind];
     return list.find((x) => x.id === r.id)?.layer === layer;
   });
@@ -624,6 +684,11 @@ function placesOf(plan: TrackPlan, index: PlanIndex, r: ElementRef): Vec[] {
     case "label": {
       const l = plan.labels.find((x) => x.id === r.id);
       return l ? [l] : [];
+    }
+    case "marker": {
+      const m = plan.markers?.find((x) => x.id === r.id);
+      const place = m && markerPlace(index, m);
+      return place ? [place.at] : [];
     }
   }
 }
@@ -706,9 +771,10 @@ export function turnSelection(plan: TrackPlan, refs: ElementRef[], degrees: numb
   return transform(plan, refs, (v) => ({ x: about.x + (v.x - about.x) * c - (v.y - about.y) * s, y: about.y + (v.x - about.x) * s + (v.y - about.y) * c }), degrees);
 }
 
-/** Puts every selected element on a layer, or on none. */
+/** Puts every selected element on a layer, or on none; a marker goes
+ * with its track. */
 export function setLayer(plan: TrackPlan, refs: ElementRef[], layer: string | undefined): TrackPlan {
-  return refs.reduce((p, r) => updateElement(p, r, { layer }), plan);
+  return refs.filter((r) => r.kind !== "marker").reduce((p, r) => updateElement(p, r, { layer }), plan);
 }
 
 /** Whether an element is still on the plan. */
@@ -722,5 +788,7 @@ export function exists(plan: TrackPlan, index: PlanIndex, r: ElementRef): boolea
       return plan.platforms.some((p) => p.id === r.id);
     case "label":
       return plan.labels.some((l) => l.id === r.id);
+    case "marker":
+      return !!plan.markers?.some((m) => m.id === r.id && index.tracks.has(m.track));
   }
 }

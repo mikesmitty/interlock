@@ -11,6 +11,7 @@ import (
 
 	"github.com/mikesmitty/interlock/internal/automation"
 	"github.com/mikesmitty/interlock/internal/clock"
+	"github.com/mikesmitty/interlock/internal/driving"
 	"github.com/mikesmitty/interlock/internal/entity"
 	"github.com/mikesmitty/interlock/internal/firmware"
 	"github.com/mikesmitty/interlock/internal/interlocking"
@@ -46,11 +47,13 @@ import (
 //	tracked      tracking.Train     a tracked train moved, was seen or was lost (topic "tracking")
 //	route        interlocking.Route a route was set, changed or released (topic "interlocking")
 //	routes       {"routes": [...]}  the plan changed the routes (topic "interlocking")
+//	drive        driving.Drive      a drive began, moved on or ended (topic "driving")
 //	lagged       {}                 the client fell behind and entries were skipped
 //
 // The topics query parameter selects a comma separated subset of
 // nodes, links, monitor, entities, automations, trains, clock,
-// trackplan, tracking and interlocking; the default is all of them.
+// trackplan, tracking, interlocking and driving; the default is all of
+// them.
 
 const (
 	sseQueue     = 1024
@@ -68,7 +71,7 @@ func (a *API) events(w http.ResponseWriter, r *http.Request) {
 	flush := func() bool {
 		return rc.Flush() == nil
 	}
-	topics := map[string]bool{"nodes": true, "links": true, "monitor": true, "entities": true, "automations": true, "trains": true, "clock": true, "trackplan": true, "tracking": true, "interlocking": true}
+	topics := map[string]bool{"nodes": true, "links": true, "monitor": true, "entities": true, "automations": true, "trains": true, "clock": true, "trackplan": true, "tracking": true, "interlocking": true, "driving": true}
 	if s := r.URL.Query().Get("topics"); s != "" {
 		topics = map[string]bool{}
 		for _, t := range strings.Split(s, ",") {
@@ -143,6 +146,10 @@ func (a *API) events(w http.ResponseWriter, r *http.Request) {
 				push(sseEvent{"routes", map[string]any{"routes": u.Routes}})
 			}
 		})
+		defer unsubscribe()
+	}
+	if topics["driving"] && a.deps.Driving != nil {
+		unsubscribe := a.deps.Driving.Subscribe(func(d driving.Drive) { push(sseEvent{"drive", d}) })
 		defer unsubscribe()
 	}
 	if topics["entities"] && a.deps.EventNames != nil {

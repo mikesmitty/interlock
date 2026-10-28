@@ -300,6 +300,19 @@ export interface PlanPlatform extends Vec {
   layer?: string;
 }
 
+/** A stop marker: where a train stopping in the block its track is in
+ * brings its leading end to a stand. */
+export interface PlanMarker {
+  id: string;
+  track: string;
+  /** Millimeters along the track from its A end. */
+  at: number;
+  /** For trains running toward the track's A end; else toward its B end. */
+  reverse?: boolean;
+  /** The longest train it is for, in millimeters; absent for any. */
+  length?: number;
+}
+
 export interface PlanLabel extends Vec {
   id: string;
   text: string;
@@ -349,6 +362,7 @@ export interface TrackPlan {
   tracks: PlanTrack[];
   junctions: PlanJunction[];
   platforms: PlanPlatform[];
+  markers?: PlanMarker[];
   labels: PlanLabel[];
   layers: PlanLayer[];
   blocks: TrackBlock[];
@@ -424,6 +438,8 @@ export interface TrackedTrain {
   /** Its speed by the estimate and its measured top speed, in mm/s; 0 until measured. */
   speed: number;
   top_speed?: number;
+  /** The speeds measured at the steps it held over a whole run from one block into the next. */
+  speeds?: SpeedPoint[];
   length?: number;
   /** Whether its decoder's momentum (CVs 3 and 4) is on record. */
   momentum: boolean;
@@ -433,6 +449,13 @@ export interface TrackedTrain {
   updated?: string;
   /** Set on the last update about a train no longer followed. */
   removed?: boolean;
+}
+
+/** A speed measured at a speed step, in mm/s, over a number of runs. */
+export interface SpeedPoint {
+  step: number;
+  speed: number;
+  runs: number;
 }
 
 /** A leg of track: one track end to end, or one route through a junction, taken one way. */
@@ -470,6 +493,46 @@ export interface Route {
   /** How many of its legs, from the first, have been released behind the train. */
   released?: number;
   since?: string;
+}
+
+/** How a drive stands: going (starting, running, braking, stopping) or ended. */
+export type DriveState = "starting" | "running" | "braking" | "stopping" | "arrived" | "measured" | "stopped" | "failed";
+
+/** A train being driven to a stop, or run around to measure its speeds; or the last such drive. */
+export interface Drive {
+  /** The tracked train's ID. */
+  train: string;
+  name: string;
+  kind: "drive" | "measure";
+  /** The block it goes to, and the stop marker there it stops at. */
+  to?: string;
+  marker?: string;
+  routes: string[];
+  direction: Direction;
+  /** The step it runs at, and the one it is set to now. */
+  speed: number;
+  step: number;
+  /** How hard it brakes, in mm/s². */
+  braking: number;
+  state: DriveState;
+  /** Millimeters to where it stops, by tracking's estimate. */
+  remaining: number;
+  /** How far short of where it was to stop it came to a stand, negative past it. */
+  off?: number;
+  /** Why it ended before it got there. */
+  error?: string;
+  measuring?: { steps: number[]; at?: number; done: number[]; skipped?: number[] };
+  started: string;
+  ended?: string;
+  updated: string;
+}
+
+export interface DriveRequest {
+  to: string;
+  marker?: string;
+  speed?: number;
+  direction?: Direction;
+  braking?: number;
 }
 
 // Replacing a node: moving what names one node over to another.
@@ -1135,6 +1198,10 @@ export const api = {
   routes: () => request<{ routes: Route[] }>("/api/v1/routes"),
   setRoute: (id: string) => request<Route>(`/api/v1/routes/${encodeURIComponent(id)}/set`, { method: "POST" }),
   cancelRoute: (id: string, force = false) => request<Route>(`/api/v1/routes/${encodeURIComponent(id)}/cancel`, { method: "POST", body: JSON.stringify({ force }) }),
+  drives: () => request<{ drives: Drive[] }>("/api/v1/driving"),
+  drive: (train: string, req: DriveRequest) => request<Drive>(`/api/v1/driving/${encodeURIComponent(train)}`, { method: "POST", body: JSON.stringify(req) }),
+  measureSpeeds: (train: string, steps: number[]) => request<Drive>(`/api/v1/driving/${encodeURIComponent(train)}/measure`, { method: "POST", body: JSON.stringify({ steps }) }),
+  stopDrive: (train: string) => request<Drive>(`/api/v1/driving/${encodeURIComponent(train)}/stop`, { method: "POST" }),
   saveTrackPlan: (plan: TrackPlan, revision: string) => request<TrackPlanState>("/api/v1/trackplan", { method: "PUT", body: JSON.stringify({ plan, revision }) }),
   uploadBackground: (file: File) => upload<{ image: string }>("/api/v1/trackplan/backgrounds", "file", file),
   importTrackPlan: (file: File, scale: number) => upload<TrackImport>("/api/v1/trackplan/import", "file", file, { scale: String(scale) }),

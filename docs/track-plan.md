@@ -94,13 +94,16 @@ Ctrl+Z) and **Redo** step back and forth through your changes.
   pointer is on; the outline shows which before you click.
 - **Platform** (P): drag along where a platform goes, from one end to
   the other; set its width above the plan.
+- **Marker** (M): click on track to put a stop marker there; set the
+  way trains run past it and how long they are on the right. See
+  [Stop markers](#stop-markers).
 - **Label** (L): click to write a label there; change the text on the
   right.
 - **Block** (B): drag over track to put it in the block chosen under
   Blocks. Hold Option or Alt while dragging to take track out of its
   block.
-- **Erase** (E): click or drag over track, platforms and labels to
-  remove them.
+- **Erase** (E): click or drag over track, platforms, markers and
+  labels to remove them.
 - **Select** (V): click track, a platform or a label to see what it is
   and change it: a curve's radius and length, a turnout's switch
   machine, a buffer stop at a track end. See **Selecting, moving and
@@ -163,6 +166,27 @@ platform tracks; add stations under **Stations**.
 
 Once the plan is saved, a block's panel lists where each of its ends
 leads: the next block, and the turnout positions on the way.
+
+## Stop markers
+
+A stop marker is where a train [driven](./driving.md) to a block stops:
+its leading end comes to a stand there, as a subway train's front stops
+at the car marker for its length. Put one on a platform track with the
+**Marker** tool: click the track where the train's front should be. The
+plan draws it as a line across the track and a flag beside it, pointing
+the way the trains it is for run.
+
+Select a marker to set it:
+
+- **For trains running** one way or the other along the track. A train
+  going the other way passes it by; give that way a marker of its own.
+- **For trains up to** a length in millimeters, or empty for any train.
+  With markers for several lengths in a block, a train stops at the one
+  for the shortest trains it fits.
+
+A marker belongs to its track: it moves when the track moves, is on the
+track's layer, and goes when the track is removed. A marker on track in
+no block isn't used until the track is put in a block.
 
 ## Tracing a plan from an image
 

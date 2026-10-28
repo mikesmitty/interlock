@@ -18,6 +18,7 @@ import {
   type NodeInfo,
   type Trace,
   type Route,
+  type Drive,
   type TrackPlanState,
   type TrackedTrain,
   type Train,
@@ -58,6 +59,8 @@ export interface BusState {
   tracked: Record<string, TrackedTrain>;
   /** Every route the plan has, set or not, by ID. */
   routes: Record<string, Route>;
+  /** The drives going and each train's last, by tracked train ID. */
+  drives: Record<string, Drive>;
 }
 
 const MAX_LIVE_TRACES = 50;
@@ -102,6 +105,7 @@ class BusStore {
     firmware: {},
     tracked: {},
     routes: {},
+    drives: {},
   };
   private listeners = new Set<Listener>();
   private source?: EventSource;
@@ -156,6 +160,10 @@ class BusStore {
     es.addEventListener("route", (ev) => {
       const r = JSON.parse((ev as MessageEvent<string>).data) as Route;
       this.set({ routes: { ...this.state.routes, [r.id]: r } });
+    });
+    es.addEventListener("drive", (ev) => {
+      const d = JSON.parse((ev as MessageEvent<string>).data) as Drive;
+      this.set({ drives: { ...this.state.drives, [d.train]: d } });
     });
     es.addEventListener("routes", (ev) => {
       const { routes } = JSON.parse((ev as MessageEvent<string>).data) as { routes: Route[] };
@@ -278,6 +286,9 @@ class BusStore {
       const trackPlan = await api.trackPlan().catch(() => undefined);
       const trackingResponse = await api.tracking().catch(() => ({ trains: [] as TrackedTrain[] }));
       const routesResponse = await api.routes().catch(() => ({ routes: [] as Route[] }));
+      const drivesResponse = await api.drives().catch(() => ({ drives: [] as Drive[] }));
+      const drives: Record<string, Drive> = {};
+      for (const d of drivesResponse.drives) drives[d.train] = d;
       const carsResponse = await api.cars().catch(() => ({ cars: [] as Car[] }));
       const formationsResponse = await api.formations().catch(() => ({ formations: [] as Formation[] }));
       const cars: Record<string, Car> = {};
@@ -318,6 +329,7 @@ class BusStore {
         trackPlan,
         tracked,
         routes: byID(routesResponse.routes),
+        drives,
         entries,
         lastSeq: Math.max(this.state.lastSeq, backlog.last_seq),
         lagged: false,

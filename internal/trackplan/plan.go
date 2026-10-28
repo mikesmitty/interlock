@@ -49,6 +49,7 @@ type Plan struct {
 	Tracks    []Track    `json:"tracks" yaml:"tracks,omitempty"`
 	Junctions []Junction `json:"junctions" yaml:"junctions,omitempty"`
 	Platforms []Platform `json:"platforms" yaml:"platforms,omitempty"`
+	Markers   []Marker   `json:"markers" yaml:"markers,omitempty"`
 	Labels    []Label    `json:"labels" yaml:"labels,omitempty"`
 	Layers    []Layer    `json:"layers" yaml:"layers,omitempty"`
 	Blocks    []Block    `json:"blocks" yaml:"blocks,omitempty"`
@@ -110,6 +111,23 @@ type Platform struct {
 	// Angle is the heading of its length, clockwise from rightward.
 	Angle float64 `json:"angle,omitempty" yaml:"angle,omitempty"`
 	Layer string  `json:"layer,omitempty" yaml:"layer,omitempty"`
+}
+
+// Marker is a stop marker: where a train stopping in the block its track
+// is in brings its leading end to a stand, like the car markers on a
+// subway platform. Each is for trains running one way past it, and for
+// trains up to a length.
+type Marker struct {
+	ID    string `json:"id" yaml:"id"`
+	Track string `json:"track" yaml:"track"`
+	// At is how far along the track it stands, in millimeters from the
+	// track's A end.
+	At float64 `json:"at" yaml:"at"`
+	// Reverse is a marker for trains running toward the track's A end;
+	// otherwise it is for those running toward its B end.
+	Reverse bool `json:"reverse,omitempty" yaml:"reverse,omitempty"`
+	// Length is the longest train it is for, in millimeters; 0 for any.
+	Length float64 `json:"length,omitempty" yaml:"length,omitempty"`
 }
 
 // Label is text on the plan, such as a station's name.
@@ -188,6 +206,12 @@ func (p Platform) MarshalYAML() (any, error) {
 	return flow(plain(p))
 }
 
+// MarshalYAML writes the marker on one line.
+func (m Marker) MarshalYAML() (any, error) {
+	type plain Marker
+	return flow(plain(m))
+}
+
 // MarshalYAML writes the label on one line.
 func (l Label) MarshalYAML() (any, error) {
 	type plain Label
@@ -248,8 +272,8 @@ func (s idSet) add(id string) error {
 // no point joins more than two pieces of track, junctions have the ends
 // their kind needs, and every block, station and layer named exists.
 func (p Plan) Validate() error {
-	if n := len(p.Points) + len(p.Tracks) + len(p.Junctions) + len(p.Platforms) + len(p.Labels); n > MaxElements {
-		return invalid("a plan can have at most %d points, tracks, junctions, platforms and labels", MaxElements)
+	if n := len(p.Points) + len(p.Tracks) + len(p.Junctions) + len(p.Platforms) + len(p.Markers) + len(p.Labels); n > MaxElements {
+		return invalid("a plan can have at most %d points, tracks, junctions, platforms, markers and labels", MaxElements)
 	}
 	if !finite(p.Grid) || p.Grid <= 0 || p.Grid > MaxGrid {
 		return invalid("the grid spacing must be above 0 and at most %d mm", MaxGrid)
@@ -404,6 +428,18 @@ func (p Plan) Validate() error {
 			return err
 		}
 	}
+	markers := newIDSet("marker", len(p.Markers))
+	for _, m := range p.Markers {
+		if err := markers.add(m.ID); err != nil {
+			return err
+		}
+		if !tracks.seen[m.Track] {
+			return invalid("marker %s is on track %q, which isn't in the plan", m.ID, m.Track)
+		}
+		if !finite(m.At, m.Length) || m.At < 0 || m.At > MaxCoord || m.Length < 0 || m.Length > MaxLengthMM {
+			return invalid("marker %s needs a place along its track and a length between 0 and %d mm", m.ID, MaxLengthMM)
+		}
+	}
 	labels := newIDSet("label", len(p.Labels))
 	for _, l := range p.Labels {
 		if err := labels.add(l.ID); err != nil {
@@ -432,8 +468,9 @@ func checkName(what, id, name string) error {
 	return nil
 }
 
-// Normalize puts a plan in its saved form: points no track uses dropped,
-// elements in ID order, positions to a hundredth of a millimeter, names
+// Normalize puts a plan in its saved form: points no track uses and
+// markers on track no longer there dropped, markers kept on their
+// track's length, elements in ID order, positions to a hundredth of a millimeter, names
 // trimmed and no nil lists.
 func (p Plan) Normalize() Plan {
 	used := map[string]bool{}
@@ -450,6 +487,7 @@ func (p Plan) Normalize() Plan {
 		Tracks:     slices.Clone(p.Tracks),
 		Junctions:  make([]Junction, len(p.Junctions)),
 		Platforms:  make([]Platform, len(p.Platforms)),
+		Markers:    []Marker{},
 		Labels:     make([]Label, len(p.Labels)),
 		Layers:     make([]Layer, len(p.Layers)),
 		Blocks:     make([]Block, len(p.Blocks)),
@@ -484,6 +522,15 @@ func (p Plan) Normalize() Plan {
 		pl.X, pl.Y, pl.Length, pl.Width, pl.Angle = round2(pl.X), round2(pl.Y), round2(pl.Length), round2(pl.Width), round2(pl.Angle)
 		out.Platforms[i] = pl
 	}
+	lengths := p.trackLengths()
+	for _, m := range p.Markers {
+		length, ok := lengths[m.Track]
+		if !ok {
+			continue
+		}
+		m.At, m.Length = round2(min(max(m.At, 0), length)), round2(m.Length)
+		out.Markers = append(out.Markers, m)
+	}
 	for i, l := range p.Labels {
 		l.X, l.Y, l.Text = round2(l.X), round2(l.Y), strings.TrimSpace(l.Text)
 		out.Labels[i] = l
@@ -505,7 +552,26 @@ func (p Plan) Normalize() Plan {
 	slices.SortFunc(out.Tracks, func(a, b Track) int { return byID(a.ID, b.ID) })
 	slices.SortFunc(out.Junctions, func(a, b Junction) int { return byID(a.ID, b.ID) })
 	slices.SortFunc(out.Platforms, func(a, b Platform) int { return byID(a.ID, b.ID) })
+	slices.SortFunc(out.Markers, func(a, b Marker) int { return byID(a.ID, b.ID) })
 	slices.SortFunc(out.Labels, func(a, b Label) int { return byID(a.ID, b.ID) })
+	return out
+}
+
+// trackLengths are the tracks' lengths, by ID, for the tracks whose
+// points are in the plan.
+func (p Plan) trackLengths() map[string]float64 {
+	at := make(map[string]Vec, len(p.Points))
+	for _, pt := range p.Points {
+		at[pt.ID] = pt.pos()
+	}
+	out := make(map[string]float64, len(p.Tracks))
+	for _, t := range p.Tracks {
+		a, okA := at[t.A]
+		b, okB := at[t.B]
+		if okA && okB {
+			out[t.ID] = arc{a, b, t.Angle}.length()
+		}
+	}
 	return out
 }
 

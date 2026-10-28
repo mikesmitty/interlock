@@ -7,8 +7,9 @@ using the route. As the train runs through, the track behind it is
 released a piece at a time, and once the train is in the block the
 route leads into, the route is released too.
 
-The timetable to come will set routes for its trains. For now you set
-them yourself, on the Track page.
+[Driving](./driving.md) a train to a block sets the routes it needs,
+and the timetable to come will set routes for its trains. You can also
+set them yourself, on the Track page.
 
 ## What it needs
 

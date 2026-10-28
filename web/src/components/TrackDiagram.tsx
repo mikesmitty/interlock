@@ -25,6 +25,7 @@ import {
   arcInfo,
   corners,
   junctionCenter,
+  markerPlace,
   outward,
   routePath,
   sameRef,
@@ -84,6 +85,8 @@ interface DiagramProps {
   routes?: Route[];
   /** The junctions a route holds, with the route's name. */
   locked?: Map<string, string>;
+  /** The stop markers trains being driven are making for. */
+  stops?: ReadonlySet<string>;
 }
 
 /** Line widths in pixels, whatever the zoom. */
@@ -129,6 +132,11 @@ export function trainTitle(t: TrackedTrain, blocks: Map<string, TrackBlock>): st
   const going = t.speed > 0 ? `, going ${t.direction} at ${Math.round(t.speed)} mm/s` : "";
   return `${t.name}: ${where || "not in a block"}${going}${t.seen ? "" : " (not seen just now)"}`;
 }
+
+const COMPASS = ["east", "southeast", "south", "southwest", "west", "northwest", "north", "northeast"];
+
+/** The compass point nearest a heading on the plan, north up. */
+export const compassWord = (heading: number) => COMPASS[Math.round((((heading % 360) + 360) % 360) / 45) % 8];
 
 /** What is drawn at a place on the screen, from its data attributes. */
 function targetAt(x: number, y: number): ElementRef | undefined {
@@ -489,6 +497,21 @@ export function TrackDiagram(props: DiagramProps) {
 
   const bumpers = plan.points.filter((p) => p.bumper && index.at.get(p.id)?.length === 1);
 
+  // Each stop marker: a line across the track and, beside it on the
+  // right of the trains it is for, a flag pointing the way they run.
+  const markers = (plan.markers ?? []).flatMap((m) => {
+    const place = markerPlace(index, m);
+    if (!place || !shown(index.tracks.get(m.track)?.layer)) return [];
+    const across = unit(place.heading + 90);
+    const ahead = unit(place.heading);
+    const flag = add(place.at, scale(across, px(11)));
+    const line = [add(place.at, scale(across, -px(6))), add(place.at, scale(across, px(7)))];
+    const tip = add(flag, scale(ahead, px(5)));
+    const back = add(flag, scale(ahead, -px(3)));
+    const triangle = [tip, add(back, scale(across, px(3.5))), add(back, scale(across, -px(3.5)))];
+    return [{ m, at: place.at, flag, line, triangle, word: compassWord(place.heading) }];
+  });
+
   function pathOf(ref: ElementRef): string | undefined {
     if (ref.kind === "track") {
       const t = index.tracks.get(ref.id);
@@ -511,6 +534,11 @@ export function TrackDiagram(props: DiagramProps) {
           .map((c) => `${c.x} ${c.y}`)
           .join("L")}Z`
       );
+    }
+    if (ref.kind === "marker") {
+      const mk = markers.find((x) => x.m.id === ref.id);
+      const r = px(9);
+      return mk && `M${mk.flag.x - r} ${mk.flag.y}a${r} ${r} 0 1 0 ${2 * r} 0a${r} ${r} 0 1 0 ${-2 * r} 0`;
     }
     const l = plan.labels.find((x) => x.id === ref.id);
     return l && `M${l.x} ${l.y - px(9)}h${px(l.text.length * 7 + 4)}v${px(18)}h${-px(l.text.length * 7 + 4)}Z`;
@@ -618,6 +646,16 @@ export function TrackDiagram(props: DiagramProps) {
         })}
       </g>
 
+      <g className="trk-markers">
+        {markers.map(({ m, line, triangle, word }) => (
+          <g key={m.id} className={props.stops?.has(m.id) ? "trk-marker trk-marker--target" : "trk-marker"}>
+            <title>{`Stop marker for trains running ${word}${m.length ? `, up to ${m.length} mm long` : ""}`}</title>
+            <path d={`M${line[0].x} ${line[0].y}L${line[1].x} ${line[1].y}`} strokeWidth={2} vectorEffect="non-scaling-stroke" />
+            <polygon points={triangle.map((p) => `${p.x},${p.y}`).join(" ")} />
+          </g>
+        ))}
+      </g>
+
       <g className="trk-trains">
         {placed.map((t) => {
           const points = t.line!.map((p) => `${p.x},${p.y}`).join(" ");
@@ -701,6 +739,7 @@ export function TrackDiagram(props: DiagramProps) {
                 </path>
               );
             })}
+          {editing && markers.map(({ m, flag }) => <circle key={m.id} data-kind="marker" data-id={m.id} cx={flag.x} cy={flag.y} r={px(8)} fill="transparent" stroke="none" />)}
           {editing &&
             plan.labels
               .filter((l) => shown(l.layer))

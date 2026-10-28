@@ -3,6 +3,7 @@ import { Link } from "react-router";
 import {
   ApiError,
   api,
+  type Drive,
   type Entity,
   type EntityKind,
   type PlanJunction,
@@ -17,7 +18,8 @@ import {
 } from "../api";
 import { type LampColor, Status } from "../components/Lamp";
 import { Empty, Page } from "../components/Page";
-import { TrackDiagram, ZOOM_STEP, blockState, trainsIn } from "../components/TrackDiagram";
+import { TrackDiagram, ZOOM_STEP, blockState, compassWord, trainsIn } from "../components/TrackDiagram";
+import { driveActive, driveText, stepsUpTo } from "../driving";
 import { routeName, routeStateText, routesFrom, setRoutes } from "../routes";
 import { useBus } from "../store";
 import {
@@ -28,8 +30,10 @@ import {
   KINDS,
   PIECES,
   addJunction,
+  addMarker,
   addTrack,
   allRefs,
+  alongTrack,
   arcFrom,
   arcInfo,
   backgroundBounds,
@@ -47,6 +51,7 @@ import {
   makeID,
   mergeTrack,
   moveSelection,
+  nearestAlong,
   normalizeDegrees,
   openEnds,
   placePiece,
@@ -72,7 +77,7 @@ import {
 } from "../trackgeom";
 import { MAX_ZOOM, MIN_ZOOM, type View, zoomBy } from "../trackview";
 
-type Tool = "select" | "track" | "curve" | "piece" | "platform" | "label" | "block" | "erase" | "background";
+type Tool = "select" | "track" | "curve" | "piece" | "platform" | "marker" | "label" | "block" | "erase" | "background";
 
 const TOOLS: { tool: Tool; label: string; key: string; hint: string }[] = [
   {
@@ -100,9 +105,15 @@ const TOOLS: { tool: Tool; label: string; key: string; hint: string }[] = [
     hint: "Click the end of a track to put the piece chosen below there. Its other ends join any track already in place. A crossover goes to the track beside, or with track on both sides, to the side of the end the pointer is on.",
   },
   { tool: "platform", label: "Platform", key: "p", hint: "Drag along where a platform goes, from one end to the other." },
+  {
+    tool: "marker",
+    label: "Marker",
+    key: "m",
+    hint: "Click on track to put a stop marker there: where a train stopping in that block brings its leading end to a stand. Set the way the trains run and how long they are on the right.",
+  },
   { tool: "label", label: "Label", key: "l", hint: "Click to write a label there; change the text on the right." },
   { tool: "block", label: "Block", key: "b", hint: "Drag over track to put it in the block chosen under Blocks. Hold Option or Alt to take track out of its block." },
-  { tool: "erase", label: "Erase", key: "e", hint: "Click or drag over track, platforms and labels to remove them." },
+  { tool: "erase", label: "Erase", key: "e", hint: "Click or drag over track, platforms, markers and labels to remove them." },
   { tool: "background", label: "Background", key: "g", hint: "Drag to move the background image. Set its size and how faint it is under Background." },
 ];
 
@@ -144,9 +155,8 @@ function entitiesOf(entities: Record<string, Entity>, kind: EntityKind): Entity[
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-const COMPASS = ["east", "southeast", "south", "southwest", "west", "northwest", "north", "northeast"];
 /** A heading as the nearest compass word. */
-const compass = (heading: number) => COMPASS[Math.round(normalizeDegrees(heading) / 45) % 8];
+const compass = compassWord;
 
 const HIDDEN_KEY = "interlock.trackplan.hiddenLayers";
 
@@ -242,7 +252,7 @@ function LayerToggles({ plan, layers: [hidden, setHidden] }: { plan: TrackPlan; 
 
 function Viewer({ state, entities, layers, onEdit }: { state: TrackPlanState; entities: Record<string, Entity>; layers: ReturnType<typeof useHiddenLayers>; onEdit: () => void }) {
   const { plan } = state;
-  const { tracked, trains, routes } = useBus();
+  const { tracked, trains, routes, drives } = useBus();
   const trackedList = useMemo(() => Object.values(tracked), [tracked]);
   const routeList = useMemo(() => Object.values(routes), [routes]);
   const names = useMemo(() => namesFor(plan, entities, tracked), [plan, entities, tracked]);
@@ -253,6 +263,7 @@ function Viewer({ state, entities, layers, onEdit }: { state: TrackPlanState; en
       for (const leg of r.legs.slice(r.released ?? 0)) if (leg.junction && !m.has(leg.piece)) m.set(leg.piece, `from ${names.block(r.from.block)} to ${names.block(r.to.block)}`);
     return m;
   }, [routesSet, names]);
+  const stops = useMemo(() => new Set(Object.values(drives).flatMap((d) => (driveActive(d) && d.marker ? [d.marker] : []))), [drives]);
   const background = plan.background?.operating ? plan.background : undefined;
   const index = useMemo(() => indexPlan(plan), [plan]);
   const area = useMemo(() => areaOf(plan, background, 60, { x: 300, y: 150 }), [plan, background]);
@@ -321,6 +332,7 @@ function Viewer({ state, entities, layers, onEdit }: { state: TrackPlanState; en
           trains={trains}
           routes={routesSet}
           locked={locked}
+          stops={stops}
         />
       </div>
       <p className="trk-legend muted">
@@ -328,7 +340,7 @@ function Viewer({ state, entities, layers, onEdit }: { state: TrackPlanState; en
         has run from one block into the next, pointed the way it goes, with a dot where its decoder is. A route set is lit along the track it holds.
       </p>
       <RouteTable plan={plan} routes={routeList} set={routesSet} names={names} />
-      <TrainTable plan={plan} tracked={trackedList} />
+      <TrainTable plan={plan} tracked={trackedList} drives={drives} />
       <BlockTable state={state} entities={entities} tracked={trackedList} trains={trains} />
     </Page>
   );
@@ -519,23 +531,44 @@ function lengthOf(b: TrackBlock, topology?: TrackPlanState["topology"]): ReactNo
   return drawn ? `${Math.round(drawn)} mm drawn` : <span className="faint">no track</span>;
 }
 
-/** The trains tracking follows: where each is and how it goes. */
-function TrainTable({ plan, tracked }: { plan: TrackPlan; tracked: TrackedTrain[] }) {
-  // The train whose forgetting waits for a yes.
+/** The trains tracking follows: where each is and how it goes, and
+ * driving them to a stop or around to measure their speeds. */
+function TrainTable({ plan, tracked, drives }: { plan: TrackPlan; tracked: TrackedTrain[]; drives: Record<string, Drive> }) {
+  // The train whose forgetting waits for a yes, the one whose speed
+  // measuring does, and the one being sent somewhere.
   const [forgetting, setForgetting] = useState<string>();
+  const [measuring, setMeasuring] = useState<{ train: string; fastest: string }>();
+  const [sending, setSending] = useState<{ train: string; to: string; speed: string }>();
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   if (tracked.length === 0) return null;
-  async function forget(t: TrackedTrain) {
+  async function act(t: TrackedTrain, what: () => Promise<unknown>) {
     setError(undefined);
+    setBusy(true);
     try {
-      await api.forgetTracked(t.id);
-      setForgetting(undefined);
+      await what();
+      return true;
     } catch (err) {
       setError(`${t.name}: ${message(err)}`);
+      return false;
+    } finally {
+      setBusy(false);
     }
   }
+  async function forget(t: TrackedTrain) {
+    if (await act(t, () => api.forgetTracked(t.id))) setForgetting(undefined);
+  }
+  async function measure(t: TrackedTrain, fastest: number) {
+    if (await act(t, () => api.measureSpeeds(t.id, stepsUpTo(fastest)))) setMeasuring(undefined);
+  }
+  async function send(t: TrackedTrain, to: string, speed: number) {
+    if (await act(t, () => api.drive(t.id, { to, speed }))) setSending(undefined);
+  }
   const names = new Map(plan.blocks.map((b) => [b.id, b.name]));
+  const blockName = (id: string) => names.get(id) ?? id;
   const sorted = [...tracked].sort((a, b) => a.name.localeCompare(b.name));
+  const sendingTrain = sending && tracked.find((t) => t.id === sending.train);
+  const blocks = [...plan.blocks].sort((a, b) => a.name.localeCompare(b.name));
   return (
     <>
       <h2 className="trk-h2">Trains</h2>
@@ -552,7 +585,9 @@ function TrainTable({ plan, tracked }: { plan: TrackPlan; tracked: TrackedTrain[
           </thead>
           <tbody>
             {sorted.map((t) => {
-              const where = t.blocks.map((b) => names.get(b) ?? b).join(", ");
+              const where = t.blocks.map(blockName).join(", ");
+              const drive = drives[t.id];
+              const driven = driveActive(drive);
               const notes: string[] = [];
               if (!t.placed && t.block) notes.push("Where in the block isn't known until it runs into the next one.");
               if (!t.seen && t.block) notes.push("Not seen by a detector just now.");
@@ -562,7 +597,7 @@ function TrainTable({ plan, tracked }: { plan: TrackPlan; tracked: TrackedTrain[
                     ? "Give its locomotives' and cars' lengths to place the rest of the train."
                     : "Give its length on its roster page, or make it up into a train with its cars, to place the rest of it.",
                 );
-              if (t.roster?.length && !t.momentum) notes.push("Read its decoder's CVs 3 and 4 to follow it better as it speeds up and slows down.");
+              if (t.roster?.length && !t.momentum) notes.push("Read its decoder's CVs 3 and 4 to follow it better as it speeds up and slows down, and to drive it.");
               return (
                 <tr key={t.id}>
                   <td>
@@ -575,6 +610,7 @@ function TrainTable({ plan, tracked }: { plan: TrackPlan; tracked: TrackedTrain[
                         t.name
                       )}
                     </div>
+                    {drive && <div className={driven ? "cell-sub trk-drive" : "cell-sub"}>{driveText(drive, blockName)}</div>}
                     {notes.map((n) => (
                       <div key={n} className="cell-sub">
                         {n}
@@ -591,17 +627,65 @@ function TrainTable({ plan, tracked }: { plan: TrackPlan; tracked: TrackedTrain[
                         </button>
                       </div>
                     )}
+                    {measuring?.train === t.id && (
+                      <form
+                        className="cell-sub"
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          void measure(t, Number(measuring.fastest) || 100);
+                        }}
+                      >
+                        Measure {t.name}&rsquo;s speeds? Interlock runs it on around the layout as the turnouts lie, setting the route ahead as it goes, at six steps up to{" "}
+                        <input
+                          className="input input--num trk-inline-num"
+                          type="number"
+                          min={1}
+                          max={126}
+                          aria-label="Fastest step"
+                          value={measuring.fastest}
+                          onChange={(e) => setMeasuring({ ...measuring, fastest: e.target.value })}
+                        />{" "}
+                        until tracking has measured each, then stops it. Clear the way and watch it.{" "}
+                        <button type="submit" className="linklike" disabled={busy}>
+                          Yes, measure them
+                        </button>{" "}
+                        <button type="button" className="linklike" onClick={() => setMeasuring(undefined)}>
+                          Not now
+                        </button>
+                      </form>
+                    )}
                   </td>
                   <td>{where || <span className="faint">not in a block</span>}</td>
                   <td>{t.placed ? t.direction === "reverse" ? "Reverse" : "Forward" : <span className="faint">not known</span>}</td>
                   <td className="num">
-                    {t.top_speed ? `${Math.round(t.speed)} mm/s` : <span className="faint">not measured</span>}
+                    {t.top_speed || t.speeds?.length ? `${Math.round(t.speed)} mm/s` : <span className="faint">not measured</span>}
                     {t.top_speed ? <div className="cell-sub">{Math.round(t.top_speed)} mm/s at full</div> : null}
+                    {t.speeds?.length ? (
+                      <div className="cell-sub" title={t.speeds.map((p) => `step ${p.step}: ${Math.round(p.speed)} mm/s`).join(", ")}>
+                        {t.speeds.length === 1 ? "1 step measured" : `${t.speeds.length} steps measured`}
+                      </div>
+                    ) : null}
                   </td>
                   <td>
-                    <button type="button" className="linklike" onClick={() => setForgetting(t.id)}>
-                      Forget…
-                    </button>
+                    <span className="ros-actions">
+                      {driven ? (
+                        <button type="button" className="linklike" onClick={() => void act(t, () => api.stopDrive(t.id))}>
+                          Stop
+                        </button>
+                      ) : (
+                        <>
+                          <button type="button" className="linklike" onClick={() => setSending({ train: t.id, to: sending?.train === t.id ? sending.to : "", speed: "60" })}>
+                            Drive…
+                          </button>
+                          <button type="button" className="linklike" onClick={() => setMeasuring({ train: t.id, fastest: "100" })}>
+                            Measure speeds…
+                          </button>
+                          <button type="button" className="linklike" onClick={() => setForgetting(t.id)}>
+                            Forget…
+                          </button>
+                        </>
+                      )}
+                    </span>
                   </td>
                 </tr>
               );
@@ -610,6 +694,43 @@ function TrainTable({ plan, tracked }: { plan: TrackPlan; tracked: TrackedTrain[
         </table>
         {error && <p className="field__error">{error}</p>}
       </div>
+      {sending && sendingTrain && (
+        <form
+          className="panel trk-route-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void send(sendingTrain, sending.to, Number(sending.speed) || 60);
+          }}
+        >
+          <div className="ros-actions trk-route-fields">
+            <label className="auto-field">
+              <span>Drive {sendingTrain.name} to</span>
+              <select className="input input--select" value={sending.to} onChange={(e) => setSending({ ...sending, to: e.target.value })}>
+                <option value="">Choose a block…</option>
+                {blocks.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="auto-field">
+              <span>At step</span>
+              <input className="input input--num" type="number" min={1} max={126} value={sending.speed} onChange={(e) => setSending({ ...sending, speed: e.target.value })} />
+            </label>
+            <button className="btn btn--primary" type="submit" disabled={busy || !sending.to}>
+              Drive
+            </button>
+            <button className="btn" type="button" onClick={() => setSending(undefined)}>
+              Cancel
+            </button>
+          </div>
+          <p className="thr-note">
+            Interlock sets the routes there and runs the train the way it faces, then brakes it to a stand with its leading end at the block&rsquo;s stop marker for its length and
+            the way it runs, or short of where the block ends. Changing its speed on a throttle takes it over.
+          </p>
+        </form>
+      )}
     </>
   );
 }
@@ -857,6 +978,17 @@ function Editor({
       };
       return;
     }
+    if (tool === "marker") {
+      const along = target?.kind === "track" ? nearestAlong(index, target.id, at) : undefined;
+      if (!target || along === undefined) {
+        setNote("Click on a track: the marker goes where you click, across it.");
+        return;
+      }
+      const added = addMarker(draft, target.id, along);
+      commit(added.plan);
+      setSelection([{ kind: "marker", id: added.id }]);
+      return;
+    }
     if (tool === "label") {
       const p = snap(at, grid);
       const id = idMaker(draft)("l");
@@ -891,8 +1023,8 @@ function Editor({
   function onPointerMove(at: Vec, _e: ReactPointerEvent<SVGSVGElement>, target?: ElementRef) {
     const s = stroke.current;
     if (!s) {
-      if (tool === "select" || tool === "erase" || tool === "block") {
-        if (!sameRef(hover, target)) setHover(target);
+      if (tool === "select" || tool === "erase" || tool === "block" || tool === "marker") {
+        if (!sameRef(hover, target)) setHover(tool === "marker" && target?.kind !== "track" ? undefined : target);
         return;
       }
       // Show where the track tools would start, and the piece where it
@@ -1290,7 +1422,8 @@ function Editor({
               }}
             />
           )}
-          {current.length > 0 && <MoveTurn refs={current} draft={draft} index={index} commit={commit} />}
+          {/* A marker moves with its track, not on its own. */}
+          {current.some((r) => r.kind !== "marker") && <MoveTurn refs={current} draft={draft} index={index} commit={commit} />}
           <Blocks draft={draft} entities={entities} active={activeBlock} setActive={setActiveBlock} commit={commit} topology={dirty ? undefined : saved.topology} />
           <Stations draft={draft} commit={commit} />
           <Layers draft={draft} commit={commit} layers={layers} onSelect={(id) => select(layerRefs(draft, id))} />
@@ -1524,6 +1657,41 @@ function ElementDetails({
       </Section>
     );
   }
+  if (item.kind === "marker") {
+    const m = (draft.markers ?? []).find((x) => x.id === item.id)!;
+    const t = index.tracks.get(m.track);
+    const along = alongTrack(index, m.track, m.at);
+    const inBlock = t?.block ? draft.blocks.find((b) => b.id === t.block)?.name : undefined;
+    return (
+      <Section title="Stop marker">
+        <p className="trk-sub muted">
+          {inBlock ? `In ${inBlock}, ` : ""}
+          {Math.round(m.at)} mm along its track.
+          {!inBlock && " Put the track in a block for trains to stop at it."}
+        </p>
+        {along && (
+          <label className="trk-field">
+            <span>For trains running</span>
+            <select className="input input--select" value={m.reverse ? "reverse" : "forward"} onChange={(e) => change({ reverse: e.target.value === "reverse" || undefined })}>
+              <option value="forward">{compass(along.heading)}</option>
+              <option value="reverse">{compass(along.heading + 180)}</option>
+            </select>
+          </label>
+        )}
+        <CommitInput
+          label="For trains up to, in mm"
+          type="number"
+          placeholder="any length"
+          value={m.length ? String(m.length) : ""}
+          onCommit={(v) => change({ length: Number(v) > 0 ? Math.round(Number(v)) : undefined })}
+        />
+        <p className="trk-sub muted">
+          A train stops with its leading end at the marker for the way it runs and the shortest trains it fits; leave the length empty for a marker for any train.
+        </p>
+        {remove}
+      </Section>
+    );
+  }
   if (item.kind === "platform") {
     const p = draft.platforms.find((x) => x.id === item.id)!;
     const num = (v: string) => Math.max(1, Math.round(Number(v) || 0));
@@ -1551,6 +1719,7 @@ const KIND_WORDS: Record<ElementRef["kind"], [string, string]> = {
   junction: ["turnout or crossing", "turnouts and crossings"],
   platform: ["platform", "platforms"],
   label: ["label", "labels"],
+  marker: ["stop marker", "stop markers"],
 };
 
 /** What a selection of many elements holds, and what can be done to all of them at once. */
@@ -1560,7 +1729,12 @@ function SelectionDetails({ refs, draft, commit, onRemove }: { refs: ElementRef[
     .filter(([, n]) => n > 0)
     .map(([k, n]) => `${n} ${KIND_WORDS[k][n === 1 ? 0 : 1]}`);
   const trackRefs = refs.filter((r) => r.kind === "track" || r.kind === "junction");
-  const valueOf = (r: ElementRef, key: "block" | "layer") => {
+  const valueOf = (r: ElementRef, key: "block" | "layer"): string => {
+    if (r.kind === "marker") {
+      // A marker is where its track is.
+      const m = draft.markers?.find((x) => x.id === r.id);
+      return draft.tracks.find((t) => t.id === m?.track)?.[key] ?? "";
+    }
     const list: { id: string; block?: string; layer?: string }[] = { track: draft.tracks, junction: draft.junctions, platform: draft.platforms, label: draft.labels }[r.kind];
     return list.find((x) => x.id === r.id)?.[key] ?? "";
   };

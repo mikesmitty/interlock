@@ -418,3 +418,24 @@
 .trk-trainline--lost {
   opacity: 0.55;
 }
+
+/* Stop markers: a line across the track and a flag beside it. */
+.trk-marker {
+  stroke: var(--brass);
+  fill: var(--brass);
+}
+
+.trk-marker--target {
+  stroke: var(--lamp-green);
+  fill: var(--lamp-green);
+}
+
+/* What a train being driven is doing. */
+.trk-drive {
+  color: var(--lamp-green);
+}
+
+.trk-inline-num {
+  width: 4.5em;
+  display: inline-block;
+}

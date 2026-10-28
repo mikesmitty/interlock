@@ -112,6 +112,12 @@ func TestLayout() trackplan.Plan {
 		{ID: "main-north", X: 744, Y: innerRadius - 30, Length: 600, Width: 30},
 		{ID: "main-south", X: 744, Y: outerRadius + no4Beside.Y + 30, Length: 480, Width: 30},
 	}
+	// A stop marker at the far end of each platform, for trains of any
+	// length running the way the loop goes.
+	b.marker("park-outer-stop", "outer-top-park", 1160, false)
+	b.marker("park-inner-stop", "inner-top-park", 576, true)
+	b.marker("main-inner-stop", "inner-main", 1036, true)
+	b.marker("main-siding-stop", "siding", 512, false)
 	b.plan.Labels = []trackplan.Label{
 		{ID: "park-name", X: 700, Y: -outerRadius - 70, Text: "Park Av"},
 		{ID: "main-name", X: 700, Y: innerRadius - 70, Text: "Main St"},
@@ -153,6 +159,23 @@ func (b *builder) pt(at trackplan.Vec) string {
 
 func (b *builder) track(id string, from, to trackplan.Vec, angle float64, block string) {
 	b.plan.Tracks = append(b.plan.Tracks, trackplan.Track{ID: id, A: b.pt(from), B: b.pt(to), Angle: angle, Block: block})
+}
+
+// marker puts a stop marker on a straight track running east or west,
+// where it reaches x.
+func (b *builder) marker(id, track string, x float64, reverse bool) {
+	for _, t := range b.plan.Tracks {
+		if t.ID != track {
+			continue
+		}
+		for _, p := range b.plan.Points {
+			if p.ID == t.A {
+				b.plan.Markers = append(b.plan.Markers, trackplan.Marker{ID: id, Track: track, At: math.Abs(x - p.X), Reverse: reverse})
+				return
+			}
+		}
+	}
+	panic("no track " + track)
 }
 
 type placed struct{ closed, thrown, beside trackplan.Vec }

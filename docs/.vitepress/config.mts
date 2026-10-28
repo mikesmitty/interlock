@@ -26,6 +26,7 @@ export default defineConfig({
           { text: "The track plan", link: "/track-plan" },
           { text: "Train tracking", link: "/tracking" },
           { text: "Routes and interlocking", link: "/interlocking" },
+          { text: "Driving trains", link: "/driving" },
           { text: "Automations", link: "/automations" },
           { text: "Trains", link: "/trains" },
           { text: "The roster", link: "/roster" },
