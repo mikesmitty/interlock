@@ -82,11 +82,13 @@ func (c *Client) PutPlan(ctx context.Context, plan trackplan.Plan, revision stri
 	return st, err
 }
 
-// AddToRoster gives the trains their roster entries: it adds those the
-// roster has no locomotive for at their address, fills in a length the
-// roster lacks, and fits a locomotive that has no decoder with one whose
+// AddToRoster gives the trains their roster entries: it adds the
+// locomotive the roster has none for at its address, fills in a length
+// the roster lacks, fits a locomotive that has no decoder with one whose
 // CVs, as cvs gives them, are on record, as if read on the programming
-// track. It returns the names of the trains it changed.
+// track, and makes a train with cars up from its cars when its
+// locomotive is in no train yet. It returns the names of the trains it
+// changed.
 func (c *Client) AddToRoster(ctx context.Context, trains []TrainSpec, cvs func(TrainSpec) map[uint16]byte) ([]string, error) {
 	type entry struct {
 		ID        string  `json:"id"`
@@ -102,8 +104,29 @@ func (c *Client) AddToRoster(ctx context.Context, trains []TrainSpec, cvs func(T
 	if err := c.do(ctx, http.MethodGet, "/api/v1/trains", nil, &list); err != nil {
 		return nil, err
 	}
+	var formations struct {
+		Formations []struct {
+			Vehicles []struct {
+				Locomotive string `json:"locomotive"`
+			} `json:"vehicles"`
+		} `json:"formations"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/api/v1/formations", nil, &formations); err != nil {
+		return nil, err
+	}
+	inTrain := map[string]bool{}
+	for _, f := range formations.Formations {
+		for _, v := range f.Vehicles {
+			inTrain[v.Locomotive] = v.Locomotive != ""
+		}
+	}
 	var changed []string
 	for _, spec := range trains {
+		spec = spec.Normalize()
+		name, length := spec.Name, spec.Length
+		if len(spec.Cars) > 0 {
+			name, length = spec.Name+" motor car", spec.Cars[spec.Motor]
+		}
 		var e *entry
 		for i, t := range list.Trains {
 			if t.Roster && t.Address == spec.Address && t.Long == spec.long() {
@@ -111,20 +134,20 @@ func (c *Client) AddToRoster(ctx context.Context, trains []TrainSpec, cvs func(T
 				break
 			}
 		}
+		touched := false
 		switch {
 		case e == nil:
 			e = &entry{}
-			body := map[string]any{"name": spec.Name, "address": spec.Address, "long": spec.long(), "length": spec.Length, "decoder_at": spec.Decoder}
+			body := map[string]any{"name": name, "address": spec.Address, "long": spec.long(), "length": length}
 			if err := c.do(ctx, http.MethodPost, "/api/v1/trains", body, e); err != nil {
 				return changed, err
 			}
+			touched = true
 		case e.Length == 0:
-			body := map[string]any{"length": spec.Length, "decoder_at": spec.Decoder}
-			if err := c.do(ctx, http.MethodPatch, "/api/v1/trains/"+e.ID, body, nil); err != nil {
+			if err := c.do(ctx, http.MethodPatch, "/api/v1/trains/"+e.ID, map[string]any{"length": length}, nil); err != nil {
 				return changed, err
 			}
-		case e.Installed != "":
-			continue
+			touched = true
 		}
 		if e.Installed == "" && cvs != nil {
 			var added struct {
@@ -142,8 +165,39 @@ func (c *Client) AddToRoster(ctx context.Context, trains []TrainSpec, cvs func(T
 			if err := c.do(ctx, http.MethodPatch, "/api/v1/trains/"+e.ID+"/decoders/"+added.Decoder.ID+"/cvs", map[string]any{"cvs": values}, nil); err != nil {
 				return changed, err
 			}
+			touched = true
 		}
-		changed = append(changed, spec.Name)
+		if len(spec.Cars) > 0 && !inTrain[e.ID] {
+			if err := c.makeUp(ctx, spec, e.ID); err != nil {
+				return changed, err
+			}
+			touched = true
+		}
+		if touched {
+			changed = append(changed, spec.Name)
+		}
 	}
 	return changed, nil
+}
+
+// makeUp adds a train's cars to the roster and makes the train up of
+// them and its locomotive.
+func (c *Client) makeUp(ctx context.Context, spec TrainSpec, locomotive string) error {
+	vehicles := make([]map[string]any, len(spec.Cars))
+	n := 0
+	for i, length := range spec.Cars {
+		if i == spec.Motor {
+			vehicles[i] = map[string]any{"locomotive": locomotive}
+			continue
+		}
+		n++
+		var car struct {
+			ID string `json:"id"`
+		}
+		if err := c.do(ctx, http.MethodPost, "/api/v1/cars", map[string]any{"name": fmt.Sprintf("%s car %d", spec.Name, n), "length": length}, &car); err != nil {
+			return err
+		}
+		vehicles[i] = map[string]any{"car": car.ID}
+	}
+	return c.do(ctx, http.MethodPost, "/api/v1/formations", map[string]any{"name": spec.Name, "vehicles": vehicles}, nil)
 }

@@ -123,8 +123,9 @@ go run ./cmd/simlayout -api http://127.0.0.1:8080 -state ./simdata/simlayout.jso
 It joins the hub as a command station and four outposts (node IDs
 0A.00.00.00.01.00, then 0A.00.00.00.01.10, .20, .30 and .40). If the
 plan is empty, it saves its test layout as the plan. It adds its trains
-to the roster with their lengths, and fits each with a decoder whose
-CVs are on record, so [train tracking](./tracking.md) can follow them. The test layout is a double-track loop with two stations,
+to the roster, each a motor car and cars made up into a train with
+their lengths, and fits each motor car with a decoder whose CVs are on
+record, so [train tracking](./tracking.md) can follow them. The test layout is a double-track loop with two stations,
 Park Av and Main St. A siding at Main St lets one train pass another, and
 a crossover east of Park Av turns trains back. Its nine blocks and three
 turnouts are already linked to the simulated outposts.
@@ -143,9 +144,9 @@ A train stops where the track ends and where it would run into another
 train. At a junction set against it, or still moving, it waits and goes
 on once the junction is set its way. With `-state`, the trains keep their places when
 the simulator restarts. `-trains` takes a YAML list of other trains: each
-has a name, an address, a length, the distance from its leading end to
-its decoder, a top speed in millimeters a second, and the block it
-starts in.
+has a name, an address, its `cars` (their lengths from the leading end)
+and which of them, `motor`, counting from 0, is the locomotive, a top
+speed in millimeters a second, and the block it starts in.
 
 The simulator follows the plan as it is saved, so blocks and turnouts
 drawn in the editor work as soon as they're linked to a simulated

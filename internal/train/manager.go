@@ -110,6 +110,13 @@ type Manager struct {
 	// consistOp serializes putting consists together and taking them
 	// apart; it is taken before any train's acquire.
 	consistOp sync.Mutex
+
+	// cars and formations are the cars and the trains made up of
+	// locomotives and cars, by ID.
+	cars          map[string]Car
+	formations    map[string]Formation
+	carSubs       map[int]CarSubscriber
+	formationSubs map[int]FormationSubscriber
 }
 
 // New builds a manager over opts, loading the roster, and installs itself
@@ -134,6 +141,11 @@ func New(opts Options) *Manager {
 		consistNode:    make(map[string]openlcb.NodeID),
 		consistProblem: make(map[string]string),
 		consistSubs:    make(map[int]ConsistSubscriber),
+
+		cars:          make(map[string]Car),
+		formations:    make(map[string]Formation),
+		carSubs:       make(map[int]CarSubscriber),
+		formationSubs: make(map[int]FormationSubscriber),
 	}
 	if m.window <= 0 {
 		m.window = time.Second
@@ -146,6 +158,7 @@ func New(opts Options) *Manager {
 		m.trainAtLocked(e.Address, e.Long)
 	}
 	m.loadConsists()
+	m.loadFormations()
 	m.opts.Bus.HandleTraction(m.handleTraction)
 	return m
 }
@@ -584,8 +597,13 @@ func (m *Manager) edit(ctx context.Context, id string, change func(*Entry) error
 	delete(m.roster, old.ID)
 	m.roster[next.ID] = next
 	var consists []Consist
+	var formations, measured []string
 	if next.ID != old.ID {
 		consists = m.renameMemberLocked(old.ID, next.ID)
+		formations = m.renameLocomotiveLocked(old.ID, next.ID)
+	}
+	if next.Length != old.Length {
+		measured = m.formationsWithLocked(func(v Vehicle) bool { return v.Locomotive == next.ID })
 	}
 	m.trainAtLocked(next.Address, next.Long)
 	// A train no entry drives any more goes, as a deleted entry's does.
@@ -602,6 +620,10 @@ func (m *Manager) edit(ctx context.Context, id string, change func(*Entry) error
 	if err := m.saveConsists(consists); err != nil {
 		return view, err
 	}
+	if err := m.saveFormations(formations); err != nil {
+		return view, err
+	}
+	m.sendFormations(measured)
 	if orphan != nil {
 		m.release(ctx, orphan)
 	}
@@ -631,6 +653,7 @@ func (m *Manager) Delete(ctx context.Context, id string) error {
 		return invalid("locomotives in the roster drive %s; remove them from the roster instead", traction.AddressName(tr.Address, tr.Long))
 	}
 	var consists []Consist
+	var formations []string
 	if inRoster {
 		for _, c := range m.consists {
 			if c.MadeUp && slices.ContainsFunc(c.Members, func(mb Member) bool { return mb.Train == id }) {
@@ -643,6 +666,7 @@ func (m *Manager) Delete(ctx context.Context, id string) error {
 	if inRoster {
 		delete(m.roster, id)
 		consists = m.dropMemberLocked(id)
+		formations = m.dropVehicleLocked(func(v Vehicle) bool { return v.Locomotive == id })
 	}
 	last := len(m.entriesAtLocked(tr.ID)) == 0
 	if last {
@@ -657,6 +681,9 @@ func (m *Manager) Delete(ctx context.Context, id string) error {
 			return err
 		}
 		if err := m.saveConsists(consists); err != nil {
+			return err
+		}
+		if err := m.saveFormations(formations); err != nil {
 			return err
 		}
 		for _, d := range e.Decoders {

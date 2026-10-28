@@ -54,7 +54,7 @@ func main() {
 	flag.StringVar(&o.hub, "hub", "127.0.0.1:12021", "Interlock hub address (GridConnect TCP)")
 	flag.StringVar(&o.api, "api", "http://127.0.0.1:8080", "Interlock's web address, for the track plan and the roster")
 	flag.IntVar(&o.outposts, "outposts", layoutsim.TestOutposts+1, "how many outposts to simulate, from node ID "+layoutsim.OutpostID(1).String()+" every 0x10")
-	flag.StringVar(&o.trainsFile, "trains", "", "YAML list of trains (name, address, length, decoder, top_speed, block, reverse); the test layout's when empty")
+	flag.StringVar(&o.trainsFile, "trains", "", "YAML list of trains (name, address, cars, motor, top_speed, block, reverse); the test layout's when empty")
 	flag.StringVar(&o.stateFile, "state", "", "file that keeps where the trains are over a restart; none when empty")
 	flag.BoolVar(&o.seed, "seed", true, "save the test layout when Interlock's plan is empty, and add the trains to the roster")
 	flag.DurationVar(&o.tick, "tick", 20*time.Millisecond, "how often the trains move")

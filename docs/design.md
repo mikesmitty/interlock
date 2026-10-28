@@ -826,6 +826,18 @@ since its result could change the model.
   and lists them. Against the simulated layout the decoder estimate
   stays within 4 mm once the speed is measured, stopping and turning
   about included, when the decoder's momentum CVs are on record.
+- Cars and trains (2026-10-28): the roster keeps cars with their
+  lengths beside the locomotives, and formations, trains made up of
+  locomotives and cars in order from the front, each facing either way
+  (`internal/train/formation.go`, in `trains.yaml`). A train's length is
+  its parts' added up. Tracking follows formations: a decoder a
+  detector reports stands for the train its locomotive is in, placed by
+  where the locomotive is in it (the decoder at the locomotive's
+  middle); a locomotive in no train runs on its own. A train made up
+  again is laid out around its decoder anew. Occupancy from current
+  sensing was weighed and set aside: the outpost's comparators trip at
+  about 8 mA, a resistor axle draws about 1.5 mA, and lowering the
+  threshold would move RailCom's too.
 - Next: the rest of Phase 7, hardware verification against
   canbus-outpost and simple-dcc, and Phase 8's interlocking (routes
   set, locked and released behind trains), built on tracking against

@@ -250,6 +250,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	tracker := tracking.New(tracking.Options{Entities: entities, Trains: trains, Plan: trackPlan, CVs: cvStore, Store: st, Logger: logger})
 	entities.Subscribe(tracker.HandleEntity)
 	trains.Subscribe(tracker.HandleTrain)
+	trains.SubscribeCars(tracker.HandleCar)
+	trains.SubscribeFormations(tracker.HandleFormation)
 	trains.SubscribeLayout(tracker.HandleLayout)
 	trackPlan.Subscribe(tracker.HandlePlan)
 

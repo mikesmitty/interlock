@@ -35,14 +35,34 @@ const inside = 0.5
 const lineStep = 20
 
 // rosterInfo is what the roster says about the locomotives at an
-// address.
+// address: the decoder that moves them and the train they run in.
 type rosterInfo struct {
-	ids       []string
+	ids     []string
+	decoder string
+	cvs     decoderCVs
+	// unit is the key of the train the address runs in, at how far its
+	// decoder is from that train's front, and backward whether its
+	// locomotive faces the train's rear.
+	unit     string
+	at       float64
+	backward bool
+}
+
+// unit is a train as tracking follows it: a formation from the roster,
+// or a locomotive on its own.
+type unit struct {
+	id        string
 	name      string
+	formation string
+	roster    []string
 	length    float64
-	decoderAt float64
-	decoder   string
-	cvs       decoderCVs
+}
+
+// speed is what a throttle set an address to: the step, negative in
+// reverse, the way its locomotive faces.
+type speed struct {
+	step  float64
+	estop bool
 }
 
 // decoderCVs are the CVs that set how a decoder moves: the speed curve's
@@ -55,7 +75,15 @@ type decoderCVs struct {
 
 // tracked is one train as tracking follows it.
 type tracked struct {
-	addr detector.Address
+	// key is the unit key of the train it is, and addr the decoder it is
+	// followed by: the one a detector last reported. at is how far that
+	// decoder is from the train's front and length the train's length,
+	// as the train was laid out, and backward whether the decoder's
+	// locomotive faces the train's rear.
+	key        string
+	addr       detector.Address
+	at, length float64
+	backward   bool
 	// block is where a detector last saw the decoder; seen is whether one
 	// sees it now.
 	block string
@@ -95,31 +123,49 @@ type layout struct {
 	switches  map[string]string
 	turnouts  map[string]string
 	seen      map[string][]detector.Address
-	trains    map[detector.Address]*tracked
-	roster    map[detector.Address]*rosterInfo
-	entries   map[string]detector.Address
-	names     map[string]string
-	powerOff  bool
-	estop     bool
-	now       time.Time
-	changed   map[detector.Address]bool
+	// trains are the trains followed, by unit key.
+	trains map[string]*tracked
+	// The roster as last heard, by ID, and what follows from it for each
+	// address and each train.
+	entries    map[string]train.Entry
+	cars       map[string]train.Car
+	formations map[string]train.Formation
+	roster     map[detector.Address]*rosterInfo
+	units      map[string]*unit
+	speeds     map[detector.Address]speed
+	// cvs reads a decoder's CVs; nil reads none.
+	cvs      func(decoder string) decoderCVs
+	powerOff bool
+	estop    bool
+	now      time.Time
+	// changed are the trains to publish, by unit key; one no longer
+	// followed is published as gone.
+	changed map[string]bool
 }
 
 func newLayout() *layout {
 	return &layout{
-		net:       trackplan.Plan{}.Network(),
-		reporters: map[string][]string{},
-		detected:  map[string]bool{},
-		switches:  map[string]string{},
-		turnouts:  map[string]string{},
-		seen:      map[string][]detector.Address{},
-		trains:    map[detector.Address]*tracked{},
-		roster:    map[detector.Address]*rosterInfo{},
-		entries:   map[string]detector.Address{},
-		names:     map[string]string{},
-		changed:   map[detector.Address]bool{},
+		net:        trackplan.Plan{}.Network(),
+		reporters:  map[string][]string{},
+		detected:   map[string]bool{},
+		switches:   map[string]string{},
+		turnouts:   map[string]string{},
+		seen:       map[string][]detector.Address{},
+		trains:     map[string]*tracked{},
+		entries:    map[string]train.Entry{},
+		cars:       map[string]train.Car{},
+		formations: map[string]train.Formation{},
+		roster:     map[detector.Address]*rosterInfo{},
+		units:      map[string]*unit{},
+		speeds:     map[detector.Address]speed{},
+		changed:    map[string]bool{},
 	}
 }
+
+// formationKey and addressKey are the unit keys of a formation's train
+// and of a locomotive running on its own.
+func formationKey(id string) string        { return "formation/" + id }
+func addressKey(a detector.Address) string { return "address/" + idOf(a) }
 
 // addressOf is a roster train's address as detectors report it.
 func addressOf(number uint16, long bool) detector.Address {
@@ -152,7 +198,7 @@ func (l *layout) setPlan(plan trackplan.Plan, revision string) {
 	for _, t := range l.trains {
 		if t.stretch != nil && !t.stretch.Valid(l.net) {
 			t.stretch, t.anchored = nil, false
-			l.changed[t.addr] = true
+			l.changed[t.key] = true
 		}
 	}
 	// What the reporters see now, in the blocks they are linked to now.
@@ -232,81 +278,240 @@ func (l *layout) entity(e entity.Entity) {
 	}
 }
 
-// train follows the roster and the speed each train is set to.
-func (l *layout) train(tr train.Train, cvs func(decoder string) decoderCVs) {
-	addr := addressOf(tr.Address, tr.Long)
+// train follows the roster and the speed each address is set to.
+func (l *layout) train(tr train.Train) {
 	if tr.Roster {
-		l.rosterEntry(tr.Entry, tr.Removed, cvs)
+		l.rosterEntry(tr.Entry, tr.Removed)
 	}
 	if tr.Removed {
 		return
 	}
-	t := l.get(addr)
-	target := float64(tr.Speed)
+	addr := addressOf(tr.Address, tr.Long)
+	s := speed{step: float64(tr.Speed), estop: tr.EStop}
 	if tr.Direction == train.Reverse {
-		target = -target
+		s.step = -s.step
 	}
-	if tr.EStop {
-		t.step, target = 0, 0
-	}
-	if t.target != target || t.estop != tr.EStop {
-		t.target, t.estop = target, tr.EStop
-		l.changed[addr] = true
+	l.speeds[addr] = s
+	if t := l.get(addr); t.addr == addr {
+		l.drive(t)
 	}
 }
 
-// rosterEntry keeps what a roster entry says, under the address it
-// has now.
-func (l *layout) rosterEntry(e train.Entry, removed bool, cvs func(decoder string) decoderCVs) {
-	if old, ok := l.entries[e.ID]; ok {
+// rosterEntry follows a roster entry; only what tracking uses counts as
+// a change.
+func (l *layout) rosterEntry(e train.Entry, removed bool) {
+	old, had := l.entries[e.ID]
+	switch {
+	case removed && !had:
+		return
+	case removed:
 		delete(l.entries, e.ID)
-		if info := l.roster[old]; info != nil {
-			info.ids = slices.DeleteFunc(info.ids, func(id string) bool { return id == e.ID })
-			if len(info.ids) == 0 {
-				delete(l.roster, old)
-			}
-			l.changed[old] = true
+	case had && old.Name == e.Name && old.Address == e.Address && old.Long == e.Long && old.Length == e.Length && old.Installed == e.Installed:
+		return
+	default:
+		l.entries[e.ID] = e
+	}
+	l.rebuild()
+}
+
+// car follows a car in the roster.
+func (l *layout) car(c train.CarState) {
+	if c.Removed {
+		delete(l.cars, c.ID)
+	} else {
+		l.cars[c.ID] = c.Car
+	}
+	l.rebuild()
+}
+
+// formation follows a train made up in the roster.
+func (l *layout) formation(f train.FormationState) {
+	if f.Removed {
+		delete(l.formations, f.ID)
+	} else {
+		l.formations[f.ID] = f.Formation
+	}
+	l.rebuild()
+}
+
+// setRoster takes the whole roster at once.
+func (l *layout) setRoster(trains []train.Train, cars []train.CarState, formations []train.FormationState) {
+	for _, tr := range trains {
+		if tr.Roster && !tr.Removed {
+			l.entries[tr.ID] = tr.Entry
 		}
 	}
-	if removed {
-		delete(l.names, e.ID)
+	for _, c := range cars {
+		l.cars[c.ID] = c.Car
+	}
+	for _, f := range formations {
+		l.formations[f.ID] = f.Formation
+	}
+	l.rebuild()
+}
+
+// rebuild works out from the roster which train each address runs in
+// and where its decoder is in that train, then settles the trains
+// followed. A locomotive's decoder is taken to be at its middle.
+func (l *layout) rebuild() {
+	roster := map[detector.Address]*rosterInfo{}
+	for _, id := range slices.Sorted(maps.Keys(l.entries)) {
+		e := l.entries[id]
+		addr := addressOf(e.Address, e.Long)
+		info := roster[addr]
+		if info == nil {
+			// The first entry by ID speaks for the address.
+			info = &rosterInfo{decoder: e.Installed}
+			if e.Installed != "" && l.cvs != nil {
+				info.cvs = l.cvs(e.Installed)
+			}
+			roster[addr] = info
+		}
+		info.ids = append(info.ids, id)
+	}
+	units := map[string]*unit{}
+	for _, id := range slices.Sorted(maps.Keys(l.formations)) {
+		f := l.formations[id]
+		key := formationKey(f.ID)
+		u := &unit{id: f.ID, name: f.Name, formation: f.ID}
+		for _, v := range f.Vehicles {
+			length := l.cars[v.Car].Length
+			if e, ok := l.entries[v.Locomotive]; ok {
+				length = e.Length
+				u.roster = append(u.roster, e.ID)
+				// An address shared by locomotives in two trains runs in
+				// the first.
+				if info := roster[addressOf(e.Address, e.Long)]; info.unit == "" {
+					info.unit, info.at, info.backward = key, u.length+length/2, v.Reverse
+				}
+			}
+			u.length += length
+		}
+		if len(u.roster) > 0 {
+			units[key] = u
+		}
+	}
+	for addr, info := range roster {
+		if info.unit != "" {
+			continue
+		}
+		// A locomotive in no train runs on its own.
+		names := make([]string, len(info.ids))
+		for i, id := range info.ids {
+			names[i] = l.entries[id].Name
+		}
+		length := l.entries[info.ids[0]].Length
+		key := addressKey(addr)
+		info.unit, info.at = key, length/2
+		units[key] = &unit{id: idOf(addr), name: strings.Join(names, " / "), roster: slices.Clone(info.ids), length: length}
+	}
+	l.roster, l.units = roster, units
+	l.settle()
+}
+
+// settle follows a roster change into the trains followed: each goes
+// with its decoder to the train that decoder runs in now, and is laid
+// out again around its decoder for a new length or decoder position.
+// Two followed that turn out to be one train leave the one placed, else
+// the one seen last.
+func (l *layout) settle() {
+	for _, key := range slices.Sorted(maps.Keys(l.trains)) {
+		t := l.trains[key]
+		want := l.unitOf(t.addr)
+		if want == key {
+			continue
+		}
+		delete(l.trains, key)
+		l.changed[key] = true
+		if other := l.trains[want]; other != nil && keeps(other, t) {
+			continue
+		}
+		t.key = want
+		l.trains[want] = t
+		l.changed[want] = true
+	}
+	for _, t := range l.trains {
+		l.fit(t)
+	}
+}
+
+// keeps reports whether a, followed already, stays over b when both
+// turn out to be one train.
+func keeps(a, b *tracked) bool {
+	if (a.stretch != nil) != (b.stretch != nil) {
+		return a.stretch != nil
+	}
+	return !b.updated.After(a.updated)
+}
+
+// fit lays a train out again around its decoder when its length, or
+// where its decoder sits in it, has changed, and takes its decoder's
+// speed the way that decoder's locomotive faces now.
+func (l *layout) fit(t *tracked) {
+	length := l.unitFor(t).length
+	var at float64
+	var backward bool
+	if info := l.roster[t.addr]; info != nil {
+		at, backward = info.at, info.backward
+	}
+	if t.stretch != nil && (length != t.length || at != t.at) {
+		leg, d := t.stretch.Back(t.at)
+		t.stretch = l.layOut(leg, d, at, length, l.position)
+		l.changed[t.key] = true
+	}
+	t.length, t.at = length, at
+	if backward != t.backward {
+		// The decoder's forward is the train's other way now.
+		t.backward = backward
+		t.step, t.heading = -t.step, -t.heading
+	}
+	l.drive(t)
+}
+
+// follow has a train followed by another of its decoders from now on.
+// The train stays where it is; only the point it is followed by moves.
+func (l *layout) follow(t *tracked, addr detector.Address) {
+	if t.addr == addr {
 		return
 	}
-	l.names[e.ID] = e.Name
-	addr := addressOf(e.Address, e.Long)
-	l.entries[e.ID] = addr
-	info := l.roster[addr]
-	if info == nil {
-		info = &rosterInfo{}
-		l.roster[addr] = info
+	t.addr = addr
+	if info := l.roster[addr]; info != nil {
+		t.at, t.backward = info.at, info.backward
 	}
-	info.ids = append(info.ids, e.ID)
-	slices.Sort(info.ids)
-	if info.ids[0] == e.ID || info.length == 0 {
-		info.length, info.decoderAt = e.Length, e.DecoderAt
-		info.decoder = e.Installed
-		if cvs != nil && e.Installed != "" {
-			info.cvs = cvs(e.Installed)
-		}
+	l.drive(t)
+}
+
+// drive takes the speed the train's decoder is set to, in the train's
+// terms: a locomotive facing the train's rear runs it backward going
+// forward.
+func (l *layout) drive(t *tracked) {
+	s := l.speeds[t.addr]
+	target := s.step
+	if t.backward {
+		target = -target
 	}
-	names := make([]string, 0, len(info.ids))
-	for _, id := range info.ids {
-		names = append(names, l.names[id])
+	if s.estop {
+		t.step, target = 0, 0
 	}
-	info.name = strings.Join(names, " / ")
-	l.changed[addr] = true
+	if t.target != target || t.estop != s.estop {
+		t.target, t.estop = target, s.estop
+		l.changed[t.key] = true
+	}
 }
 
 // refreshCVs reads the decoders' CVs again, for values read or written
 // since.
-func (l *layout) refreshCVs(cvs func(decoder string) decoderCVs) {
-	for addr, info := range l.roster {
+func (l *layout) refreshCVs() {
+	if l.cvs == nil {
+		return
+	}
+	for _, info := range l.roster {
 		if info.decoder == "" {
 			continue
 		}
-		if now := cvs(info.decoder); now != info.cvs {
+		if now := l.cvs(info.decoder); now != info.cvs {
 			info.cvs = now
-			l.changed[addr] = true
+			l.changed[info.unit] = true
 		}
 	}
 }
@@ -315,18 +520,38 @@ func (l *layout) refreshCVs(cvs func(decoder string) decoderCVs) {
 // tracking only follows the speed it is set to.
 func (t *tracked) known() bool { return t.block != "" || t.stretch != nil }
 
-// get returns the train at an address, made the first time.
+// get returns the train an address runs in, made the first time and
+// followed by that address's decoder until a detector reports another.
 func (l *layout) get(addr detector.Address) *tracked {
-	t, ok := l.trains[addr]
+	key := l.unitOf(addr)
+	t, ok := l.trains[key]
 	if !ok {
-		t = &tracked{addr: addr}
-		l.trains[addr] = t
+		t = &tracked{key: key, addr: addr}
+		l.trains[key] = t
+		l.fit(t)
 	}
 	return t
 }
 
-// info is what the roster says about a train; a train the roster lacks
-// is a point at its decoder.
+// unitOf is the key of the train an address runs in.
+func (l *layout) unitOf(addr detector.Address) string {
+	if info := l.roster[addr]; info != nil {
+		return info.unit
+	}
+	return addressKey(addr)
+}
+
+// unitFor is what the roster says about a train; a train the roster
+// lacks is a point at its decoder.
+func (l *layout) unitFor(t *tracked) unit {
+	if u := l.units[t.key]; u != nil {
+		return *u
+	}
+	return unit{id: idOf(t.addr)}
+}
+
+// info is what the roster says about the decoder a train is followed
+// by.
 func (l *layout) info(t *tracked) rosterInfo {
 	if info := l.roster[t.addr]; info != nil {
 		return *info
@@ -361,7 +586,7 @@ func (t *tracked) going() float64 {
 // decoder is where the train's decoder is: its leg, taken toward the
 // train's front, and how far along it.
 func (l *layout) decoder(t *tracked) (trackplan.Leg, float64) {
-	return t.stretch.Back(l.info(t).decoderAt)
+	return t.stretch.Back(t.at)
 }
 
 type verdict int
@@ -443,7 +668,8 @@ func (l *layout) into(block, from string) func(trackplan.Leg) verdict {
 // enter is a decoder reported in a block.
 func (l *layout) enter(addr detector.Address, block string) {
 	t := l.get(addr)
-	l.changed[addr] = true
+	l.follow(t, addr)
+	l.changed[t.key] = true
 	t.updated = l.now
 	if t.block == block {
 		t.seen = true
@@ -463,10 +689,10 @@ func (l *layout) enter(addr detector.Address, block string) {
 // exit is a decoder no longer reported in a block. Where it was last
 // seen is kept; it is between blocks, or the detector lost it a moment.
 func (l *layout) exit(addr detector.Address, block string) {
-	if t, ok := l.trains[addr]; ok && t.block == block {
+	if t, ok := l.trains[l.unitOf(addr)]; ok && t.addr == addr && t.block == block {
 		t.seen = false
 		t.updated = l.now
-		l.changed[addr] = true
+		l.changed[t.key] = true
 	}
 }
 
@@ -542,19 +768,23 @@ func (l *layout) placeFrom(t *tracked, prev, block string) bool {
 	if !ok {
 		return false
 	}
-	info := l.info(t)
-	position := l.with(best.set)
 	leg, at := best.leg, min(inside, l.net.Length(best.leg))
 	if t.going() < 0 {
 		// Running in reverse: the front is behind the decoder.
 		leg, at = leg.Reversed(), l.net.Length(leg)-at
 	}
-	s := trackplan.Stretch{{Leg: leg, From: at, To: at}}
-	s, _, _ = s.Grow(l.net, info.decoderAt, position)
-	r, _, _ := s.Reversed(l.net).Grow(l.net, info.length-info.decoderAt, position)
-	t.stretch = r.Reversed(l.net)
+	t.stretch = l.layOut(leg, at, t.at, t.length, l.with(best.set))
 	l.anchor(t)
 	return true
+}
+
+// layOut is a train laid out around its decoder at d along leg, taken
+// toward the front: ahead of it by at, behind it by the rest of length.
+func (l *layout) layOut(leg trackplan.Leg, d, at, length float64, position func(string) trackplan.Position) trackplan.Stretch {
+	s := trackplan.Stretch{{Leg: leg, From: d, To: d}}
+	s, _, _ = s.Grow(l.net, at, position)
+	r, _, _ := s.Reversed(l.net).Grow(l.net, max(length-at, 0), position)
+	return r.Reversed(l.net)
 }
 
 // move carries a train d millimeters toward its front, or back toward
@@ -636,26 +866,27 @@ func (l *layout) tick(now time.Time) {
 		t.moved += moved
 		if moved != 0 {
 			t.updated = now
-			l.changed[t.addr] = true
+			l.changed[t.key] = true
 		}
 	}
 }
 
 // view is how a train is shown.
 func (l *layout) view(t *tracked) Train {
-	info := l.info(t)
+	info, u := l.info(t), l.unitFor(t)
 	v := Train{
-		ID:        idOf(t.addr),
-		Name:      info.name,
+		ID:        u.id,
+		Name:      u.name,
+		Formation: u.formation,
 		Address:   t.addr,
-		Roster:    slices.Clone(info.ids),
+		Roster:    slices.Clone(u.roster),
 		Block:     t.block,
 		Seen:      t.seen,
 		Placed:    t.stretch != nil,
 		Blocks:    []string{},
 		Direction: train.Forward,
 		TopSpeed:  math.Round(t.top*10) / 10,
-		Length:    info.length,
+		Length:    u.length,
 		Momentum:  info.cvs.known,
 		Updated:   t.updated,
 	}

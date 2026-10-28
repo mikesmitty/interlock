@@ -56,6 +56,18 @@ type Trains interface {
 	MakeUp(ctx context.Context, id string) (train.ConsistState, error)
 	BreakUp(ctx context.Context, id string) (train.ConsistState, error)
 	SubscribeConsists(train.ConsistSubscriber) func()
+	Cars() []train.CarState
+	Car(id string) (train.CarState, bool)
+	CreateCar(c train.Car) (train.CarState, error)
+	UpdateCar(id string, change func(*train.Car) error) (train.CarState, error)
+	DeleteCar(id string) error
+	SubscribeCars(train.CarSubscriber) func()
+	Formations() []train.FormationState
+	Formation(id string) (train.FormationState, bool)
+	CreateFormation(f train.Formation) (train.FormationState, error)
+	UpdateFormation(id string, change func(*train.Formation) error) (train.FormationState, error)
+	DeleteFormation(id string) error
+	SubscribeFormations(train.FormationSubscriber) func()
 }
 
 // Programmer reads and writes CVs.
@@ -178,7 +190,6 @@ type trainPatch struct {
 	Owner        *string         `json:"owner"`
 	Comment      *string         `json:"comment"`
 	Length       *float64        `json:"length"`
-	DecoderAt    *float64        `json:"decoder_at"`
 }
 
 func (p trainPatch) apply(e *train.Entry) {
@@ -203,9 +214,6 @@ func (p trainPatch) apply(e *train.Entry) {
 	}
 	if p.Length != nil {
 		e.Length = *p.Length
-	}
-	if p.DecoderAt != nil {
-		e.DecoderAt = *p.DecoderAt
 	}
 	if p.Functions != nil {
 		e.Functions = *p.Functions

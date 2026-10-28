@@ -113,9 +113,12 @@ applied at the next start; the replaced files go to `before-restore-*/`.
   delete the ones not named. The browser computes the same geometry in
   `web/src/trackgeom.ts`; keep them in step.
 - `internal/tracking` — train tracking: follows each decoder the
-  reporters see through the plan, places the train behind or ahead of
-  it from the roster's length and decoder position once it runs from
-  one block into the next, moves it on between reports at its decoder's
+  reporters see through the plan as the train its locomotive is made up
+  into (a formation; a locomotive in no train runs on its own, keyed by
+  address), places the train behind or ahead of it from the train's
+  length and the locomotive's place in it once it runs from one block
+  into the next, lays it out again around the decoder when the roster
+  changes the train, moves it on between reports at its decoder's
   speed curve and momentum (`train/motion.go`, CVs from the CV store)
   times a top speed measured between entries, never into a detected
   block unseen, and keeps places over a restart in the store. One
@@ -146,7 +149,10 @@ applied at the next start; the replaced files go to `before-restore-*/`.
   finding train nodes by Train Search, controller assign, speed and
   function commands, the layout's emergency events, consists (`consist.go`:
   made up on the command station by Train Control's consist commands, the
-  members' state following the lead). Roster entries are
+  members' state following the lead), cars and formations
+  (`formation.go`: trains made up of locomotives and cars from the front,
+  each vehicle in one at most; the web interface calls formations
+  trains, since here a train is a DCC address). Roster entries are
   locomotives with IDs of their own and may share an address; the state
   on the bus belongs to the address (`train` in the manager) and every
   entry there shows it. Each entry has decoders, one fitted, whose

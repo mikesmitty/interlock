@@ -312,12 +312,21 @@ function TrainTable({ plan, tracked }: { plan: TrackPlan; tracked: TrackedTrain[
               const notes: string[] = [];
               if (!t.placed && t.block) notes.push("Where in the block isn't known until it runs into the next one.");
               if (!t.seen && t.block) notes.push("Not seen by a detector just now.");
-              if (t.roster?.length && !t.length) notes.push("Give its length on its roster page to place the rest of the train.");
+              if (t.roster?.length && !t.length)
+                notes.push(t.formation ? "Give its locomotives' and cars' lengths to place the rest of the train." : "Give its length on its roster page, or make it up into a train with its cars, to place the rest of it.");
               if (t.roster?.length && !t.momentum) notes.push("Read its decoder's CVs 3 and 4 to follow it better as it speeds up and slows down.");
               return (
                 <tr key={t.id}>
                   <td>
-                    <div className="cell-title">{t.roster?.length === 1 ? <Link to={`/roster/${encodeURIComponent(t.roster[0])}`}>{t.name}</Link> : t.name}</div>
+                    <div className="cell-title">
+                      {t.formation ? (
+                        <Link to={`/roster/trains/${encodeURIComponent(t.formation)}`}>{t.name}</Link>
+                      ) : t.roster?.length === 1 ? (
+                        <Link to={`/roster/${encodeURIComponent(t.roster[0])}`}>{t.name}</Link>
+                      ) : (
+                        t.name
+                      )}
+                    </div>
                     {notes.map((n) => (
                       <div key={n} className="cell-sub">
                         {n}

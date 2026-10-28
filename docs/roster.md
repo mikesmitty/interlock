@@ -1,16 +1,31 @@
 # The roster
 
-The Roster page lists your locomotives. Each one has a name, the DCC
-address the throttle drives, function labels, what the locomotive is (road
-name and number, manufacturer, model, owner, notes) and its decoders.
+The Roster page lists your locomotives, your cars and the trains made up
+of them. Each locomotive has a name, the DCC address the throttle drives,
+function labels, what the locomotive is (road name and number,
+manufacturer, model, owner, notes), its length and its decoders.
 
-## Train length
+## Cars and trains
 
-**Train length** and **Decoder from the front**, in millimeters, are for
-[train tracking](./tracking.md): the train's length from end to end, and
-how far the car with the decoder is from the front, the end that leads
-going forward. RailCom detectors see only that car, so these say where
-the rest of the train is.
+**Add a car** for each car that runs in a train, with its **Length** in
+millimeters, measured over the couplers. Give each locomotive its length
+the same way, on its page. A car is named by its road name and number
+when it has no name of its own.
+
+**Make up a train** names a train; on its page, add its locomotives and
+cars in order from the front, the end that leads when the train goes
+forward. **Up** and **Down** move one along the train, and **Faces**
+turns one around: a locomotive facing backward runs the train backward
+when its throttle goes forward, as a locomotive running cab last does.
+The train's length is its locomotives' and cars' lengths added up, so
+swapping a car changes it at once. A locomotive or car is in one train
+at most; take it out of one train to put it in another.
+
+[Train tracking](./tracking.md) follows a train through the decoders of
+its locomotives. RailCom detectors see only the decoder, so the train's
+length and where its locomotive sits in it say where the rest of the
+train is. A locomotive in no train is followed on its own, at its own
+length. Schedules will run these trains.
 
 ## Decoders
 

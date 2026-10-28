@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"reflect"
+	"slices"
 	"sync"
 
 	"github.com/mikesmitty/interlock/internal/atomicfile"
@@ -20,14 +21,18 @@ import (
 const FileName = "trains.yaml"
 
 type fileDoc struct {
-	Trains   []Entry   `yaml:"trains"`
-	Consists []Consist `yaml:"consists,omitempty"`
+	Trains     []Entry     `yaml:"trains"`
+	Consists   []Consist   `yaml:"consists,omitempty"`
+	Cars       []Car       `yaml:"cars,omitempty"`
+	Formations []Formation `yaml:"formations,omitempty"`
 }
 
-const fileHeader = `# The locomotive roster. The web interface edits this file; restart
-# Interlock after editing it yourself. Each train has a DCC address, a name,
-# optional function labels and the decoders it has; consists list the
-# trains that run together, the lead first. See docs/trains.md.
+const fileHeader = `# The roster. The web interface edits this file; restart Interlock after
+# editing it yourself. Under trains, each locomotive has a DCC address, a
+# name, optional function labels and the decoders it has; consists list
+# the locomotives that run together, the lead first. Cars are the rest of
+# the rolling stock, and formations are the trains made up of locomotives
+# and cars, from the front. See docs/roster.md.
 # Decoder CV values are kept in the cvs folder beside this file.
 `
 
@@ -97,6 +102,30 @@ func OpenFile(path string) (*File, error) {
 		}
 		consists[c.ID] = true
 		f.doc.Consists[i] = c
+	}
+	cars := make(map[string]bool, len(f.doc.Cars))
+	for i := range f.doc.Cars {
+		c := f.doc.Cars[i].Normalize()
+		if err := c.Validate(); err != nil {
+			return nil, fmt.Errorf("%s: car %d (%s): %w", path, i+1, c.Name, err)
+		}
+		if cars[c.ID] {
+			return nil, fmt.Errorf("%s: two cars have the ID %s", path, c.ID)
+		}
+		cars[c.ID] = true
+		f.doc.Cars[i] = c
+	}
+	formations := make(map[string]bool, len(f.doc.Formations))
+	for i := range f.doc.Formations {
+		fm := f.doc.Formations[i].Normalize()
+		if err := fm.Validate(); err != nil {
+			return nil, fmt.Errorf("%s: formation %d (%s): %w", path, i+1, fm.Name, err)
+		}
+		if formations[fm.ID] {
+			return nil, fmt.Errorf("%s: two formations have the ID %s", path, fm.ID)
+		}
+		formations[fm.ID] = true
+		f.doc.Formations[i] = fm
 	}
 	return f, nil
 }
@@ -210,6 +239,85 @@ func (f *File) RemoveConsist(id string) error {
 	}
 	f.doc.Consists = kept
 	return f.save()
+}
+
+// Cars returns the cars in file order.
+func (f *File) Cars() []Car {
+	if f == nil {
+		return nil
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.doc.Cars)
+}
+
+// PutCar adds or replaces a car by ID and saves the file.
+func (f *File) PutCar(c Car) error {
+	if f == nil {
+		return nil
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.doc.Cars = put(f.doc.Cars, c, func(c Car) string { return c.ID })
+	return f.save()
+}
+
+// RemoveCar deletes a car and saves the file.
+func (f *File) RemoveCar(id string) error {
+	if f == nil {
+		return nil
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.doc.Cars = slices.DeleteFunc(f.doc.Cars, func(c Car) bool { return c.ID == id })
+	return f.save()
+}
+
+// Formations returns the formations in file order.
+func (f *File) Formations() []Formation {
+	if f == nil {
+		return nil
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]Formation, len(f.doc.Formations))
+	for i, fm := range f.doc.Formations {
+		out[i] = fm.clone()
+	}
+	return out
+}
+
+// PutFormation adds or replaces a formation by ID and saves the file.
+func (f *File) PutFormation(fm Formation) error {
+	if f == nil {
+		return nil
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.doc.Formations = put(f.doc.Formations, fm.clone(), func(fm Formation) string { return fm.ID })
+	return f.save()
+}
+
+// RemoveFormation deletes a formation and saves the file.
+func (f *File) RemoveFormation(id string) error {
+	if f == nil {
+		return nil
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.doc.Formations = slices.DeleteFunc(f.doc.Formations, func(fm Formation) bool { return fm.ID == id })
+	return f.save()
+}
+
+// put replaces the item in list with v's ID, or adds v at the end.
+func put[T any](list []T, v T, id func(T) string) []T {
+	for i := range list {
+		if id(list[i]) == id(v) {
+			list[i] = v
+			return list
+		}
+	}
+	return append(list, v)
 }
 
 // save writes the file atomically; the caller holds f.mu.

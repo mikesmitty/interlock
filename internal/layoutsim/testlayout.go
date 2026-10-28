@@ -120,11 +120,11 @@ func TestLayout() trackplan.Plan {
 }
 
 // TestTrains are the test layout's trains: subway trains of four and five
-// cars, one decoder each, one at each station.
+// cars, one of them a motor car with the decoder, one at each station.
 func TestTrains() []TrainSpec {
 	return []TrainSpec{
-		{Name: "Local 1", Address: 101, Length: 4 * 114, Decoder: 57, TopSpeed: 160, Block: "main-outer"},
-		{Name: "Local 2", Address: 102, Length: 5 * 97, Decoder: 2.5 * 97, TopSpeed: 140, Block: "park-inner", Reverse: true},
+		{Name: "Local 1", Address: 101, Cars: []float64{114, 114, 114, 114}, Motor: 0, TopSpeed: 160, Block: "main-outer"},
+		{Name: "Local 2", Address: 102, Cars: []float64{97, 97, 97, 97, 97}, Motor: 2, TopSpeed: 140, Block: "park-inner", Reverse: true},
 	}
 }
 

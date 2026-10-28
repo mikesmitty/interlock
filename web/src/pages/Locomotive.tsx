@@ -6,6 +6,7 @@ import { Lamp } from "../components/Lamp";
 import { Empty, Page } from "../components/Page";
 import type { DecoderIdentity } from "../decoder/types";
 import { plural, relativeTime, useNow } from "../format";
+import { formationOf } from "../makeup";
 import { useBus } from "../store";
 import { addressText, roadText } from "./Roster";
 
@@ -17,7 +18,7 @@ function describe(err: unknown): string {
 
 export function Locomotive() {
   const { id = "" } = useParams();
-  const { trains, consists, loaded } = useBus();
+  const { trains, consists, formations, loaded } = useBus();
   const t = trains[id];
   const back = (
     <Link className="page__back" to="/roster">
@@ -41,6 +42,7 @@ export function Locomotive() {
     );
   }
   const lead = [`DCC ${addressText(t)}`, roadText(t), [t.manufacturer, t.model].filter(Boolean).join(" ")].filter(Boolean).join(", ");
+  const holder = formationOf({ locomotive: t.id }, formations);
   return (
     <Page
       title={t.name}
@@ -53,6 +55,11 @@ export function Locomotive() {
       }
     >
       <div className="ros-layout">
+        {holder && (
+          <p className="note">
+            In <Link to={`/roster/trains/${encodeURIComponent(holder.id)}`}>{holder.name}</Link>.
+          </p>
+        )}
         {t.consist && consists[t.consist] && (
           <p className="note">
             Runs in <Link to={`/roster/consists/${encodeURIComponent(t.consist)}`}>{consists[t.consist].name}</Link>, which is made
@@ -82,7 +89,6 @@ function Details({ train: t }: { train: Train }) {
     owner: t.owner ?? "",
     comment: t.comment ?? "",
     length: t.length ? String(t.length) : "",
-    decoder_at: t.decoder_at ? String(t.decoder_at) : "",
   });
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string>();
@@ -94,7 +100,7 @@ function Details({ train: t }: { train: Train }) {
     setBusy(true);
     setMessage(undefined);
     try {
-      const saved = await api.updateTrain(t.id, { ...f, address: n, long: n > 127 || f.long, length: Number(f.length) || 0, decoder_at: Number(f.decoder_at) || 0 });
+      const saved = await api.updateTrain(t.id, { ...f, address: n, long: n > 127 || f.long, length: Number(f.length) || 0 });
       setMessage("Saved.");
       if (saved.id !== t.id) navigate(`/roster/${encodeURIComponent(saved.id)}`, { replace: true });
     } catch (err) {
@@ -148,16 +154,12 @@ function Details({ train: t }: { train: Train }) {
       </div>
       <div className="ros-fields">
         <label className="auto-field">
-          <span>Train length, mm</span>
+          <span>Length, mm</span>
           <input className="input input--short" type="number" min={0} step="any" value={f.length} onChange={set("length")} />
-        </label>
-        <label className="auto-field">
-          <span>Decoder from the front, mm</span>
-          <input className="input input--short" type="number" min={0} max={Number(f.length) || undefined} step="any" value={f.decoder_at} onChange={set("decoder_at")} />
         </label>
       </div>
       <p className="thr-note">
-        For train tracking. The detectors see only the car with the decoder in it, so the train's length and how far that car is from the front (the end that leads going forward) say where the rest of the train is.
+        The locomotive's own length, measured over the couplers. A train adds up the lengths of its locomotives and cars, so train tracking knows where the rest of it is.
       </p>
       <label className="auto-field">
         <span>Notes</span>

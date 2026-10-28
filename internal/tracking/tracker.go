@@ -1,8 +1,10 @@
 // Package tracking follows the trains on the layout: which block each
 // locomotive's decoder is in from what the RailCom detectors report,
-// where the rest of the train is from its length and where its decoder
-// sits in it, which way it is going, and between reports how far it has
-// run at the speed it was set to.
+// where the rest of the train is from the train the roster makes the
+// locomotive part of (its locomotives' and cars' lengths, and where the
+// locomotive is in it), which way it is going, and between reports how
+// far it has run at the speed it was set to. A locomotive in no train
+// runs on its own, at its own length.
 //
 // A detector sees only a train's decoder, so a train is first known by
 // its block alone. Once it runs from one block into the next, tracking
@@ -31,14 +33,20 @@ import (
 
 // Train is a train as tracking follows it.
 type Train struct {
-	// ID is its address as the roster writes one: "101", "3l", or
-	// "consist-12" for a consist address.
+	// ID is the formation's ID for a train made up in the roster, else
+	// the address of the locomotive running on its own as the roster
+	// writes one: "101", "3l", or "consist-12" for a consist address.
 	ID string `json:"id"`
-	// Name is the roster's name for the locomotive at the address, else
-	// the address.
-	Name    string           `json:"name"`
+	// Name is the formation's name, else the roster's name for the
+	// locomotive at the address, else the address.
+	Name string `json:"name"`
+	// Formation is the formation's ID; empty for a locomotive on its
+	// own.
+	Formation string `json:"formation,omitempty"`
+	// Address is the decoder the train is followed by: the one a
+	// detector last reported.
 	Address detector.Address `json:"address"`
-	// Roster lists the roster entries at the address.
+	// Roster lists the train's locomotives in the roster.
 	Roster []string `json:"roster,omitempty"`
 	// Block is the block a detector last saw the decoder in, and Seen
 	// whether one sees it now.
@@ -70,6 +78,9 @@ type Train struct {
 	Line    []trackplan.Vec `json:"line,omitempty"`
 	Decoder *trackplan.Vec  `json:"decoder,omitempty"`
 	Updated time.Time       `json:"updated,omitzero"`
+	// Removed is set on the last update about a train no longer
+	// followed, as when its locomotive joins a train in the roster.
+	Removed bool `json:"removed,omitempty"`
 }
 
 // Entities is the entity manager, for turnouts and reporters.
@@ -81,6 +92,8 @@ type Entities interface {
 // set to.
 type Trains interface {
 	List() []train.Train
+	Cars() []train.CarState
+	Formations() []train.FormationState
 	Layout() train.Layout
 }
 
@@ -131,7 +144,7 @@ type Tracker struct {
 	inbox chan func(*layout)
 
 	mu      sync.RWMutex
-	views   map[detector.Address]Train
+	views   map[string]Train
 	subs    map[int]Subscriber
 	nextSub int
 }
@@ -148,7 +161,7 @@ func New(opts Options) *Tracker {
 		opts:  opts,
 		log:   opts.Logger,
 		inbox: make(chan func(*layout), 4096),
-		views: map[detector.Address]Train{},
+		views: map[string]Train{},
 		subs:  map[int]Subscriber{},
 	}
 }
@@ -171,7 +184,17 @@ func (tk *Tracker) HandleEntity(e entity.Entity) {
 
 // HandleTrain follows the roster and the speeds trains are set to.
 func (tk *Tracker) HandleTrain(tr train.Train) {
-	tk.push(func(l *layout) { l.train(tr, tk.decoderCVs) })
+	tk.push(func(l *layout) { l.train(tr) })
+}
+
+// HandleCar follows the roster's cars.
+func (tk *Tracker) HandleCar(c train.CarState) {
+	tk.push(func(l *layout) { l.car(c) })
+}
+
+// HandleFormation follows the trains made up in the roster.
+func (tk *Tracker) HandleFormation(f train.FormationState) {
+	tk.push(func(l *layout) { l.formation(f) })
 }
 
 // HandleLayout follows track power and the emergency stop.
@@ -241,13 +264,16 @@ func (tk *Tracker) Subscribe(sub Subscriber) (unsubscribe func()) {
 func (tk *Tracker) Run(ctx context.Context) error {
 	l := newLayout()
 	l.now = time.Now()
+	l.cvs = tk.decoderCVs
 	if tk.opts.Plan != nil {
 		st := tk.opts.Plan.Get()
 		l.setPlan(st.Plan, st.Revision)
 	}
 	if tk.opts.Trains != nil {
-		for _, tr := range tk.opts.Trains.List() {
-			l.train(tr, tk.decoderCVs)
+		trains := tk.opts.Trains.List()
+		l.setRoster(trains, tk.opts.Trains.Cars(), tk.opts.Trains.Formations())
+		for _, tr := range trains {
+			l.train(tr)
 		}
 		lay := tk.opts.Trains.Layout()
 		l.powerOff, l.estop = lay.PowerOff, lay.EmergencyStop
@@ -258,21 +284,26 @@ func (tk *Tracker) Run(ctx context.Context) error {
 			l.entity(e)
 		}
 	}
-	published := map[detector.Address]time.Time{}
+	published := map[string]time.Time{}
 	dirty := true
 	publish := func(all bool) {
 		now := time.Now()
-		for addr := range l.changed {
-			if !all && now.Sub(published[addr]) < publishEvery {
+		for key := range l.changed {
+			t, ok := l.trains[key]
+			if ok && !all && now.Sub(published[key]) < publishEvery {
 				continue
 			}
-			delete(l.changed, addr)
-			t, ok := l.trains[addr]
-			if !ok || !t.known() {
+			delete(l.changed, key)
+			if !ok {
+				delete(published, key)
+				dirty = tk.drop(key) || dirty
 				continue
 			}
-			published[addr] = now
-			tk.send(addr, l.view(t))
+			if !t.known() {
+				continue
+			}
+			published[key] = now
+			tk.send(key, l.view(t))
 			dirty = true
 		}
 	}
@@ -296,7 +327,7 @@ func (tk *Tracker) Run(ctx context.Context) error {
 			l.tick(now)
 			publish(false)
 		case <-reading.C:
-			l.refreshCVs(tk.decoderCVs)
+			l.refreshCVs()
 			publish(true)
 		case <-saving.C:
 			if dirty {
@@ -307,9 +338,9 @@ func (tk *Tracker) Run(ctx context.Context) error {
 	}
 }
 
-func (tk *Tracker) send(addr detector.Address, v Train) {
+func (tk *Tracker) send(key string, v Train) {
 	tk.mu.Lock()
-	tk.views[addr] = v
+	tk.views[key] = v
 	subs := make([]Subscriber, 0, len(tk.subs))
 	for _, sub := range tk.subs {
 		subs = append(subs, sub)
@@ -320,15 +351,42 @@ func (tk *Tracker) send(addr detector.Address, v Train) {
 	}
 }
 
+// drop tells subscribers a train is no longer followed, if it was shown;
+// it reports whether it was.
+func (tk *Tracker) drop(key string) bool {
+	tk.mu.Lock()
+	v, ok := tk.views[key]
+	delete(tk.views, key)
+	subs := make([]Subscriber, 0, len(tk.subs))
+	for _, sub := range tk.subs {
+		subs = append(subs, sub)
+	}
+	tk.mu.Unlock()
+	if !ok {
+		return false
+	}
+	v.Removed = true
+	v.Updated = time.Now()
+	for _, sub := range subs {
+		sub(v)
+	}
+	return true
+}
+
 // saved is where the trains were, as kept in the store.
 type saved struct {
 	Trains []savedTrain `json:"trains"`
 }
 
+// savedTrain is one train, by the decoder it was followed by. At and
+// Length are where that decoder was in the train and how long the train
+// was as its stretch was laid out.
 type savedTrain struct {
 	Address detector.Address  `json:"address"`
 	Block   string            `json:"block,omitempty"`
 	Stretch trackplan.Stretch `json:"stretch,omitempty"`
+	At      float64           `json:"at,omitempty"`
+	Length  float64           `json:"length,omitempty"`
 	Heading float64           `json:"heading,omitempty"`
 	Top     float64           `json:"top,omitempty"`
 	Samples int               `json:"samples,omitempty"`
@@ -340,7 +398,7 @@ func (l *layout) state() saved {
 		if t.block == "" && t.top == 0 {
 			continue
 		}
-		st.Trains = append(st.Trains, savedTrain{Address: t.addr, Block: t.block, Stretch: t.stretch, Heading: t.heading, Top: t.top, Samples: t.samples})
+		st.Trains = append(st.Trains, savedTrain{Address: t.addr, Block: t.block, Stretch: t.stretch, At: t.at, Length: t.length, Heading: t.heading, Top: t.top, Samples: t.samples})
 	}
 	slices.SortFunc(st.Trains, func(a, b savedTrain) int {
 		return cmp.Or(cmp.Compare(a.Address.Type, b.Address.Type), cmp.Compare(a.Address.Number, b.Address.Number))
@@ -348,16 +406,25 @@ func (l *layout) state() saved {
 	return st
 }
 
-// restore puts the trains back where they were. A train is known by its
-// block alone if the plan no longer has its track.
+// restore puts the trains back where they were, each with the train its
+// decoder runs in now, laid out again around the decoder if the roster
+// has changed the train since. A train is known by its block alone if
+// the plan no longer has its track.
 func (l *layout) restore(st saved) {
 	for _, s := range st.Trains {
 		t := l.get(s.Address)
+		l.follow(t, s.Address)
 		t.block, t.heading, t.top, t.samples = s.Block, s.Heading, s.Top, s.Samples
 		if s.Stretch.Valid(l.net) {
-			t.stretch = s.Stretch
+			t.stretch, t.at, t.length = s.Stretch, s.At, s.Length
+			if s.Length == 0 {
+				// Saved before the stretch's layout was: take it as it is.
+				t.length = s.Stretch.Length()
+				t.at = min(l.info(t).at, t.length)
+			}
+			l.fit(t)
 		}
-		l.changed[s.Address] = true
+		l.changed[t.key] = true
 	}
 }
 

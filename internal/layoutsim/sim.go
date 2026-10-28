@@ -65,6 +65,12 @@ type TrainSpec struct {
 	// Decoder is how far the decoder sits from the A end, the end that
 	// leads when the decoder goes forward.
 	Decoder float64 `json:"decoder" yaml:"decoder"`
+	// Cars are the lengths of its cars from the A end, the locomotive's
+	// among them, and Motor which of them is the locomotive, facing the
+	// A end. Given, they set Length, and Decoder at the locomotive's
+	// middle, and the roster gets the train made up of them.
+	Cars  []float64 `json:"cars,omitempty" yaml:"cars,omitempty"`
+	Motor int       `json:"motor,omitempty" yaml:"motor,omitempty"`
 	// TopSpeed is how fast the train goes at speed step 126 with the
 	// decoder's top voltage (CV 5) at full, in millimeters a second.
 	TopSpeed float64 `json:"top_speed" yaml:"top_speed"`
@@ -76,6 +82,23 @@ type TrainSpec struct {
 }
 
 func (s TrainSpec) long() bool { return s.Long || s.Address > traction.ShortAddressMax }
+
+// Normalize sets the length and the decoder's place from the cars, when
+// they are given.
+func (s TrainSpec) Normalize() TrainSpec {
+	if len(s.Cars) == 0 {
+		return s
+	}
+	s.Motor = min(max(s.Motor, 0), len(s.Cars)-1)
+	s.Length = 0
+	for i, l := range s.Cars {
+		if i == s.Motor {
+			s.Decoder = s.Length + l/2
+		}
+		s.Length += l
+	}
+	return s
+}
 
 func (s TrainSpec) locomotive() detector.Address {
 	if s.long() {
@@ -135,7 +158,7 @@ func New(hw Hardware, trains []TrainSpec, log *slog.Logger) *Sim {
 	}
 	s := &Sim{hw: hw, log: log, detectors: map[detectorKey]*detectorState{}}
 	for _, spec := range trains {
-		s.trains = append(s.trains, &running{spec: spec})
+		s.trains = append(s.trains, &running{spec: spec.Normalize()})
 	}
 	return s
 }

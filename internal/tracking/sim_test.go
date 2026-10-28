@@ -39,7 +39,8 @@ func newBench(t *testing.T, momentumKnown bool) *bench {
 		decoders: map[uint16]*sim.Decoder{}, servos: map[string]string{}, known: momentumKnown,
 		now: time.Unix(1000, 0),
 	}
-	for _, spec := range b.specs {
+	for i, spec := range b.specs {
+		b.specs[i] = spec.Normalize()
 		b.decoders[spec.Address] = sim.NewDecoder(spec.Address, false)
 	}
 	b.l.now = b.now
@@ -49,16 +50,43 @@ func newBench(t *testing.T, momentumKnown bool) *bench {
 	}
 	b.sim = layoutsim.New(b, b.specs, slog.New(slog.DiscardHandler))
 	b.sim.SetPlan(plan, "r1")
-	for i, spec := range b.specs {
-		b.l.train(train.Train{
-			Entry: train.Entry{
-				ID: fmt.Sprintf("local-%d", i+1), Name: spec.Name, Address: spec.Address,
-				Length: spec.Length, DecoderAt: spec.Decoder, Installed: fmt.Sprintf("d%d", i+1),
-			},
-			Roster: true, Direction: train.Forward,
-		}, b.cvs)
+	b.l.cvs = b.cvs
+	trains, cars, formations := b.roster()
+	b.l.setRoster(trains, cars, formations)
+	for _, tr := range trains {
+		b.l.train(tr)
 	}
 	return b
+}
+
+// roster is the trains as the roster has them: a motor car with the
+// decoder, and cars, made up into a train.
+func (b *bench) roster() ([]train.Train, []train.CarState, []train.FormationState) {
+	var trains []train.Train
+	var cars []train.CarState
+	var formations []train.FormationState
+	for i, spec := range b.specs {
+		motor := fmt.Sprintf("motor-%d", i+1)
+		trains = append(trains, train.Train{
+			Entry: train.Entry{
+				ID: motor, Name: spec.Name + " motor car", Address: spec.Address,
+				Length: spec.Cars[spec.Motor], Installed: fmt.Sprintf("d%d", i+1),
+			},
+			Roster: true, Direction: train.Forward,
+		})
+		f := train.FormationState{Formation: train.Formation{ID: fmt.Sprintf("local-%d", i+1), Name: spec.Name}}
+		for j, length := range spec.Cars {
+			if j == spec.Motor {
+				f.Vehicles = append(f.Vehicles, train.Vehicle{Locomotive: motor})
+				continue
+			}
+			id := fmt.Sprintf("car-%d-%d", i+1, j+1)
+			cars = append(cars, train.CarState{Car: train.Car{ID: id, Name: id, Length: length}})
+			f.Vehicles = append(f.Vehicles, train.Vehicle{Car: id})
+		}
+		formations = append(formations, f)
+	}
+	return trains, cars, formations
 }
 
 // cvs is what the CV store would hold for a decoder: its momentum when
@@ -103,7 +131,7 @@ func (b *bench) drive(address uint16, step float32, reverse bool) {
 	if reverse {
 		dir = train.Reverse
 	}
-	b.l.train(train.Train{Entry: train.Entry{Address: address}, Speed: step, Direction: dir}, nil)
+	b.l.train(train.Train{Entry: train.Entry{Address: address}, Speed: step, Direction: dir})
 }
 
 // run steps the layout and tracking every 20 ms for d, calling check
@@ -121,7 +149,7 @@ func (b *bench) run(d time.Duration, check func()) {
 }
 
 func (b *bench) tracked(address uint16) *tracked {
-	return b.l.trains[detector.Address{Type: detector.Short, Number: address}]
+	return b.l.trains[b.l.unitOf(detector.Address{Type: detector.Short, Number: address})]
 }
 
 // errorOf is how far tracking has the decoder from where it really is,
@@ -346,8 +374,9 @@ func TestTrackingKeepsPlacesOverARestart(t *testing.T) {
 
 	again := newLayout()
 	again.setPlan(layoutsim.TestLayout(), "r1")
+	again.setRoster(b.roster())
 	again.restore(st)
-	before, after := b.tracked(101), again.trains[detector.Address{Type: detector.Short, Number: 101}]
+	before, after := b.tracked(101), again.trains[formationKey("local-1")]
 	if after == nil || after.block != before.block || after.top != before.top || fmt.Sprint(after.stretch) != fmt.Sprint(before.stretch) {
 		t.Fatalf("restored %+v\nwant %+v", after, before)
 	}

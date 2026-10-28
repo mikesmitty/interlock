@@ -4,6 +4,7 @@ import { api, type ImportPreview, type ImportResult, type ImportStep, type Train
 import { Status } from "../components/Lamp";
 import { Empty, Page } from "../components/Page";
 import { plural } from "../format";
+import { formationOf, lengthText, makeupText } from "../makeup";
 import { useBus } from "../store";
 import { consistLamp, memberNames } from "./Consist";
 
@@ -29,20 +30,31 @@ export function fittedText(t: Train): string {
 }
 
 export function Roster() {
-  const { trains, consists, loaded } = useBus();
+  const { trains, consists, cars, formations, loaded } = useBus();
   const navigate = useNavigate();
   const [importing, setImporting] = useState(false);
   const [adding, setAdding] = useState(false);
   const [addingConsist, setAddingConsist] = useState(false);
+  const [addingCar, setAddingCar] = useState(false);
+  const [makingUp, setMakingUp] = useState(false);
+  const byName = (a: { name: string; id: string }, b: { name: string; id: string }) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id);
   const list = Object.values(trains)
     .filter((t) => t.roster)
-    .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
-  const consistList = Object.values(consists).sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+    .sort(byName);
+  const consistList = Object.values(consists).sort(byName);
+  const carList = Object.values(cars).sort(byName);
+  const formationList = Object.values(formations).sort(byName);
+  const counts = [
+    list.length && plural(list.length, "locomotive"),
+    carList.length && plural(carList.length, "car"),
+    formationList.length && plural(formationList.length, "train"),
+  ].filter(Boolean) as string[];
+  const lead = counts.length > 1 ? `${counts.slice(0, -1).join(", ")} and ${counts[counts.length - 1]}.` : counts.length ? `${counts[0]}.` : "No locomotives yet.";
 
   return (
     <Page
       title="Roster"
-      lead={loaded ? (list.length ? `${plural(list.length, "locomotive")}.` : "No locomotives yet.") : "Loading…"}
+      lead={loaded ? lead : "Loading…"}
       actions={
         <>
           <button className="btn" onClick={() => setImporting((v) => !v)} aria-pressed={importing}>
@@ -53,6 +65,12 @@ export function Roster() {
               Add a consist
             </button>
           )}
+          <button className="btn" onClick={() => setMakingUp((v) => !v)} aria-pressed={makingUp}>
+            Make up a train
+          </button>
+          <button className="btn" onClick={() => setAddingCar((v) => !v)} aria-pressed={addingCar}>
+            Add a car
+          </button>
           <button className="btn btn--primary" onClick={() => setAdding((v) => !v)} aria-pressed={adding}>
             Add a locomotive
           </button>
@@ -60,6 +78,8 @@ export function Roster() {
       }
     >
       {adding && <AddLocomotive onCancel={() => setAdding(false)} />}
+      {addingCar && <AddCar onCancel={() => setAddingCar(false)} />}
+      {makingUp && <MakeUpTrain onCancel={() => setMakingUp(false)} />}
       {addingConsist && <AddConsist locomotives={list} onCancel={() => setAddingConsist(false)} />}
       {importing && <ImportPanel onClose={() => setImporting(false)} />}
       {loaded && list.length === 0 && !importing && !adding && (
@@ -72,8 +92,13 @@ export function Roster() {
             A locomotive can have more than one decoder, for when you swap them. Each keeps its own settings, and the
             fitted one gives the locomotive its address.
           </p>
+          <p>
+            Add the cars too, each with its length, and make trains up of locomotives and cars. Train tracking adds up a train's
+            lengths to know where the rest of it is.
+          </p>
         </Empty>
       )}
+      {list.length > 0 && (carList.length > 0 || formationList.length > 0 || consistList.length > 0) && <h2 className="ros-heading">Locomotives</h2>}
       {list.length > 0 && (
         <div className="panel">
           <table className="table table--rows ros-table">
@@ -118,6 +143,95 @@ export function Roster() {
           </table>
         </div>
       )}
+      {formationList.length > 0 && (
+        <>
+          <h2 className="ros-heading">Trains</h2>
+          <div className="panel">
+            <table className="table table--rows ros-table">
+              <thead>
+                <tr>
+                  <th scope="col">Name</th>
+                  <th scope="col">Made up of</th>
+                  <th scope="col" className="num">
+                    Length
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {formationList.map((f) => {
+                  const open = () => navigate(`/roster/trains/${encodeURIComponent(f.id)}`);
+                  return (
+                    <tr
+                      key={f.id}
+                      className="is-link"
+                      tabIndex={0}
+                      onClick={open}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") open();
+                      }}
+                    >
+                      <td>
+                        <div className="cell-title">{f.name}</div>
+                      </td>
+                      <td>{makeupText(f, trains)}</td>
+                      <td className="num">
+                        {f.vehicles.length ? lengthText(f.length) : <span className="faint">empty</span>}
+                        {f.unmeasured > 0 && <div className="cell-sub">{plural(f.unmeasured, "length")} not given</div>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+      {carList.length > 0 && (
+        <>
+          <h2 className="ros-heading">Cars</h2>
+          <div className="panel">
+            <table className="table table--rows ros-table">
+              <thead>
+                <tr>
+                  <th scope="col">Name</th>
+                  <th scope="col" className="ros-col-road">
+                    Road
+                  </th>
+                  <th scope="col">In train</th>
+                  <th scope="col" className="num">
+                    Length
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {carList.map((c) => {
+                  const open = () => navigate(`/roster/cars/${encodeURIComponent(c.id)}`);
+                  const holder = formationOf({ car: c.id }, formations);
+                  return (
+                    <tr
+                      key={c.id}
+                      className="is-link"
+                      tabIndex={0}
+                      onClick={open}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") open();
+                      }}
+                    >
+                      <td>
+                        <div className="cell-title">{c.name}</div>
+                        {(c.manufacturer || c.model) && <div className="cell-sub">{[c.manufacturer, c.model].filter(Boolean).join(" ")}</div>}
+                      </td>
+                      <td className="dim ros-col-road">{roadText(c)}</td>
+                      <td>{holder ? holder.name : <span className="faint">none</span>}</td>
+                      <td className="num">{c.length ? lengthText(c.length) : <span className="faint">not given</span>}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
       {consistList.length > 0 && (
         <>
           <h2 className="ros-heading">Consists</h2>
@@ -160,6 +274,85 @@ export function Roster() {
         </>
       )}
     </Page>
+  );
+}
+
+/** The form that adds a car with its length. */
+function AddCar({ onCancel }: { onCancel: () => void }) {
+  const navigate = useNavigate();
+  const [name, setName] = useState("");
+  const [length, setLength] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+
+  async function add(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(undefined);
+    try {
+      const c = await api.createCar({ name, length: Number(length) || 0 });
+      navigate(`/roster/cars/${encodeURIComponent(c.id)}`);
+    } catch (err) {
+      setError(describe(err));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form className="panel ros-add" onSubmit={(e) => void add(e)}>
+      <label className="auto-field">
+        <span>Name</span>
+        <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="NYCT 6402" autoFocus required />
+      </label>
+      <label className="auto-field">
+        <span>Length, mm</span>
+        <input className="input input--short" type="number" min={0} step="any" value={length} onChange={(e) => setLength(e.target.value)} />
+      </label>
+      <button className="btn btn--primary" type="submit" disabled={busy || !name.trim()}>
+        Add
+      </button>
+      <button className="btn btn--quiet" type="button" onClick={onCancel}>
+        Cancel
+      </button>
+      {error && <p className="field__error">{error}</p>}
+    </form>
+  );
+}
+
+/** The form that names a new train; its locomotives and cars are added on its page. */
+function MakeUpTrain({ onCancel }: { onCancel: () => void }) {
+  const navigate = useNavigate();
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+
+  async function add(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(undefined);
+    try {
+      const f = await api.createFormation({ name, vehicles: [] });
+      navigate(`/roster/trains/${encodeURIComponent(f.id)}`);
+    } catch (err) {
+      setError(describe(err));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form className="panel ros-add" onSubmit={(e) => void add(e)}>
+      <label className="auto-field">
+        <span>Name</span>
+        <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="6 local" autoFocus required />
+      </label>
+      <button className="btn btn--primary" type="submit" disabled={busy || !name.trim()}>
+        Make up
+      </button>
+      <button className="btn btn--quiet" type="button" onClick={onCancel}>
+        Cancel
+      </button>
+      {error && <p className="field__error">{error}</p>}
+    </form>
   );
 }
 

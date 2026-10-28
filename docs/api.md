@@ -25,10 +25,10 @@ is a server-sent event stream; the default is every topic. Events:
 | `entity` | entities | an entity that changed |
 | `event_names` | entities | `{"node": id}` when a node's named events changed |
 | `automation`, `trace` | automations | an automation's status; a run's trace as it moves |
-| `train`, `layout`, `cv`, `consist` | trains | a train; track power and emergency stop; a finished CV operation; a consist |
+| `train`, `layout`, `cv`, `consist`, `car`, `formation` | trains | a train; track power and emergency stop; a finished CV operation; a consist; a car; a made-up train, also when one of its locomotives or cars gets a new length |
 | `clock` | clock | the fast clock, on every change and fast minute |
 | `trackplan` | trackplan | the track plan, its revision and topology, after each save |
-| `tracked` | tracking | a tracked train, when it moves (a few times a second), is seen or is lost |
+| `tracked` | tracking | a tracked train, when it moves (a few times a second), is seen or is lost, or with `removed` when it is no longer followed |
 | `lagged` | | the client fell behind and missed events |
 
 ## Controller
@@ -155,11 +155,30 @@ PATCH  /api/v1/consists/{id}                 any of {name, members}; only the na
 DELETE /api/v1/consists/{id}                 only while it is apart
 POST   /api/v1/consists/{id}/make-up         put it together on the command station
 POST   /api/v1/consists/{id}/break-up        take it apart; the lead has to be stopped
+GET    /api/v1/cars                          {cars}
+POST   /api/v1/cars                          {name, road_name, road_number, manufacturer, model, comment, length}
+GET    /api/v1/cars/{id}
+PATCH  /api/v1/cars/{id}                     any of those fields
+DELETE /api/v1/cars/{id}                     also takes it out of its train
+GET    /api/v1/formations                    {formations}, each with its length
+POST   /api/v1/formations                    {name, comment, vehicles: [{locomotive | car, reverse}]}, the front first
+GET    /api/v1/formations/{id}
+PATCH  /api/v1/formations/{id}               any of {name, comment, vehicles}
+DELETE /api/v1/formations/{id}               its locomotives and cars stay in the roster
 GET    /api/v1/programming                   {track, history}
 POST   /api/v1/programming/find              look for the programming track
 POST   /api/v1/programming/read              {cv}
 POST   /api/v1/programming/write             {cv, value}
 ```
+
+A formation is a train made up of locomotives and cars, the web
+interface's **Trains** on the Roster page; `/trains` are the locomotives.
+Each vehicle names a `locomotive` (a roster entry's ID) or a `car`, and
+`reverse` for one turned around, its own front toward the train's rear.
+A locomotive or car is in one formation at most. A formation's `length`
+adds up its locomotives' and cars' lengths (millimeters over the
+couplers, `length` on each), and `unmeasured` counts those without one.
+Formation IDs never read as addresses.
 
 CV operations answer 200 with `ok` and, when it failed, `error` in plain
 words; 400 is for bad input. An import without `plan` changes nothing and
@@ -261,9 +280,12 @@ way. See [The track plan](./track-plan.md).
 GET    /api/v1/tracking                      {trains: [...]}
 ```
 
-Each train detectors have seen, by its address as an `id` (`101`, `3l`,
-`consist-12`): its `name` and the `roster` entries at the address, the
-`block` its decoder was last reported in and whether a detector `seen`
+Each train detectors have seen. A train made up in the roster has its
+formation's ID as its `id` and in `formation`; a locomotive in no train
+has its address (`101`, `3l`, `consist-12`). Each has its `name`, the
+`roster` entries of its locomotives, the `address` of the decoder it is
+followed by (the one last reported), the `block` that decoder was last
+reported in and whether a detector `seen`
 it now, whether tracking has `placed` it (knows where it is in its block
 and which way it faces), the `blocks` it is in with its front first, its
 `direction`, its estimated `speed` and measured `top_speed` in

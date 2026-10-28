@@ -37,6 +37,8 @@ import (
 //	train        train.Train        a train changed, was added or removed (topic "trains")
 //	layout       train.Layout       track power or emergency stop changed (topic "trains")
 //	consist      train.ConsistState a consist changed, was added or removed (topic "trains")
+//	car          train.CarState     a car changed, was added or removed (topic "trains")
+//	formation    train.FormationState a formation changed, was added or removed, or one of its locomotives or cars was given a new length (topic "trains")
 //	cv           programmer.Op      a CV operation finished (topic "trains")
 //	clock        clock.State        the fast clock changed or reached a minute (topic "clock")
 //	trackplan    trackplan.State    the track plan was saved (topic "trackplan")
@@ -109,6 +111,10 @@ func (a *API) events(w http.ResponseWriter, r *http.Request) {
 		defer unsubscribeLayout()
 		unsubscribeConsists := a.deps.Trains.SubscribeConsists(func(c train.ConsistState) { push(sseEvent{"consist", c}) })
 		defer unsubscribeConsists()
+		unsubscribeCars := a.deps.Trains.SubscribeCars(func(c train.CarState) { push(sseEvent{"car", c}) })
+		defer unsubscribeCars()
+		unsubscribeFormations := a.deps.Trains.SubscribeFormations(func(f train.FormationState) { push(sseEvent{"formation", f}) })
+		defer unsubscribeFormations()
 	}
 	if topics["trains"] && a.deps.Programmer != nil {
 		unsubscribe := a.deps.Programmer.Subscribe(func(op programmer.Op) { push(sseEvent{"cv", op}) })

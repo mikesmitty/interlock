@@ -10,7 +10,9 @@ import { Entities } from "./pages/Entities";
 import { Monitor } from "./pages/Monitor";
 import { NodeDetail } from "./pages/NodeDetail";
 import { Nodes } from "./pages/Nodes";
+import { CarPage } from "./pages/Car";
 import { ConsistPage } from "./pages/Consist";
+import { FormationPage } from "./pages/Formation";
 import { Locomotive } from "./pages/Locomotive";
 import { Programming } from "./pages/Programming";
 import { Roster } from "./pages/Roster";
@@ -97,6 +99,8 @@ export default function App() {
         <Route path="roster" element={<Roster />} />
         <Route path="roster/:id" element={<Locomotive />} />
         <Route path="roster/consists/:id" element={<ConsistPage />} />
+        <Route path="roster/cars/:id" element={<CarPage />} />
+        <Route path="roster/trains/:id" element={<FormationPage />} />
         <Route path="programming" element={<Programming />} />
         <Route path="programming/decoder" element={<DecoderSettings />} />
         <Route path="clock" element={<Clock />} />

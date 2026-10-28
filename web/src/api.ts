@@ -410,11 +410,14 @@ export interface TrackPlanState {
 
 /** A train as train tracking follows it from the detectors' reports. */
 export interface TrackedTrain {
-  /** Its address as the roster writes one: "101", "3l", "consist-12". */
+  /** The made-up train's ID, else the address of the locomotive running on its own: "101", "3l", "consist-12". */
   id: string;
   name: string;
+  /** The made-up train's ID; absent for a locomotive on its own. */
+  formation?: string;
+  /** The decoder it is followed by: the one a detector last reported. */
   address: { type: number; number: number };
-  /** The roster entries at the address. */
+  /** The train's locomotives in the roster. */
   roster?: string[];
   /** Where a detector last saw the decoder, and whether one sees it now. */
   block?: string;
@@ -434,6 +437,8 @@ export interface TrackedTrain {
   line?: Vec[];
   decoder?: Vec;
   updated?: string;
+  /** Set on the last update about a train no longer followed. */
+  removed?: boolean;
 }
 
 // Replacing a node: moving what names one node over to another.
@@ -612,10 +617,8 @@ export interface TrainEntry {
   model?: string;
   owner?: string;
   comment?: string;
-  /** The train's length from end to end in millimeters, for train tracking. */
+  /** The locomotive's length over its couplers in millimeters; the trains it is in add it up. */
   length?: number;
-  /** How far the car whose decoder the detectors see is from the front, in millimeters. */
-  decoder_at?: number;
   /** The decoders the locomotive has, fitted or not. */
   decoders?: RosterDecoder[];
   /** The ID of the decoder fitted now. */
@@ -813,6 +816,41 @@ export interface Consist {
   removed?: boolean;
 }
 
+/** A car in the roster: anything a train is made up of besides its locomotives. */
+export interface Car {
+  id: string;
+  name: string;
+  road_name?: string;
+  road_number?: string;
+  manufacturer?: string;
+  model?: string;
+  comment?: string;
+  /** Over its couplers, in millimeters. */
+  length?: number;
+  removed?: boolean;
+}
+
+/** One place in a made-up train: a locomotive (a roster entry's ID) or a car. */
+export interface Vehicle {
+  locomotive?: string;
+  car?: string;
+  /** Turned around, its own front toward the train's rear. */
+  reverse: boolean;
+}
+
+/** A train made up of locomotives and cars, from its front. The API calls
+ * it a formation, since /trains are the locomotives. */
+export interface Formation {
+  id: string;
+  name: string;
+  comment?: string;
+  vehicles: Vehicle[];
+  /** Its locomotives' and cars' lengths added up, and how many have none given. */
+  length: number;
+  unmeasured: number;
+  removed?: boolean;
+}
+
 export interface FoundTrain {
   id: string;
   name: string;
@@ -979,6 +1017,8 @@ const nodePath = (id: string) => `/api/v1/nodes/${encodeURIComponent(id)}`;
 const automationPath = (id: string) => `/api/v1/automations/${encodeURIComponent(id)}`;
 const trainPath = (id: string) => `/api/v1/trains/${encodeURIComponent(id)}`;
 const consistPath = (id: string) => `/api/v1/consists/${encodeURIComponent(id)}`;
+const carPath = (id: string) => `/api/v1/cars/${encodeURIComponent(id)}`;
+const formationPath = (id: string) => `/api/v1/formations/${encodeURIComponent(id)}`;
 
 export const api = {
   health: () => request<Health>("/api/v1/health"),
@@ -1125,6 +1165,16 @@ export const api = {
     request<Consist>(consistPath(id), { method: "PATCH", body: JSON.stringify(change) }),
   deleteConsist: (id: string) => request<void>(consistPath(id), { method: "DELETE" }),
   makeUpConsist: (id: string) => request<Consist>(`${consistPath(id)}/make-up`, { method: "POST" }),
+  cars: () => request<{ cars: Car[] }>("/api/v1/cars"),
+  createCar: (c: Partial<Car>) => request<Car>("/api/v1/cars", { method: "POST", body: JSON.stringify(c) }),
+  updateCar: (id: string, change: Partial<Car>) => request<Car>(carPath(id), { method: "PATCH", body: JSON.stringify(change) }),
+  deleteCar: (id: string) => request<void>(carPath(id), { method: "DELETE" }),
+  formations: () => request<{ formations: Formation[] }>("/api/v1/formations"),
+  createFormation: (f: Pick<Formation, "name" | "vehicles"> & Partial<Pick<Formation, "comment">>) =>
+    request<Formation>("/api/v1/formations", { method: "POST", body: JSON.stringify(f) }),
+  updateFormation: (id: string, change: Partial<Pick<Formation, "name" | "comment" | "vehicles">>) =>
+    request<Formation>(formationPath(id), { method: "PATCH", body: JSON.stringify(change) }),
+  deleteFormation: (id: string) => request<void>(formationPath(id), { method: "DELETE" }),
   breakUpConsist: (id: string) => request<Consist>(`${consistPath(id)}/break-up`, { method: "POST" }),
   searchTrains: (query: string) =>
     request<{ trains: FoundTrain[] }>("/api/v1/trains/search", {

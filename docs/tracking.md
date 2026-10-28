@@ -12,12 +12,13 @@ this.
   canbus-outpost's tracks, report the address of a decoder in their
   block. Link each block to its reporter on the Track page (see
   [Blocks](./track-plan.md#blocks)).
-- **The train's length**, on its page in the [roster](./roster.md):
-  the **Train length** from end to end, and **Decoder from the front**,
-  how far the car with the decoder is from the front. The front is the
-  end that leads going forward. A detector sees only the car with the
-  decoder, so these two say where the rest of the train is. A train
-  without a length is drawn as a dot at its decoder.
+- **The train, made up in the [roster](./roster.md)**: its locomotives
+  and cars in order from the front, each with its length. A detector
+  sees only a locomotive's decoder, so the train's length and where that
+  locomotive is in it say where the rest of the train is. Tracking takes
+  the decoder to be at the middle of its locomotive. A locomotive in no
+  train is followed on its own, at its own length, and one without a
+  length is drawn as a dot at its decoder.
 - **The decoder's momentum.** Read CVs 3 and 4 (and 2, 5 and 6 for its
   speed curve) on the [Programming](./decoders.md) page, so tracking
   slows and speeds the train up as its decoder does. Without them it
@@ -33,7 +34,9 @@ this.
    block, tracking knows where it entered and which way it was going.
    It lays the train out behind or ahead of the decoder along the track
    it came by, following the turnouts as they are set. Going forward
-   the front leads; in reverse the rear does.
+   the front leads; in reverse the rear does. A locomotive facing
+   backward in its train runs the train backward when its throttle goes
+   forward.
 3. **Between blocks.** The train runs on at the speed it is set to,
    through its decoder's speed curve and momentum, so its place moves
    smoothly. It never passes into the next detected block before a
@@ -51,6 +54,14 @@ the detectors.
 A train keeps its place when Interlock restarts, and stays there while
 no detector sees it. A train that stops between blocks, or on a
 detector that drops out for a moment, is still known.
+
+When a train is made up again in the roster, a car swapped or a
+locomotive measured, tracking lays it out again around its decoder,
+which stays where it was. A locomotive put into a train becomes that
+train. In a train with more than one locomotive, tracking follows the
+decoder a detector last reported and takes the speed that decoder is
+set to. Two RailCom decoders in one block talk over each other, so let
+only one of them send its address (CV 28 bit 0 off on the others).
 
 ## On the Track page
 
@@ -74,6 +85,7 @@ the front or rear of a train reaches into.
 
 ## Trying it without hardware
 
-The [simulated layout](./getting-started.md#a-simulated-layout) gives its
-trains their lengths and fits each with a decoder whose CVs are on
-record, so tracking can be watched on its test layout.
+The [simulated layout](./getting-started.md#a-simulated-layout) puts its
+trains in the roster as a motor car and cars, made up into a train, and
+fits each motor car with a decoder whose CVs are on record, so tracking
+can be watched on its test layout.

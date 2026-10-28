@@ -5,7 +5,9 @@ import {
   api,
   type AutomationStatus,
   type ClockState,
+  type Car,
   type Consist,
+  type Formation,
   type Entity,
   type EventName,
   type FirmwareJob,
@@ -41,6 +43,9 @@ export interface BusState {
   liveTraces: Trace[];
   trains: Record<string, Train>;
   consists: Record<string, Consist>;
+  cars: Record<string, Car>;
+  /** The trains made up of locomotives and cars, by ID. */
+  formations: Record<string, Formation>;
   layout: LayoutState;
   /** The latest firmware upgrade of each node, by node ID. */
   firmware: Record<string, FirmwareJob>;
@@ -82,6 +87,8 @@ class BusStore {
     liveTraces: [],
     trains: {},
     consists: {},
+    cars: {},
+    formations: {},
     layout: { power_off: false, power_known: false, emergency_stop: false },
     firmware: {},
     tracked: {},
@@ -131,7 +138,10 @@ class BusStore {
     });
     es.addEventListener("tracked", (ev) => {
       const t = JSON.parse((ev as MessageEvent<string>).data) as TrackedTrain;
-      this.set({ tracked: { ...this.state.tracked, [t.id]: t } });
+      const tracked = { ...this.state.tracked };
+      if (t.removed) delete tracked[t.id];
+      else tracked[t.id] = t;
+      this.set({ tracked });
     });
     es.addEventListener("clock", (ev) => {
       this.set({ clock: JSON.parse((ev as MessageEvent<string>).data) as ClockState });
@@ -196,6 +206,20 @@ class BusStore {
       else consists[consist.id] = consist;
       this.set({ consists });
     });
+    es.addEventListener("car", (ev) => {
+      const car = JSON.parse((ev as MessageEvent<string>).data) as Car;
+      const cars = { ...this.state.cars };
+      if (car.removed) delete cars[car.id];
+      else cars[car.id] = car;
+      this.set({ cars });
+    });
+    es.addEventListener("formation", (ev) => {
+      const f = JSON.parse((ev as MessageEvent<string>).data) as Formation;
+      const formations = { ...this.state.formations };
+      if (f.removed) delete formations[f.id];
+      else formations[f.id] = f;
+      this.set({ formations });
+    });
     es.addEventListener("layout", (ev) => {
       this.set({
         layout: JSON.parse((ev as MessageEvent<string>).data) as LayoutState,
@@ -236,6 +260,12 @@ class BusStore {
       const clock = await api.clock().catch(() => undefined);
       const trackPlan = await api.trackPlan().catch(() => undefined);
       const trackingResponse = await api.tracking().catch(() => ({ trains: [] as TrackedTrain[] }));
+      const carsResponse = await api.cars().catch(() => ({ cars: [] as Car[] }));
+      const formationsResponse = await api.formations().catch(() => ({ formations: [] as Formation[] }));
+      const cars: Record<string, Car> = {};
+      for (const c of carsResponse.cars) cars[c.id] = c;
+      const formations: Record<string, Formation> = {};
+      for (const f of formationsResponse.formations) formations[f.id] = f;
       const tracked: Record<string, TrackedTrain> = {};
       for (const t of trackingResponse.trains) tracked[t.id] = t;
       const firmware: Record<string, FirmwareJob> = {};
@@ -264,6 +294,8 @@ class BusStore {
         automations,
         trains,
         consists,
+        cars,
+        formations,
         layout: trainsResponse.layout,
         firmware,
         clock,
