@@ -408,6 +408,34 @@ export interface TrackPlanState {
   topology: TrackTopology;
 }
 
+/** A train as train tracking follows it from the detectors' reports. */
+export interface TrackedTrain {
+  /** Its address as the roster writes one: "101", "3l", "consist-12". */
+  id: string;
+  name: string;
+  address: { type: number; number: number };
+  /** The roster entries at the address. */
+  roster?: string[];
+  /** Where a detector last saw the decoder, and whether one sees it now. */
+  block?: string;
+  seen: boolean;
+  /** Whether tracking knows where in its block it is and which way it faces. */
+  placed: boolean;
+  /** The blocks it is in, its front first. */
+  blocks: string[];
+  direction: Direction;
+  /** Its speed by the estimate and its measured top speed, in mm/s; 0 until measured. */
+  speed: number;
+  top_speed?: number;
+  length?: number;
+  /** Whether its decoder's momentum (CVs 3 and 4) is on record. */
+  momentum: boolean;
+  /** Where it is on the plan, rear to front, and where its decoder is. */
+  line?: Vec[];
+  decoder?: Vec;
+  updated?: string;
+}
+
 // Replacing a node: moving what names one node over to another.
 
 export interface ReplaceChange {
@@ -584,6 +612,10 @@ export interface TrainEntry {
   model?: string;
   owner?: string;
   comment?: string;
+  /** The train's length from end to end in millimeters, for train tracking. */
+  length?: number;
+  /** How far the car whose decoder the detectors see is from the front, in millimeters. */
+  decoder_at?: number;
   /** The decoders the locomotive has, fitted or not. */
   decoders?: RosterDecoder[];
   /** The ID of the decoder fitted now. */
@@ -1028,6 +1060,7 @@ export const api = {
     }),
   refreshEntities: () => request<{ status: string }>("/api/v1/entities/refresh", { method: "POST" }),
   trackPlan: () => request<TrackPlanState>("/api/v1/trackplan"),
+  tracking: () => request<{ trains: TrackedTrain[] }>("/api/v1/tracking"),
   saveTrackPlan: (plan: TrackPlan, revision: string) =>
     request<TrackPlanState>("/api/v1/trackplan", { method: "PUT", body: JSON.stringify({ plan, revision }) }),
   uploadBackground: (file: File) => upload<{ image: string }>("/api/v1/trackplan/backgrounds", "file", file),

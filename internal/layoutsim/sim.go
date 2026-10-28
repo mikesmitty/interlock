@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/mikesmitty/interlock/internal/trackplan"
+	"github.com/mikesmitty/interlock/internal/train"
 	"github.com/mikesmitty/interlock/openlcb"
 	"github.com/mikesmitty/interlock/openlcb/detector"
 	"github.com/mikesmitty/interlock/openlcb/sim"
@@ -83,9 +84,9 @@ func (s TrainSpec) locomotive() detector.Address {
 	return detector.Address{Type: detector.Short, Number: s.Address}
 }
 
-type train struct {
+type running struct {
 	spec TrainSpec
-	path path
+	path trackplan.Stretch
 	// step is the speed step the decoder has reached on the way to the
 	// one it is set to, negative in reverse.
 	step float64
@@ -121,7 +122,7 @@ type Sim struct {
 	revision  string
 	net       *trackplan.Network
 	blocks    map[string]detectorKey
-	trains    []*train
+	trains    []*running
 	detectors map[detectorKey]*detectorState
 	started   time.Time
 }
@@ -134,7 +135,7 @@ func New(hw Hardware, trains []TrainSpec, log *slog.Logger) *Sim {
 	}
 	s := &Sim{hw: hw, log: log, detectors: map[detectorKey]*detectorState{}}
 	for _, spec := range trains {
-		s.trains = append(s.trains, &train{spec: spec})
+		s.trains = append(s.trains, &running{spec: spec})
 	}
 	return s
 }
@@ -176,7 +177,7 @@ func (s *Sim) SetPlan(plan trackplan.Plan, revision string) {
 		}
 	}
 	for _, t := range s.trains {
-		if t.path.valid(s.net) {
+		if t.path.Valid(s.net) {
 			continue
 		}
 		if err := s.place(t); err != nil {
@@ -188,7 +189,7 @@ func (s *Sim) SetPlan(plan trackplan.Plan, revision string) {
 
 // place puts a train where its spec says it starts. The caller holds
 // s.mu.
-func (s *Sim) place(t *train) error {
+func (s *Sim) place(t *running) error {
 	legs := s.net.Legs(t.spec.Block)
 	if len(legs) == 0 {
 		return fmt.Errorf("block %q has no track", t.spec.Block)
@@ -197,15 +198,15 @@ func (s *Sim) place(t *train) error {
 	if t.spec.Reverse {
 		leg = leg.Reversed()
 	}
-	p, moved, _ := path{{Leg: leg}}.grow(s.net, t.spec.Length, s.position)
+	p, moved, _ := trackplan.Stretch{{Leg: leg}}.Grow(s.net, t.spec.Length, s.position)
 	if moved < t.spec.Length {
 		// Too long for the track ahead: back it up into the track
 		// behind.
-		back, _, err := p.reversed(s.net).grow(s.net, t.spec.Length-moved, s.position)
+		back, _, err := p.Reversed(s.net).Grow(s.net, t.spec.Length-moved, s.position)
 		if err != nil {
 			return fmt.Errorf("no room for %.0f mm: %w", t.spec.Length, err)
 		}
-		p = back.reversed(s.net)
+		p = back.Reversed(s.net)
 	}
 	t.path, t.step, t.stopped = p, 0, ""
 	s.log.Info("sim: train placed", "train", t.spec.Name, "block", t.spec.Block)
@@ -256,7 +257,7 @@ func (s *Sim) Step(now time.Time, dt time.Duration) {
 			if d.Speed.Reverse {
 				target = -target
 			}
-			t.step = momentum(t.step, target, dt.Seconds(), d.CVs[3], d.CVs[4])
+			t.step = train.Momentum(t.step, target, dt.Seconds(), d.CVs[3], d.CVs[4])
 		}
 		dist := speed(math.Abs(t.step), d.CVs, t.spec.TopSpeed) * dt.Seconds()
 		if dist > 0 {
@@ -268,17 +269,17 @@ func (s *Sim) Step(now time.Time, dt time.Duration) {
 
 // move carries a train dist millimeters, toward its B end when back.
 // The caller holds s.mu.
-func (s *Sim) move(t *train, dist float64, back bool) {
+func (s *Sim) move(t *running, dist float64, back bool) {
 	p := t.path
 	if back {
-		p = p.reversed(s.net)
+		p = p.Reversed(s.net)
 	}
-	p, _, err := p.advance(s.net, dist, s.position)
+	p, _, err := p.Advance(s.net, dist, s.position)
 	if back {
-		p = p.reversed(s.net)
+		p = p.Reversed(s.net)
 	}
 	for _, o := range s.trains {
-		if o != t && o.path != nil && p.overlaps(s.net, o.path) {
+		if o != t && o.path != nil && p.Overlaps(s.net, o.path) {
 			s.stop(t, "ran into "+o.spec.Name)
 			return
 		}
@@ -291,7 +292,7 @@ func (s *Sim) move(t *train, dist float64, back bool) {
 	t.stopped = ""
 }
 
-func (s *Sim) stop(t *train, why string) {
+func (s *Sim) stop(t *running, why string) {
 	if t.stopped != why {
 		t.stopped = why
 		s.log.Warn("sim: train stopped", "train", t.spec.Name, "why", why)
@@ -300,12 +301,12 @@ func (s *Sim) stop(t *train, why string) {
 
 // detect reports what each detector sees. The caller holds s.mu.
 func (s *Sim) detect(now time.Time) {
-	present := map[detectorKey][]*train{}
+	present := map[detectorKey][]*running{}
 	for _, t := range s.trains {
 		if t.path == nil {
 			continue
 		}
-		leg, _ := t.path.back(t.spec.Decoder)
+		leg, _ := t.path.Back(t.spec.Decoder)
 		block := s.net.Block(leg)
 		if block != t.block {
 			t.block = block
@@ -370,67 +371,18 @@ func (s *Sim) blockKeys() []detectorKey {
 // facing is the way a train's A end faces where its decoder is: east
 // when it faces the way the track there runs from its A point to its B
 // point (a junction route from its first end to its last).
-func facing(t *train) string {
-	leg, _ := t.path.back(t.spec.Decoder)
+func facing(t *running) string {
+	leg, _ := t.path.Back(t.spec.Decoder)
 	if leg.Reverse {
 		return "west"
 	}
 	return "east"
 }
 
-// momentum is the speed step a decoder reaches after dt seconds on its
-// way from step to target, at the rates its acceleration (CV 3) and
-// deceleration (CV 4) give: CV × 0.896 s divided by 128 steps for each
-// step, as S-9.2.2 has it. Going the other way it slows to a stop first.
-func momentum(step, target, dt float64, cv3, cv4 byte) float64 {
-	rate := func(cv byte) float64 {
-		if cv == 0 {
-			return math.Inf(1)
-		}
-		return 128 / (float64(cv) * 0.896)
-	}
-	if step != 0 && target != 0 && (step < 0) != (target < 0) {
-		target = 0
-	}
-	if math.Abs(target) > math.Abs(step) {
-		change := rate(cv3) * dt
-		if math.Abs(target-step) <= change {
-			return target
-		}
-		return step + math.Copysign(change, target)
-	}
-	change := rate(cv4) * dt
-	if math.Abs(target-step) <= change {
-		return target
-	}
-	return step - math.Copysign(change, step)
-}
-
 // speed is how fast a train goes at a speed step, in millimeters a
-// second: its decoder's speed table from the start, middle and top
-// voltages (CVs 2, 6 and 5, out of 255) over the 126 steps, scaled to
-// the train's top speed.
+// second: its decoder's speed curve scaled to the train's top speed.
 func speed(step float64, cvs map[uint16]byte, top float64) float64 {
-	if step < 0.5 {
-		return 0
-	}
-	step = min(step, 126)
-	vStart, vHigh := float64(cvs[2]), float64(cvs[5])
-	if vHigh <= 1 {
-		vHigh = 255
-	}
-	vMid := float64(cvs[6])
-	if vMid <= 1 || vMid > vHigh {
-		vMid = (vStart + vHigh) / 2
-	}
-	u := (max(step, 1) - 1) / 125
-	var v float64
-	if u <= 0.5 {
-		v = vStart + (vMid-vStart)*u*2
-	} else {
-		v = vMid + (vHigh-vMid)*(u-0.5)*2
-	}
-	return v / 255 * top
+	return train.SpeedCurve(step, cvs[2], cvs[6], cvs[5]) * top
 }
 
 // parseEntity reads a profile entity ID such as
@@ -452,6 +404,29 @@ func parseEntity(id, prefix string) (openlcb.NodeID, int, bool) {
 	return openlcb.NodeID(node), n - 1, true
 }
 
+// Position is where a simulated train really is.
+type Position struct {
+	// Stretch is the track it covers from its B end to its A end, the end
+	// that leads going forward.
+	Stretch trackplan.Stretch
+	// Block is the block its decoder is in.
+	Block string
+}
+
+// Position returns where the train at an address really is, to check
+// what Interlock makes of the detectors' reports against.
+func (s *Sim) Position(address uint16) (Position, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, t := range s.trains {
+		if t.spec.Address == address && t.path != nil {
+			leg, _ := t.path.Back(t.spec.Decoder)
+			return Position{Stretch: append(trackplan.Stretch(nil), t.path...), Block: s.net.Block(leg)}, true
+		}
+	}
+	return Position{}, false
+}
+
 // State is where the trains are, to carry them over a restart.
 type State struct {
 	Trains []TrainState `json:"trains"`
@@ -459,9 +434,9 @@ type State struct {
 
 // TrainState is one train's place and speed step.
 type TrainState struct {
-	Address uint16  `json:"address"`
-	Path    path    `json:"path"`
-	Step    float64 `json:"step"`
+	Address uint16            `json:"address"`
+	Path    trackplan.Stretch `json:"path"`
+	Step    float64           `json:"step"`
 }
 
 // State returns where the trains are now.
@@ -471,7 +446,7 @@ func (s *Sim) State() State {
 	st := State{Trains: []TrainState{}}
 	for _, t := range s.trains {
 		if t.path != nil {
-			st.Trains = append(st.Trains, TrainState{Address: t.spec.Address, Path: append(path(nil), t.path...), Step: t.step})
+			st.Trains = append(st.Trains, TrainState{Address: t.spec.Address, Path: append(trackplan.Stretch(nil), t.path...), Step: t.step})
 		}
 	}
 	return st

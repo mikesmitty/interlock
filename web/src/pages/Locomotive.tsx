@@ -81,6 +81,8 @@ function Details({ train: t }: { train: Train }) {
     model: t.model ?? "",
     owner: t.owner ?? "",
     comment: t.comment ?? "",
+    length: t.length ? String(t.length) : "",
+    decoder_at: t.decoder_at ? String(t.decoder_at) : "",
   });
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string>();
@@ -92,7 +94,7 @@ function Details({ train: t }: { train: Train }) {
     setBusy(true);
     setMessage(undefined);
     try {
-      const saved = await api.updateTrain(t.id, { ...f, address: n, long: n > 127 || f.long });
+      const saved = await api.updateTrain(t.id, { ...f, address: n, long: n > 127 || f.long, length: Number(f.length) || 0, decoder_at: Number(f.decoder_at) || 0 });
       setMessage("Saved.");
       if (saved.id !== t.id) navigate(`/roster/${encodeURIComponent(saved.id)}`, { replace: true });
     } catch (err) {
@@ -144,6 +146,19 @@ function Details({ train: t }: { train: Train }) {
           <input className="input" value={f.owner} onChange={set("owner")} />
         </label>
       </div>
+      <div className="ros-fields">
+        <label className="auto-field">
+          <span>Train length, mm</span>
+          <input className="input input--short" type="number" min={0} step="any" value={f.length} onChange={set("length")} />
+        </label>
+        <label className="auto-field">
+          <span>Decoder from the front, mm</span>
+          <input className="input input--short" type="number" min={0} max={Number(f.length) || undefined} step="any" value={f.decoder_at} onChange={set("decoder_at")} />
+        </label>
+      </div>
+      <p className="thr-note">
+        For train tracking. The detectors see only the car with the decoder in it, so the train's length and how far that car is from the front (the end that leads going forward) say where the rest of the train is.
+      </p>
       <label className="auto-field">
         <span>Notes</span>
         <textarea className="input ros-notes" rows={3} value={f.comment} onChange={set("comment")} />

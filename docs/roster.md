@@ -4,6 +4,14 @@ The Roster page lists your locomotives. Each one has a name, the DCC
 address the throttle drives, function labels, what the locomotive is (road
 name and number, manufacturer, model, owner, notes) and its decoders.
 
+## Train length
+
+**Train length** and **Decoder from the front**, in millimeters, are for
+[train tracking](./tracking.md): the train's length from end to end, and
+how far the car with the decoder is from the front, the end that leads
+going forward. RailCom detectors see only that car, so these say where
+the rest of the train is.
+
 ## Decoders
 
 A locomotive can have more than one decoder: the one fitted now, and any

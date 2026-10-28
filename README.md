@@ -48,7 +48,8 @@ go run ./cmd/simnode -make-firmware outpost-2.0.0.bin -firmware-version 2.0.0   
 
 `go run ./cmd/simlayout` instead simulates a whole layout, trains running
 on the track plan included, for an Interlock of its own (see
-[Getting started](docs/getting-started.md#a-simulated-layout)).
+[Getting started](docs/getting-started.md#a-simulated-layout)), and
+[train tracking](docs/tracking.md) follows them.
 
 Open http://localhost:8080 to see the node appear, then watch the monitor.
 

@@ -16,6 +16,7 @@ import {
   type NodeInfo,
   type Trace,
   type TrackPlanState,
+  type TrackedTrain,
   type Train,
 } from "./api";
 
@@ -47,6 +48,8 @@ export interface BusState {
   clock?: ClockState;
   /** The track plan as last saved. */
   trackPlan?: TrackPlanState;
+  /** The trains train tracking follows, by ID. */
+  tracked: Record<string, TrackedTrain>;
 }
 
 const MAX_LIVE_TRACES = 50;
@@ -81,6 +84,7 @@ class BusStore {
     consists: {},
     layout: { power_off: false, power_known: false, emergency_stop: false },
     firmware: {},
+    tracked: {},
   };
   private listeners = new Set<Listener>();
   private source?: EventSource;
@@ -124,6 +128,10 @@ class BusStore {
     });
     es.addEventListener("trackplan", (ev) => {
       this.set({ trackPlan: JSON.parse((ev as MessageEvent<string>).data) as TrackPlanState });
+    });
+    es.addEventListener("tracked", (ev) => {
+      const t = JSON.parse((ev as MessageEvent<string>).data) as TrackedTrain;
+      this.set({ tracked: { ...this.state.tracked, [t.id]: t } });
     });
     es.addEventListener("clock", (ev) => {
       this.set({ clock: JSON.parse((ev as MessageEvent<string>).data) as ClockState });
@@ -227,6 +235,9 @@ class BusStore {
       ]);
       const clock = await api.clock().catch(() => undefined);
       const trackPlan = await api.trackPlan().catch(() => undefined);
+      const trackingResponse = await api.tracking().catch(() => ({ trains: [] as TrackedTrain[] }));
+      const tracked: Record<string, TrackedTrain> = {};
+      for (const t of trackingResponse.trains) tracked[t.id] = t;
       const firmware: Record<string, FirmwareJob> = {};
       for (const j of firmwareJobs) firmware[j.node] = j;
       const trains: Record<string, Train> = {};
@@ -257,6 +268,7 @@ class BusStore {
         firmware,
         clock,
         trackPlan,
+        tracked,
         entries,
         lastSeq: Math.max(this.state.lastSeq, backlog.last_seq),
         lagged: false,

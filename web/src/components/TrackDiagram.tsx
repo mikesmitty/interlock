@@ -1,5 +1,6 @@
 import { type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type RefObject, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { type Entity, type PlanJunction, type PlanTrack, type TrackBackground, type TrackBlock, type TrackPlan, type Vec, backgroundURL } from "../api";
+import { type Entity, type PlanJunction, type PlanTrack, type TrackBackground, type TrackBlock, type TrackPlan, type TrackedTrain, type Train, type Vec, backgroundURL } from "../api";
+import { leadArrow, lineMiddle, locomotiveName } from "../tracking";
 import { type Bounds, type ElementKind, type ElementRef, KINDS, type PlanIndex, add, arcInfo, corners, junctionCenter, outward, routePath, sameRef, scale, trackMiddle, trackPath, unit } from "../trackgeom";
 import { type View, fitView, panBy, pinchView, toPlan, viewBounds, zoomAt, zoomBy } from "../trackview";
 
@@ -42,6 +43,12 @@ interface DiagramProps {
   onPointerLeave?: () => void;
   /** Clicking a linked turnout or crossover while operating. */
   onTurnout?: (j: PlanJunction) => void;
+  /** The trains train tracking follows, drawn where they are while
+   * operating; without them the trains are named in the blocks their
+   * detectors see them in. */
+  tracked?: TrackedTrain[];
+  /** The roster, for the names of the locomotives detectors report. */
+  trains?: Record<string, Train>;
 }
 
 /** Line widths in pixels, whatever the zoom. */
@@ -75,10 +82,17 @@ function toneOf(blockID: string | undefined, blocks: Map<string, TrackBlock>, en
   return "unknown";
 }
 
-/** The locomotives a block's reporter sees, by name. */
-export function trainsIn(block: TrackBlock | undefined, entities: Record<string, Entity>): string[] {
+/** The locomotives a block's reporter sees, by their roster names. */
+export function trainsIn(block: TrackBlock | undefined, entities: Record<string, Entity>, trains: Record<string, Train> = {}): string[] {
   const rep = block?.reporter ? entities[block.reporter] : undefined;
-  return rep?.locomotives?.map((l) => l.name) ?? [];
+  return rep?.locomotives?.map((l) => locomotiveName(l, trains)) ?? [];
+}
+
+/** A tracked train's tooltip: where it is and how it goes. */
+export function trainTitle(t: TrackedTrain, blocks: Map<string, TrackBlock>): string {
+  const where = t.blocks.map((b) => blocks.get(b)?.name ?? b).join(", ");
+  const going = t.speed > 0 ? `, going ${t.direction} at ${Math.round(t.speed)} mm/s` : "";
+  return `${t.name}: ${where || "not in a block"}${going}${t.seen ? "" : " (not seen just now)"}`;
 }
 
 /** What is drawn at a place on the screen, from its data attributes. */
@@ -381,7 +395,7 @@ function useNavigation(props: DiagramProps, svgRef: RefObject<SVGSVGElement | nu
 /** The track diagram: track, platforms and labels to scale, lit by the
  * layout's state. */
 export function TrackDiagram(props: DiagramProps) {
-  const { plan, index, editing = false, entities, activeBlock, hiddenLayers } = props;
+  const { plan, index, editing = false, entities, activeBlock, hiddenLayers, tracked } = props;
   const svgRef = useRef<SVGSVGElement>(null);
   const nav = useNavigation(props, svgRef);
 
@@ -426,9 +440,16 @@ export function TrackDiagram(props: DiagramProps) {
     if (!at) continue;
     if (editing) tags.push({ id, at, text: block?.name ?? id, train: false });
     else {
-      const trains = trainsIn(block, entities);
-      if (trains.length > 0) tags.push({ id, at, text: trains.join(", "), train: true });
+      // A tracked train is named where it is; one whose place in its
+      // block isn't known yet, in its block.
+      const names = tracked ? tracked.filter((t) => !t.line?.length && t.block === id).map((t) => t.name) : trainsIn(block, entities, props.trains);
+      if (names.length > 0) tags.push({ id, at, text: names.join(", "), train: true });
     }
+  }
+  const placed = editing ? [] : (tracked ?? []).filter((t) => t.line?.length);
+  for (const t of placed) {
+    const at = lineMiddle(t.line!);
+    if (at) tags.push({ id: `train-${t.id}`, at, text: t.name, train: true });
   }
 
   const bumpers = plan.points.filter((p) => p.bumper && index.at.get(p.id)?.length === 1);
@@ -543,6 +564,22 @@ export function TrackDiagram(props: DiagramProps) {
           const a = add(p, across);
           const b = add(p, scale(across, -1));
           return <path key={p.id} d={`M${a.x} ${a.y}L${b.x} ${b.y}`} stroke="var(--ivory-dim)" vectorEffect="non-scaling-stroke" />;
+        })}
+      </g>
+
+      <g className="trk-trains">
+        {placed.map((t) => {
+          const points = t.line!.map((p) => `${p.x},${p.y}`).join(" ");
+          const arrow = leadArrow(t, px(14));
+          return (
+            <g key={t.id} className={t.seen ? "trk-trainline" : "trk-trainline trk-trainline--lost"}>
+              <title>{trainTitle(t, blocks)}</title>
+              <polyline className="trk-trainline__edge" points={points} strokeWidth={9} vectorEffect="non-scaling-stroke" />
+              <polyline className="trk-trainline__body" points={points} strokeWidth={5} vectorEffect="non-scaling-stroke" />
+              {arrow && <polygon className="trk-trainline__lead" points={arrow.map((p) => `${p.x},${p.y}`).join(" ")} />}
+              {t.decoder && <circle className="trk-trainline__decoder" cx={t.decoder.x} cy={t.decoder.y} r={px(2.5)} />}
+            </g>
+          );
         })}
       </g>
 

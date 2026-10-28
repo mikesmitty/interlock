@@ -16,6 +16,7 @@ import (
 	"github.com/mikesmitty/interlock/internal/monitor"
 	"github.com/mikesmitty/interlock/internal/programmer"
 	"github.com/mikesmitty/interlock/internal/registry"
+	"github.com/mikesmitty/interlock/internal/tracking"
 	"github.com/mikesmitty/interlock/internal/trackplan"
 	"github.com/mikesmitty/interlock/internal/train"
 	"github.com/mikesmitty/interlock/openlcb"
@@ -39,11 +40,12 @@ import (
 //	cv           programmer.Op      a CV operation finished (topic "trains")
 //	clock        clock.State        the fast clock changed or reached a minute (topic "clock")
 //	trackplan    trackplan.State    the track plan was saved (topic "trackplan")
+//	tracked      tracking.Train     a tracked train moved, was seen or was lost (topic "tracking")
 //	lagged       {}                 the client fell behind and entries were skipped
 //
 // The topics query parameter selects a comma separated subset of
-// nodes, links, monitor, entities, automations, trains, clock and
-// trackplan; the default is all of them.
+// nodes, links, monitor, entities, automations, trains, clock,
+// trackplan and tracking; the default is all of them.
 
 const (
 	sseQueue     = 1024
@@ -61,7 +63,7 @@ func (a *API) events(w http.ResponseWriter, r *http.Request) {
 	flush := func() bool {
 		return rc.Flush() == nil
 	}
-	topics := map[string]bool{"nodes": true, "links": true, "monitor": true, "entities": true, "automations": true, "trains": true, "clock": true, "trackplan": true}
+	topics := map[string]bool{"nodes": true, "links": true, "monitor": true, "entities": true, "automations": true, "trains": true, "clock": true, "trackplan": true, "tracking": true}
 	if s := r.URL.Query().Get("topics"); s != "" {
 		topics = map[string]bool{}
 		for _, t := range strings.Split(s, ",") {
@@ -118,6 +120,10 @@ func (a *API) events(w http.ResponseWriter, r *http.Request) {
 	}
 	if topics["trackplan"] && a.deps.TrackPlan != nil {
 		unsubscribe := a.deps.TrackPlan.Subscribe(func(st trackplan.State) { push(sseEvent{"trackplan", st}) })
+		defer unsubscribe()
+	}
+	if topics["tracking"] && a.deps.Tracking != nil {
+		unsubscribe := a.deps.Tracking.Subscribe(func(t tracking.Train) { push(sseEvent{"tracked", t}) })
 		defer unsubscribe()
 	}
 	if topics["entities"] && a.deps.EventNames != nil {

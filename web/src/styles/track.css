@@ -351,3 +351,35 @@
 .trk-layer > input[type="checkbox"] {
   margin-bottom: 0.6rem;
 }
+
+/* A tracked train on its track: a lit bar outlined so it shows on clear
+   and occupied track alike, its leading end pointed, its decoder (the
+   car the detectors see) dotted. */
+.trk-trainline polyline {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.trk-trainline__edge {
+  stroke: var(--enamel-deep);
+}
+
+.trk-trainline__body {
+  stroke: var(--ivory);
+}
+
+.trk-trainline__lead {
+  fill: var(--ivory);
+  stroke: var(--enamel-deep);
+  stroke-width: 1.5px;
+  vector-effect: non-scaling-stroke;
+}
+
+.trk-trainline__decoder {
+  fill: var(--lamp-red);
+}
+
+.trk-trainline--lost {
+  opacity: 0.55;
+}

@@ -2,6 +2,8 @@ import { useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { api, type Entity } from "../api";
 import { relativeTime, useNow } from "../format";
+import { useBus } from "../store";
+import { locomotiveName } from "../tracking";
 import { Lamp, type LampColor } from "./Lamp";
 
 export interface LampState {
@@ -82,6 +84,7 @@ function Lever({ entity, busy, onCommand }: { entity: Entity; busy: boolean; onC
 
 /** What a reporter sees, or when the entity last changed. */
 function Detail({ e, now }: { e: Entity; now: number }) {
+  const { trains } = useBus();
   if (e.kind === "reporter") {
     if (!e.available) return null;
     if (!e.locomotives || e.locomotives.length === 0) {
@@ -91,7 +94,7 @@ function Detail({ e, now }: { e: Entity; now: number }) {
       <span className="ent-locos">
         {e.locomotives.map((l) => (
           <span key={`${l.address.type}-${l.address.number}`} className="ent-loco">
-            <span className="ent-loco__name">{l.name}</span>
+            <span className="ent-loco__name">{locomotiveName(l, trains)}</span>
             <span className="muted">
               {l.facing ? ` facing ${l.facing}` : ""}
               {l.since ? `, ${relativeTime(l.since, now)}` : ""}

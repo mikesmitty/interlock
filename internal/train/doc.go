@@ -31,6 +31,8 @@ const (
 	// MaxSpeed is the top of the speed range: DCC's 126 steps, one per
 	// protocol unit.
 	MaxSpeed = 126
+	// MaxLength bounds a train's length, in millimeters.
+	MaxLength = 100_000
 	// MaxAddress is the highest DCC long address.
 	MaxAddress = 10239
 	// MaxFunction is the highest function number.
@@ -95,6 +97,13 @@ type Entry struct {
 	Model        string `yaml:"model,omitempty" json:"model,omitempty"`
 	Owner        string `yaml:"owner,omitempty" json:"owner,omitempty"`
 	Comment      string `yaml:"comment,omitempty" json:"comment,omitempty"`
+
+	// Length is the train's length from end to end in millimeters, so
+	// train tracking knows where its rear is; 0 when not given.
+	Length float64 `yaml:"length,omitempty" json:"length,omitempty"`
+	// DecoderAt is how far the car whose decoder the detectors see is
+	// from the front, the end that leads going forward, in millimeters.
+	DecoderAt float64 `yaml:"decoder_at,omitempty" json:"decoder_at,omitempty"`
 
 	// Decoders are the decoders the locomotive has, fitted or not.
 	Decoders []Decoder `yaml:"decoders,omitempty" json:"decoders,omitempty"`
@@ -285,6 +294,12 @@ func (e Entry) Validate() error {
 	}
 	if len(e.Comment) > 4000 {
 		return invalid("the comment is too long; keep it under 4000 characters")
+	}
+	if e.Length < 0 || e.Length > MaxLength {
+		return invalid("the length must be between 0 and %d mm", MaxLength)
+	}
+	if e.DecoderAt < 0 || e.DecoderAt > e.Length {
+		return invalid("the decoder must be within the train's length")
 	}
 	seen := make(map[string]bool, len(e.Decoders))
 	for _, d := range e.Decoders {

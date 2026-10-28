@@ -112,9 +112,19 @@ applied at the next start; the replaced files go to `before-restore-*/`.
   in `<data>/backgrounds/` under a name made from its contents; saves
   delete the ones not named. The browser computes the same geometry in
   `web/src/trackgeom.ts`; keep them in step.
-- `internal/layoutsim` — the simulated layout: trains as paths along
-  the plan's `Network` (`trackplan/network.go`, legs through track and
-  junction routes) moved at their decoders' speed with momentum,
+- `internal/tracking` — train tracking: follows each decoder the
+  reporters see through the plan, places the train behind or ahead of
+  it from the roster's length and decoder position once it runs from
+  one block into the next, moves it on between reports at its decoder's
+  speed curve and momentum (`train/motion.go`, CVs from the CV store)
+  times a top speed measured between entries, never into a detected
+  block unseen, and keeps places over a restart in the store. One
+  goroutine owns the state (`layout.go`); handlers only queue. Its
+  tests run the simulated layout and check against true positions.
+- `internal/layoutsim` — the simulated layout: trains as stretches
+  along the plan's `Network` (`trackplan/network.go`, legs through track
+  and junction routes; `trackplan/stretch.go`, the track a train covers)
+  moved at their decoders' speed with momentum,
   turnouts from simulated servos, detectors with RailCom's timing (entry
   after a few packets, exit a second late, the decoder only), and the
   test layout. The simulated outposts' node IDs are 0x10 apart because

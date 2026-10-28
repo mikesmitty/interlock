@@ -177,6 +177,8 @@ type trainPatch struct {
 	Model        *string         `json:"model"`
 	Owner        *string         `json:"owner"`
 	Comment      *string         `json:"comment"`
+	Length       *float64        `json:"length"`
+	DecoderAt    *float64        `json:"decoder_at"`
 }
 
 func (p trainPatch) apply(e *train.Entry) {
@@ -198,6 +200,12 @@ func (p trainPatch) apply(e *train.Entry) {
 	}
 	if p.Long != nil {
 		e.Long = *p.Long
+	}
+	if p.Length != nil {
+		e.Length = *p.Length
+	}
+	if p.DecoderAt != nil {
+		e.DecoderAt = *p.DecoderAt
 	}
 	if p.Functions != nil {
 		e.Functions = *p.Functions

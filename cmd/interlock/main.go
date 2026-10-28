@@ -36,6 +36,7 @@ import (
 	"github.com/mikesmitty/interlock/internal/replace"
 	"github.com/mikesmitty/interlock/internal/server"
 	"github.com/mikesmitty/interlock/internal/store"
+	"github.com/mikesmitty/interlock/internal/tracking"
 	"github.com/mikesmitty/interlock/internal/trackplan"
 	"github.com/mikesmitty/interlock/internal/train"
 	"github.com/mikesmitty/interlock/internal/version"
@@ -245,6 +246,13 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 
+	// Train tracking over the plan, the detectors and the throttles.
+	tracker := tracking.New(tracking.Options{Entities: entities, Trains: trains, Plan: trackPlan, CVs: cvStore, Store: st, Logger: logger})
+	entities.Subscribe(tracker.HandleEntity)
+	trains.Subscribe(tracker.HandleTrain)
+	trains.SubscribeLayout(tracker.HandleLayout)
+	trackPlan.Subscribe(tracker.HandlePlan)
+
 	// The fast clock, broadcast on the bus.
 	fast := clock.New(ctx, clock.Options{Bus: local, Store: st, Logger: logger})
 
@@ -338,7 +346,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	}
 
 	var wg sync.WaitGroup
-	wg.Add(8)
+	wg.Add(9)
 	go func() {
 		defer wg.Done()
 		if err := decoders.Download(ctx); err != nil && ctx.Err() == nil {
@@ -385,6 +393,12 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			logger.Error("automations stopped", "error", err)
 		}
 	}()
+	go func() {
+		defer wg.Done()
+		if err := tracker.Run(ctx); err != nil {
+			logger.Error("train tracking stopped", "error", err)
+		}
+	}()
 
 	// Moving what names one node over to another, for a replaced board.
 	replacer := &replace.Replacer{Nodes: reg, Events: table, Entities: entities, Parts: []replace.Part{entities, trackPlan, engine}}
@@ -409,6 +423,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			Clock:       fast,
 			Backups:     &backup.Manager{Dir: *dataDir, DB: st, Version: version.Version},
 			TrackPlan:   trackPlan,
+			Tracking:    tracker,
 			Replace:     replacer,
 			Restart:     restart,
 			SerialPorts: transport.SerialPorts,

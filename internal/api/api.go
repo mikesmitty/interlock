@@ -87,6 +87,8 @@ type Deps struct {
 	Backups Backups
 	// TrackPlan is the track diagram; nil disables its endpoints.
 	TrackPlan TrackPlan
+	// Tracking follows the trains on the plan; nil disables it.
+	Tracking Tracking
 	// Replace moves what names one node over to another; nil disables it.
 	Replace Replacer
 	// Restart restarts the server; nil means it cannot.
@@ -211,6 +213,7 @@ func New(deps Deps) *API {
 	a.mux.HandleFunc("POST /api/v1/trackplan/import", a.importTrackPlan)
 	a.mux.HandleFunc("POST /api/v1/trackplan/backgrounds", a.uploadBackground)
 	a.mux.HandleFunc("GET /api/v1/trackplan/backgrounds/{name}", a.getBackground)
+	a.mux.HandleFunc("GET /api/v1/tracking", a.getTracking)
 	a.mux.HandleFunc("POST /api/v1/restart", a.restart)
 	a.mux.HandleFunc("GET /api/v1/links", a.links)
 	a.mux.HandleFunc("GET /api/v1/monitor", a.monitorEntries)

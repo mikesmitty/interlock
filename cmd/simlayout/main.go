@@ -7,7 +7,8 @@
 //
 // With an empty plan it saves its test layout, a double-track loop with
 // two stations, a siding and a crossover whose blocks and turnouts are
-// linked to the simulated outposts, and it adds its trains to the roster.
+// linked to the simulated outposts, and it adds its trains to the roster
+// with their lengths and their decoders' CVs, for train tracking.
 // Run it against an Interlock of its own, never one with a real layout:
 //
 //	bin/interlock -data ./simdata &
@@ -203,7 +204,10 @@ func run(o options, logger *slog.Logger) error {
 	}()
 
 	client := &layoutsim.Client{Base: o.api}
-	go followPlan(ctx, client, layout, trains, o.seed, logger)
+	cvs := func(t layoutsim.TrainSpec) map[uint16]byte {
+		return station.DecoderState(t.Address, t.Long || t.Address > 127).CVs
+	}
+	go followPlan(ctx, client, layout, trains, cvs, o.seed, logger)
 
 	save := func() {
 		if o.stateFile == "" {
@@ -238,8 +242,9 @@ func run(o options, logger *slog.Logger) error {
 
 // followPlan keeps the layout on Interlock's plan, checking for a new
 // one every two seconds. With seed it first saves the test layout over
-// an empty plan and adds the trains to the roster.
-func followPlan(ctx context.Context, client *layoutsim.Client, layout *layoutsim.Sim, trains []layoutsim.TrainSpec, seed bool, logger *slog.Logger) {
+// an empty plan and gives the trains roster entries with their lengths
+// and their decoders' CVs.
+func followPlan(ctx context.Context, client *layoutsim.Client, layout *layoutsim.Sim, trains []layoutsim.TrainSpec, cvs func(layoutsim.TrainSpec) map[uint16]byte, seed bool, logger *slog.Logger) {
 	seeded, rostered := !seed, !seed
 	var lastErr string
 	for {
@@ -269,13 +274,13 @@ func followPlan(ctx context.Context, client *layoutsim.Client, layout *layoutsim
 				logger.Info("running on the track plan", "revision", st.Revision, "tracks", len(st.Plan.Tracks), "blocks", len(st.Plan.Blocks))
 			}
 			if !rostered {
-				added, err := client.AddToRoster(ctx, trains)
+				added, err := client.AddToRoster(ctx, trains, cvs)
 				if err != nil {
 					logger.Warn("adding the trains to the roster", "error", err)
 				} else {
 					rostered = true
 					if len(added) > 0 {
-						logger.Info("added to the roster", "trains", added)
+						logger.Info("put in the roster", "trains", added)
 					}
 				}
 			}

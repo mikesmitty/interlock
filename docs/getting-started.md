@@ -122,8 +122,9 @@ go run ./cmd/simlayout -api http://127.0.0.1:8080 -state ./simdata/simlayout.jso
 
 It joins the hub as a command station and four outposts (node IDs
 0A.00.00.00.01.00, then 0A.00.00.00.01.10, .20, .30 and .40). If the
-plan is empty, it saves its test layout as the plan, and adds its trains
-to the roster. The test layout is a double-track loop with two stations,
+plan is empty, it saves its test layout as the plan. It adds its trains
+to the roster with their lengths, and fits each with a decoder whose
+CVs are on record, so [train tracking](./tracking.md) can follow them. The test layout is a double-track loop with two stations,
 Park Av and Main St. A siding at Main St lets one train pass another, and
 a crossover east of Park Av turns trains back. Its nine blocks and three
 turnouts are already linked to the simulated outposts.

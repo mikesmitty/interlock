@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/mikesmitty/interlock/internal/trackplan"
@@ -81,33 +82,68 @@ func (c *Client) PutPlan(ctx context.Context, plan trackplan.Plan, revision stri
 	return st, err
 }
 
-// AddToRoster adds the trains the roster has no locomotive for at their
-// address, so they can be driven.
-func (c *Client) AddToRoster(ctx context.Context, trains []TrainSpec) ([]string, error) {
+// AddToRoster gives the trains their roster entries: it adds those the
+// roster has no locomotive for at their address, fills in a length the
+// roster lacks, and fits a locomotive that has no decoder with one whose
+// CVs, as cvs gives them, are on record, as if read on the programming
+// track. It returns the names of the trains it changed.
+func (c *Client) AddToRoster(ctx context.Context, trains []TrainSpec, cvs func(TrainSpec) map[uint16]byte) ([]string, error) {
+	type entry struct {
+		ID        string  `json:"id"`
+		Address   uint16  `json:"address"`
+		Long      bool    `json:"long"`
+		Roster    bool    `json:"roster"`
+		Length    float64 `json:"length"`
+		Installed string  `json:"installed"`
+	}
 	var list struct {
-		Trains []struct {
-			Address uint16 `json:"address"`
-			Long    bool   `json:"long"`
-			Roster  bool   `json:"roster"`
-		} `json:"trains"`
+		Trains []entry `json:"trains"`
 	}
 	if err := c.do(ctx, http.MethodGet, "/api/v1/trains", nil, &list); err != nil {
 		return nil, err
 	}
-	var added []string
+	var changed []string
 	for _, spec := range trains {
-		found := false
-		for _, t := range list.Trains {
-			found = found || (t.Roster && t.Address == spec.Address && t.Long == spec.long())
+		var e *entry
+		for i, t := range list.Trains {
+			if t.Roster && t.Address == spec.Address && t.Long == spec.long() {
+				e = &list.Trains[i]
+				break
+			}
 		}
-		if found {
+		switch {
+		case e == nil:
+			e = &entry{}
+			body := map[string]any{"name": spec.Name, "address": spec.Address, "long": spec.long(), "length": spec.Length, "decoder_at": spec.Decoder}
+			if err := c.do(ctx, http.MethodPost, "/api/v1/trains", body, e); err != nil {
+				return changed, err
+			}
+		case e.Length == 0:
+			body := map[string]any{"length": spec.Length, "decoder_at": spec.Decoder}
+			if err := c.do(ctx, http.MethodPatch, "/api/v1/trains/"+e.ID, body, nil); err != nil {
+				return changed, err
+			}
+		case e.Installed != "":
 			continue
 		}
-		entry := map[string]any{"name": spec.Name, "address": spec.Address, "long": spec.long()}
-		if err := c.do(ctx, http.MethodPost, "/api/v1/trains", entry, nil); err != nil {
-			return added, err
+		if e.Installed == "" && cvs != nil {
+			var added struct {
+				Decoder struct {
+					ID string `json:"id"`
+				} `json:"decoder"`
+			}
+			if err := c.do(ctx, http.MethodPost, "/api/v1/trains/"+e.ID+"/decoders", map[string]any{"name": "Simulated decoder", "install": true}, &added); err != nil {
+				return changed, err
+			}
+			values := map[string]int{}
+			for cv, v := range cvs(spec) {
+				values[strconv.Itoa(int(cv))] = int(v)
+			}
+			if err := c.do(ctx, http.MethodPatch, "/api/v1/trains/"+e.ID+"/decoders/"+added.Decoder.ID+"/cvs", map[string]any{"cvs": values}, nil); err != nil {
+				return changed, err
+			}
 		}
-		added = append(added, spec.Name)
+		changed = append(changed, spec.Name)
 	}
-	return added, nil
+	return changed, nil
 }

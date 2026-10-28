@@ -10,7 +10,7 @@ DCC addresses (`1234`, `3` short, `3l` long).
 ## Live updates
 
 ```
-GET /api/v1/events?topics=nodes,links,monitor,entities,automations,trains,clock,trackplan
+GET /api/v1/events?topics=nodes,links,monitor,entities,automations,trains,clock,trackplan,tracking
 ```
 
 is a server-sent event stream; the default is every topic. Events:
@@ -28,6 +28,7 @@ is a server-sent event stream; the default is every topic. Events:
 | `train`, `layout`, `cv`, `consist` | trains | a train; track power and emergency stop; a finished CV operation; a consist |
 | `clock` | clock | the fast clock, on every change and fast minute |
 | `trackplan` | trackplan | the track plan, its revision and topology, after each save |
+| `tracked` | tracking | a tracked train, when it moves (a few times a second), is seen or is lost |
 | `lagged` | | the client fell behind and missed events |
 
 ## Controller
@@ -253,6 +254,22 @@ blocks), each block's `length` in millimeters and its `ends` (the point
 where track leaves it and the heading it leaves by), and the `links`
 between block ends with their length and the junction positions on the
 way. See [The track plan](./track-plan.md).
+
+## Train tracking
+
+```
+GET    /api/v1/tracking                      {trains: [...]}
+```
+
+Each train detectors have seen, by its address as an `id` (`101`, `3l`,
+`consist-12`): its `name` and the `roster` entries at the address, the
+`block` its decoder was last reported in and whether a detector `seen`
+it now, whether tracking has `placed` it (knows where it is in its block
+and which way it faces), the `blocks` it is in with its front first, its
+`direction`, its estimated `speed` and measured `top_speed` in
+millimeters a second, its `length`, whether its decoder's `momentum` is
+on record, and while placed, its `line` on the plan from rear to front
+and its `decoder`'s place. See [Train tracking](./tracking.md).
 
 ## Monitor
 

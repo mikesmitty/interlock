@@ -2,8 +2,8 @@
 
 The Track page shows the layout's track to scale, lit by what the layout
 reports, like a panel in an interlocking tower. Blocks a train is in
-light red, with the locomotive's name from RailCom beside them, and each
-turnout and crossover shows the way it is set. Click one to throw or
+light red, each train is drawn where [train tracking](./tracking.md)
+has it, and each turnout and crossover shows the way it is set. Click one to throw or
 close it. Below the plan, a table lists every block with its state in
 words, the train in it and its length.
 

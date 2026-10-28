@@ -136,13 +136,13 @@ func TestTrailingATurnoutSetAgainstStops(t *testing.T) {
 	if got := s.trains[0].stopped; !strings.Contains(got, "main-east") {
 		t.Fatalf("stopped = %q; want it stopped at main-east", got)
 	}
-	before := s.trains[0].path.length()
+	before := s.trains[0].path.Length()
 	f.servos[fmt.Sprintf("%v/%d", OutpostID(1), 0)] = "closed"
 	f.run(s, time.Second)
 	if s.trains[0].stopped != "" {
 		t.Errorf("still stopped once closed: %q", s.trains[0].stopped)
 	}
-	if l := s.trains[0].path.length(); math.Abs(l-before) > 1e-6 {
+	if l := s.trains[0].path.Length(); math.Abs(l-before) > 1e-6 {
 		t.Errorf("the train went from %v to %v mm long", before, l)
 	}
 	// 160 mm east: through the turnout's 126 mm and onto the straight
@@ -186,7 +186,7 @@ func TestTrainsDontPassThroughEachOther(t *testing.T) {
 	if got := s.trains[0].stopped; got != "ran into Standing" {
 		t.Errorf("stopped = %q", got)
 	}
-	if leg, at := s.trains[0].path.back(0); leg.Piece != "t1" || at < 495 || at > 500 {
+	if leg, at := s.trains[0].path.Back(0); leg.Piece != "t1" || at < 495 || at > 500 {
 		t.Errorf("A end at %s %.1f; want it at the standing train's end", leg.Piece, at)
 	}
 }
@@ -210,22 +210,12 @@ func TestStateCarriesOver(t *testing.T) {
 		moved.Tracks[i].ID += "-x"
 	}
 	again.SetPlan(moved, "r2")
-	if leg, _ := again.trains[1].path.back(0); leg.Piece != "inner-top-park-x" {
+	if leg, _ := again.trains[1].path.Back(0); leg.Piece != "inner-top-park-x" {
 		t.Errorf("Local 2's A end on %s after its track went", leg.Piece)
 	}
 }
 
-func TestMomentumAndSpeedCurve(t *testing.T) {
-	// CV 3 at 5: 128 steps in 4.48 s, so a second takes it 28.6 steps.
-	if got := momentum(0, 126, 1, 5, 5); math.Abs(got-128/4.48) > 1e-9 {
-		t.Errorf("a second's acceleration = %v", got)
-	}
-	if got := momentum(40, -40, 0.1, 5, 0); got != 0 {
-		t.Errorf("turning about with no deceleration = %v; want a stop first", got)
-	}
-	if got := momentum(-10, 20, 0.1, 5, 5); math.Abs(got-(-10+128/4.48*0.1)) > 1e-9 {
-		t.Errorf("turning about slows first: %v", got)
-	}
+func TestSpeedCurve(t *testing.T) {
 	cvs := map[uint16]byte{2: 0, 5: 255, 6: 0}
 	if got := speed(126, cvs, 160); got != 160 {
 		t.Errorf("top speed = %v", got)

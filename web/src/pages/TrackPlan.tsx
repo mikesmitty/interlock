@@ -1,5 +1,6 @@
 import { type PointerEvent as ReactPointerEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { ApiError, api, type Entity, type EntityKind, type PlanJunction, type TrackBackground, type TrackBlock, type TrackPlan, type TrackPlanState, type Vec } from "../api";
+import { Link } from "react-router";
+import { ApiError, api, type Entity, type EntityKind, type PlanJunction, type TrackBackground, type TrackBlock, type TrackPlan, type TrackPlanState, type TrackedTrain, type Train, type Vec } from "../api";
 import { type LampColor, Status } from "../components/Lamp";
 import { Empty, Page } from "../components/Page";
 import { TrackDiagram, ZOOM_STEP, blockState, trainsIn } from "../components/TrackDiagram";
@@ -192,6 +193,8 @@ function LayerToggles({ plan, layers: [hidden, setHidden] }: { plan: TrackPlan; 
 
 function Viewer({ state, entities, layers, onEdit }: { state: TrackPlanState; entities: Record<string, Entity>; layers: ReturnType<typeof useHiddenLayers>; onEdit: () => void }) {
   const { plan } = state;
+  const { tracked, trains } = useBus();
+  const trackedList = useMemo(() => Object.values(tracked), [tracked]);
   const background = plan.background?.operating ? plan.background : undefined;
   const index = useMemo(() => indexPlan(plan), [plan]);
   const area = useMemo(() => areaOf(plan, background, 60, { x: 300, y: 150 }), [plan, background]);
@@ -243,10 +246,25 @@ function Viewer({ state, entities, layers, onEdit }: { state: TrackPlanState; en
       {/* As tall as the plan is at the page's width, up to most of the
           window. */}
       <div className="panel trk-canvas" style={{ aspectRatio: `${area.maxX - area.minX} / ${area.maxY - area.minY}` }}>
-        <TrackDiagram plan={plan} index={index} entities={entities} fit={area} view={view} onView={setView} hiddenLayers={layers[0]} background={background} onTurnout={toggle} />
+        <TrackDiagram
+          plan={plan}
+          index={index}
+          entities={entities}
+          fit={area}
+          view={view}
+          onView={setView}
+          hiddenLayers={layers[0]}
+          background={background}
+          onTurnout={toggle}
+          tracked={trackedList}
+          trains={trains}
+        />
       </div>
-      <p className="trk-legend muted">Click a turnout or crossover to throw or close it. Drag the plan to move it; pinch, or scroll with ⌘ or Ctrl held, to zoom.</p>
-      <BlockTable state={state} entities={entities} />
+      <p className="trk-legend muted">
+        Click a turnout or crossover to throw or close it. Drag the plan to move it; pinch, or scroll with ⌘ or Ctrl held, to zoom. A train is drawn where tracking puts it once it has run from one block into the next, pointed the way it goes, with a dot where its decoder is.
+      </p>
+      <TrainTable plan={plan} tracked={trackedList} />
+      <BlockTable state={state} entities={entities} tracked={trackedList} trains={trains} />
     </Page>
   );
 }
@@ -270,7 +288,66 @@ function lengthOf(b: TrackBlock, topology?: TrackPlanState["topology"]): ReactNo
   return drawn ? `${Math.round(drawn)} mm drawn` : <span className="faint">no track</span>;
 }
 
-function BlockTable({ state, entities }: { state: TrackPlanState; entities: Record<string, Entity> }) {
+/** The trains tracking follows: where each is and how it goes. */
+function TrainTable({ plan, tracked }: { plan: TrackPlan; tracked: TrackedTrain[] }) {
+  if (tracked.length === 0) return null;
+  const names = new Map(plan.blocks.map((b) => [b.id, b.name]));
+  const sorted = [...tracked].sort((a, b) => a.name.localeCompare(b.name));
+  return (
+    <>
+      <h2 className="trk-h2">Trains</h2>
+      <div className="panel">
+        <table className="table">
+          <thead>
+            <tr>
+              <th>Train</th>
+              <th>Where</th>
+              <th>Going</th>
+              <th className="num">Speed</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((t) => {
+              const where = t.blocks.map((b) => names.get(b) ?? b).join(", ");
+              const notes: string[] = [];
+              if (!t.placed && t.block) notes.push("Where in the block isn't known until it runs into the next one.");
+              if (!t.seen && t.block) notes.push("Not seen by a detector just now.");
+              if (t.roster?.length && !t.length) notes.push("Give its length on its roster page to place the rest of the train.");
+              if (t.roster?.length && !t.momentum) notes.push("Read its decoder's CVs 3 and 4 to follow it better as it speeds up and slows down.");
+              return (
+                <tr key={t.id}>
+                  <td>
+                    <div className="cell-title">{t.roster?.length === 1 ? <Link to={`/roster/${encodeURIComponent(t.roster[0])}`}>{t.name}</Link> : t.name}</div>
+                    {notes.map((n) => (
+                      <div key={n} className="cell-sub">
+                        {n}
+                      </div>
+                    ))}
+                  </td>
+                  <td>{where || <span className="faint">not in a block</span>}</td>
+                  <td>{t.placed ? (t.direction === "reverse" ? "Reverse" : "Forward") : <span className="faint">not known</span>}</td>
+                  <td className="num">
+                    {t.top_speed ? `${Math.round(t.speed)} mm/s` : <span className="faint">not measured</span>}
+                    {t.top_speed ? <div className="cell-sub">{Math.round(t.top_speed)} mm/s at full</div> : null}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
+/** The trains in a block: those tracking has there, front or rear,
+ * else those its reporter sees. */
+function trainsInBlock(b: TrackBlock, entities: Record<string, Entity>, tracked: TrackedTrain[], trains: Record<string, Train>): string {
+  const here = tracked.filter((t) => t.blocks.includes(b.id)).map((t) => (t.block === b.id || !t.placed ? t.name : `${t.name} (${t.blocks[0] === b.id ? "front" : "rear"})`));
+  return (here.length > 0 ? here : trainsIn(b, entities, trains)).join(", ");
+}
+
+function BlockTable({ state, entities, tracked, trains }: { state: TrackPlanState; entities: Record<string, Entity>; tracked: TrackedTrain[]; trains: Record<string, Train> }) {
   const { plan, topology } = state;
   if (plan.blocks.length === 0) return null;
   const stations = new Map(plan.stations.map((s) => [s.id, s.name]));
@@ -299,7 +376,7 @@ function BlockTable({ state, entities }: { state: TrackPlanState; entities: Reco
                   <td>
                     <Status color={stateColor(st)}>{st}</Status>
                   </td>
-                  <td>{trainsIn(b, entities).join(", ") || <span className="faint">none reported</span>}</td>
+                  <td>{trainsInBlock(b, entities, tracked, trains) || <span className="faint">none reported</span>}</td>
                   <td className="num">{lengthOf(b, topology)}</td>
                 </tr>
               );

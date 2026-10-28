@@ -813,9 +813,23 @@ since its result could change the model.
   entry and exit timing. Its test layout is a double-track loop with two
   stations, a siding and a crossover. It runs as a second Interlock on
   subway, on port 8081.
+- Train tracking (2026-10-27): `internal/tracking` follows each decoder
+  the RailCom reporters see through the plan. Once a train runs from
+  one block into the next it is placed: where its decoder entered, the
+  way it goes, the rest of it laid out by the roster's length and
+  decoder position. Between entries it moves at its decoder's speed
+  curve and momentum times a top speed measured from the time between
+  entries, held short of the next detected block until seen there, and
+  put back where the decoder is at each entry. Blocks a train is in come
+  from the estimate, since detectors report a decoder gone a second
+  late. Places are kept over a restart. The Track page draws each train
+  and lists them. Against the simulated layout the decoder estimate
+  stays within 4 mm once the speed is measured, stopping and turning
+  about included, when the decoder's momentum CVs are on record.
 - Next: the rest of Phase 7, hardware verification against
-  canbus-outpost and simple-dcc, and Phase 8's train tracking, built
-  against the simulated layout.
+  canbus-outpost and simple-dcc, and Phase 8's interlocking (routes
+  set, locked and released behind trains), built on tracking against
+  the simulated layout.
 
 ## References
 

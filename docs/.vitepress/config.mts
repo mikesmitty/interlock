@@ -24,6 +24,7 @@ export default defineConfig({
           { text: "Nodes and firmware", link: "/nodes" },
           { text: "Entities", link: "/entities" },
           { text: "The track plan", link: "/track-plan" },
+          { text: "Train tracking", link: "/tracking" },
           { text: "Automations", link: "/automations" },
           { text: "Trains", link: "/trains" },
           { text: "The roster", link: "/roster" },
