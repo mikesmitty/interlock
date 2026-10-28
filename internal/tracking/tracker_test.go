@@ -86,9 +86,11 @@ func TestTrackerFollowsAndKeepsTheTrains(t *testing.T) {
 	store := &fakeStore{values: map[string]string{}}
 	cvs := &fakeCVs{values: map[string]int{}}
 	local := train.Train{Entry: train.Entry{ID: "local-1", Name: "Local 1", Address: 101, Length: 456, DecoderAt: 57, Installed: "d1"}, Roster: true, Direction: train.Forward}
+	// In the roster but never seen: not listed.
+	unseen := train.Train{Entry: train.Entry{ID: "other", Name: "Other", Address: 7}, Roster: true, Direction: train.Forward}
 	tk := New(Options{
 		Entities: fakeEntities{reporter(1, 1, 101)},
-		Trains:   fakeTrains{local},
+		Trains:   fakeTrains{local, unseen},
 		Plan:     fakePlan{Plan: plan, Revision: "r1"},
 		CVs:      cvs,
 		Store:    store,

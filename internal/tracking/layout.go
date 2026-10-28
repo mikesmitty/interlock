@@ -311,6 +311,10 @@ func (l *layout) refreshCVs(cvs func(decoder string) decoderCVs) {
 	}
 }
 
+// known reports whether a detector has seen the train: until one has,
+// tracking only follows the speed it is set to.
+func (t *tracked) known() bool { return t.block != "" || t.stretch != nil }
+
 // get returns the train at an address, made the first time.
 func (l *layout) get(addr detector.Address) *tracked {
 	t, ok := l.trains[addr]

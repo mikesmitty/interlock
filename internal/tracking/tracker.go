@@ -268,7 +268,7 @@ func (tk *Tracker) Run(ctx context.Context) error {
 			}
 			delete(l.changed, addr)
 			t, ok := l.trains[addr]
-			if !ok {
+			if !ok || !t.known() {
 				continue
 			}
 			published[addr] = now
