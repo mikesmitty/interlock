@@ -37,17 +37,17 @@ trains:
     installed: tsunami2
 ```
 
-| Field | Meaning |
-|---|---|
-| `id` | The entry's ID, made from its name when it is added. Entries from before 0.2 have their address as their ID (`"1234"`, or `"3l"` for a long address of 127 or less) until their address changes. |
-| `name` | What the throttle shows. Defaults to the address. |
-| `address` | DCC address, 1 to 10239. Several entries may share one. |
-| `long` | Address kind. Addresses above 127 are always long; below that, short unless set. |
-| `functions` | Labels for the function keys, by number. |
-| `momentary` | Functions that act only while held, such as a horn. |
-| `road_name`, `road_number`, `manufacturer`, `model`, `owner`, `comment` | What the locomotive is. |
-| `decoders` | Its decoders: `id` (unique in the roster; it names the decoder's CV file), `name`, the definition's `file`, `family` and `model`, the `identity` it reported, and for one not fitted the `address`, `long`, `functions` and `momentary` it brings back when it is. |
-| `installed` | The ID of the decoder fitted now; the address and labels above are its own. |
+| Field                                                                   | Meaning                                                                                                                                                                                                                                                            |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `id`                                                                    | The entry's ID, made from its name when it is added. Entries from before 0.2 have their address as their ID (`"1234"`, or `"3l"` for a long address of 127 or less) until their address changes.                                                                   |
+| `name`                                                                  | What the throttle shows. Defaults to the address.                                                                                                                                                                                                                  |
+| `address`                                                               | DCC address, 1 to 10239. Several entries may share one.                                                                                                                                                                                                            |
+| `long`                                                                  | Address kind. Addresses above 127 are always long; below that, short unless set.                                                                                                                                                                                   |
+| `functions`                                                             | Labels for the function keys, by number.                                                                                                                                                                                                                           |
+| `momentary`                                                             | Functions that act only while held, such as a horn.                                                                                                                                                                                                                |
+| `road_name`, `road_number`, `manufacturer`, `model`, `owner`, `comment` | What the locomotive is.                                                                                                                                                                                                                                            |
+| `decoders`                                                              | Its decoders: `id` (unique in the roster; it names the decoder's CV file), `name`, the definition's `file`, `family` and `model`, the `identity` it reported, and for one not fitted the `address`, `long`, `functions` and `momentary` it brings back when it is. |
+| `installed`                                                             | The ID of the decoder fitted now; the address and labels above are its own.                                                                                                                                                                                        |
 
 A locomotive need not be in the roster to be driven: the throttle page
 accepts any address, and an automation names trains by address. Such a
@@ -200,12 +200,12 @@ actions:
     state: on
 ```
 
-| Field | Meaning |
-|---|---|
-| `address`, `address_type` | Which locomotive; `address_type` is `long` or `short` and only matters up to 127. |
-| `command` | `speed`, `stop`, `estop` or `function`. |
-| `speed`, `direction` | For `speed`: 0 to 126, and `forward` or `reverse`; leave the direction out to keep the current one. |
-| `function`, `state` | For `function`: F0 to F68 and `on` or `off`. |
+| Field                     | Meaning                                                                                             |
+| ------------------------- | --------------------------------------------------------------------------------------------------- |
+| `address`, `address_type` | Which locomotive; `address_type` is `long` or `short` and only matters up to 127.                   |
+| `command`                 | `speed`, `stop`, `estop` or `function`.                                                             |
+| `speed`, `direction`      | For `speed`: 0 to 126, and `forward` or `reverse`; leave the direction out to keep the current one. |
+| `function`, `state`       | For `function`: F0 to F68 and `on` or `off`.                                                        |
 
 Together with the locomotive trigger this is enough for "stop the train
 that just entered the yard" or "sound the horn at the crossing".

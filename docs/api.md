@@ -15,23 +15,23 @@ GET /api/v1/events?topics=nodes,links,monitor,entities,automations,trains,clock,
 
 is a server-sent event stream; the default is every topic. Events:
 
-| Event | Topic | Carries |
-|---|---|---|
-| `ready` | | `{"seq": N}`, the monitor's newest sequence number |
-| `node` | nodes | a node that appeared, changed or went offline |
-| `firmware` | nodes | a firmware upgrade's progress |
-| `links` | links | every link's status |
-| `frame` | monitor | one decoded frame |
-| `entity` | entities | an entity that changed |
-| `event_names` | entities | `{"node": id}` when a node's named events changed |
-| `automation`, `trace` | automations | an automation's status; a run's trace as it moves |
-| `train`, `layout`, `cv`, `consist`, `car`, `formation` | trains | a train; track power and emergency stop; a finished CV operation; a consist; a car; a made-up train, also when one of its locomotives or cars gets a new length |
-| `clock` | clock | the fast clock, on every change and fast minute |
-| `trackplan` | trackplan | the track plan, its revision and topology, after each save |
-| `tracked` | tracking | a tracked train, when it moves (a few times a second), is seen or is lost, or with `removed` when it is no longer followed |
-| `route` | interlocking | a route that was set, changed or was released |
-| `routes` | interlocking | `{"routes": [...]}`, every route, when a save of the track plan changed them |
-| `lagged` | | the client fell behind and missed events |
+| Event                                                  | Topic        | Carries                                                                                                                                                         |
+| ------------------------------------------------------ | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ready`                                                |              | `{"seq": N}`, the monitor's newest sequence number                                                                                                              |
+| `node`                                                 | nodes        | a node that appeared, changed or went offline                                                                                                                   |
+| `firmware`                                             | nodes        | a firmware upgrade's progress                                                                                                                                   |
+| `links`                                                | links        | every link's status                                                                                                                                             |
+| `frame`                                                | monitor      | one decoded frame                                                                                                                                               |
+| `entity`                                               | entities     | an entity that changed                                                                                                                                          |
+| `event_names`                                          | entities     | `{"node": id}` when a node's named events changed                                                                                                               |
+| `automation`, `trace`                                  | automations  | an automation's status; a run's trace as it moves                                                                                                               |
+| `train`, `layout`, `cv`, `consist`, `car`, `formation` | trains       | a train; track power and emergency stop; a finished CV operation; a consist; a car; a made-up train, also when one of its locomotives or cars gets a new length |
+| `clock`                                                | clock        | the fast clock, on every change and fast minute                                                                                                                 |
+| `trackplan`                                            | trackplan    | the track plan, its revision and topology, after each save                                                                                                      |
+| `tracked`                                              | tracking     | a tracked train, when it moves (a few times a second), is seen or is lost, or with `removed` when it is no longer followed                                      |
+| `route`                                                | interlocking | a route that was set, changed or was released                                                                                                                   |
+| `routes`                                               | interlocking | `{"routes": [...]}`, every route, when a save of the track plan changed them                                                                                    |
+| `lagged`                                               |              | the client fell behind and missed events                                                                                                                        |
 
 ## Controller
 

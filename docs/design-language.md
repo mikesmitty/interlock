@@ -10,18 +10,18 @@ vocabulary without imitating the hardware.
 
 Color, dark (default; layout rooms are dim):
 
-| Token | Value | Use |
-|---|---|---|
-| enamel | #26332E | page background: machine green-gray, not black |
-| enamel-deep | #1B2622 | sunken areas: navigation rail, table headers |
-| enamel-raised | #2F3D37 | panels and rows that sit above the page |
-| ivory | #EFE9D8 | primary text, like engraved label fill |
-| ivory-dim | #B8B3A4 | secondary text |
-| brass | #D4A64A | the one accent: things you can act on, focus |
-| lamp-green | #35B873 | lit: online, connected, closed, clear |
-| lamp-red | #E0493D | lit: fault, offline after being online, occupied |
-| lamp-amber | #E9A23B | lit: in between, checking, unknown |
-| lamp-off | #3A463F | unlit |
+| Token         | Value   | Use                                              |
+| ------------- | ------- | ------------------------------------------------ |
+| enamel        | #26332E | page background: machine green-gray, not black   |
+| enamel-deep   | #1B2622 | sunken areas: navigation rail, table headers     |
+| enamel-raised | #2F3D37 | panels and rows that sit above the page          |
+| ivory         | #EFE9D8 | primary text, like engraved label fill           |
+| ivory-dim     | #B8B3A4 | secondary text                                   |
+| brass         | #D4A64A | the one accent: things you can act on, focus     |
+| lamp-green    | #35B873 | lit: online, connected, closed, clear            |
+| lamp-red      | #E0493D | lit: fault, offline after being online, occupied |
+| lamp-amber    | #E9A23B | lit: in between, checking, unknown               |
+| lamp-off      | #3A463F | unlit                                            |
 
 Color, light ("drawing sheet", for daylight and printing): background
 #EDEFEA, raised #F7F8F5, deep #E2E5DF, ink #1F2A26, dim #5B655F, brass

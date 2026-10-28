@@ -227,13 +227,13 @@ degrees: positive clockwise on the plan, negative counterclockwise,
 absent for straight track. A junction lists its `ends` in the order its
 kind gives:
 
-| kind | ends |
-| --- | --- |
-| `turnout` | the points, the straight way (closed), the branch (thrown) |
-| `wye` | the points, the left leg (closed), the right leg (thrown) |
-| `crossing` | one track's two ends, then the other's |
-| `crossover` | track a's two ends, then track b's, a's first end beside b's first; thrown, it leads from a's first end to b's second |
-| `double_crossover` | as `crossover`; thrown, it also leads from b's first end to a's second |
+| kind               | ends                                                                                                                  |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------- |
+| `turnout`          | the points, the straight way (closed), the branch (thrown)                                                            |
+| `wye`              | the points, the left leg (closed), the right leg (thrown)                                                             |
+| `crossing`         | one track's two ends, then the other's                                                                                |
+| `crossover`        | track a's two ends, then track b's, a's first end beside b's first; thrown, it leads from a's first end to b's second |
+| `double_crossover` | as `crossover`; thrown, it also leads from b's first end to a's second                                                |
 
 A turnout's or wye's `at` is where its routes part, where the lines along
 its ends meet.

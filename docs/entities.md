@@ -49,14 +49,14 @@ what was asked.
 
 ## Kinds
 
-| Kind | States | Commands |
-|---|---|---|
-| turnout | thrown, closed, moving, unknown | throw, close, center |
-| block | occupied, clear, unknown | |
-| reporter | occupied, clear, plus the locomotives present | |
-| sensor | active, inactive, unknown | |
-| switch | on, off, unknown | on, off |
-| button | pressed, idle | press |
+| Kind     | States                                        | Commands             |
+| -------- | --------------------------------------------- | -------------------- |
+| turnout  | thrown, closed, moving, unknown               | throw, close, center |
+| block    | occupied, clear, unknown                      |                      |
+| reporter | occupied, clear, plus the locomotives present |                      |
+| sensor   | active, inactive, unknown                     |                      |
+| switch   | on, off, unknown                              | on, off              |
+| button   | pressed, idle                                 | press                |
 
 Entity IDs read like `turnout.0a0000000042.servo_1`: the kind, the node
 and the group. They are what automations refer to; the editor picks them

@@ -75,14 +75,14 @@ CV.
 A lamp in front of each setting says where its value came from, and the
 key at the top of each tab repeats it:
 
-| Lamp | Means |
-|---|---|
-| Green | Read from the decoder in this session |
+| Lamp       | Means                                                 |
+| ---------- | ----------------------------------------------------- |
+| Green      | Read from the decoder in this session                 |
 | Green ring | Written to the decoder in this session, not read back |
-| Amber | Imported from a JMRI roster, not read since |
-| Amber ring | The definition's default, not read |
-| Unlit | Not read, and no value to show |
-| None | Saved from before this session |
+| Amber      | Imported from a JMRI roster, not read since           |
+| Amber ring | The definition's default, not read                    |
+| Unlit      | Not read, and no value to show                        |
+| None       | Saved from before this session                        |
 
 A setting that spans several CVs shows the least certain of them. The
 ESU function map's rows and the CVs tab carry the same lamps.

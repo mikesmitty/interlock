@@ -15,15 +15,15 @@ the clock where it was (stopped or running from that time).
 Interlock produces the default fast clock, ID `01.01.00.00.01.00`. Its
 events are that ID followed by two bytes:
 
-| Suffix | Meaning |
-|---|---|
-| `0hmm` | time report: hours and minutes in hex (`06 2A` is 06:42) |
-| `2MDD` | date report: month and day |
-| `3YYY` | year report |
-| `4RRR` | rate report, in quarters as a 12 bit signed number (`010` is 4×) |
-| `F000` | query: Interlock answers with its whole state |
-| `F001`, `F002` | stop, start |
-| `F003` | date rollover: the next time report starts a new day |
+| Suffix         | Meaning                                                          |
+| -------------- | ---------------------------------------------------------------- |
+| `0hmm`         | time report: hours and minutes in hex (`06 2A` is 06:42)         |
+| `2MDD`         | date report: month and day                                       |
+| `3YYY`         | year report                                                      |
+| `4RRR`         | rate report, in quarters as a 12 bit signed number (`010` is 4×) |
+| `F000`         | query: Interlock answers with its whole state                    |
+| `F001`, `F002` | stop, start                                                      |
+| `F003`         | date rollover: the next time report starts a new day             |
 
 Setting the top bit of a report's suffix makes it a command: another node
 sends `8hmm` to set the time, `A MDD` the date, `BYYY` the year, `CRRR`

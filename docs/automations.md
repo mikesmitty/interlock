@@ -37,29 +37,29 @@ through `sun`.
 
 ## The automation
 
-| Field | Meaning |
-|---|---|
-| `id` | Lowercase letters, digits and underscores. Made from the name when left out. |
-| `name`, `description` | What it is for. |
-| `enabled` | `false` turns it off; it can still be run by hand. Default `true`. |
-| `mode` | What a new trigger does while a run is going: `single` (default) ignores it, `restart` stops the run and starts over, `queued` runs again afterwards, `parallel` runs alongside. |
-| `max` | How many runs `queued` and `parallel` allow; default 10. |
+| Field                 | Meaning                                                                                                                                                                          |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`                  | Lowercase letters, digits and underscores. Made from the name when left out.                                                                                                     |
+| `name`, `description` | What it is for.                                                                                                                                                                  |
+| `enabled`             | `false` turns it off; it can still be run by hand. Default `true`.                                                                                                               |
+| `mode`                | What a new trigger does while a run is going: `single` (default) ignores it, `restart` stops the run and starts over, `queued` runs again afterwards, `parallel` runs alongside. |
+| `max`                 | How many runs `queued` and `parallel` allow; default 10.                                                                                                                         |
 
 ## Triggers (when)
 
 Any one trigger starts a run. A trigger may carry an `id` so a `trigger`
 condition can tell which one fired; the id also shows in traces.
 
-| `type` | Fields | Fires when |
-|---|---|---|
-| `state` | `entity`, `from`, `to`, `for` | The entity's state changes. `from` and `to` narrow it to one transition; `for` waits until the new state has held that long (a change back cancels it). An entity seen for the first time does not fire. |
-| `locomotive` | `entity` (a reporter), `direction` (`entered`, `left`, or either), `address`, `address_type` (`long`, `short`, `consist`) | A reporter sees a locomotive arrive or leave. |
-| `event` | `event` | That event ID is reported on the bus. |
-| `node` | `node` (empty for any), `to` (`online`, `offline`, or either) | A node comes online or goes offline. |
-| `time` | `at`, `weekdays` | That time of day. |
-| `clock` | `at`, `weekdays` | The fast clock reaches that time (`HH:MM`), on those days of its own calendar. Also fires when the clock is set to that time. See `docs/clock.md`. |
-| `interval` | `every` | Every so often, counted from when Interlock started or the automation was saved. |
-| `start` | | Interlock starts. |
+| `type`       | Fields                                                                                                                    | Fires when                                                                                                                                                                                               |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `state`      | `entity`, `from`, `to`, `for`                                                                                             | The entity's state changes. `from` and `to` narrow it to one transition; `for` waits until the new state has held that long (a change back cancels it). An entity seen for the first time does not fire. |
+| `locomotive` | `entity` (a reporter), `direction` (`entered`, `left`, or either), `address`, `address_type` (`long`, `short`, `consist`) | A reporter sees a locomotive arrive or leave.                                                                                                                                                            |
+| `event`      | `event`                                                                                                                   | That event ID is reported on the bus.                                                                                                                                                                    |
+| `node`       | `node` (empty for any), `to` (`online`, `offline`, or either)                                                             | A node comes online or goes offline.                                                                                                                                                                     |
+| `time`       | `at`, `weekdays`                                                                                                          | That time of day.                                                                                                                                                                                        |
+| `clock`      | `at`, `weekdays`                                                                                                          | The fast clock reaches that time (`HH:MM`), on those days of its own calendar. Also fires when the clock is set to that time. See `docs/clock.md`.                                                       |
+| `interval`   | `every`                                                                                                                   | Every so often, counted from when Interlock started or the automation was saved.                                                                                                                         |
+| `start`      |                                                                                                                           | Interlock starts.                                                                                                                                                                                        |
 
 When Interlock starts it learns the layout's states from the nodes; a
 block found occupied changes from `unknown` to `occupied`, which fires a
@@ -71,14 +71,14 @@ All conditions must hold when a run starts; otherwise the trace ends with
 "conditions not met". Conditions are also used inside `if`, `choose`,
 `repeat` and `wait`.
 
-| `type` | Fields | Holds when |
-|---|---|---|
-| `state` | `entity`, `state` | The entity is in that state. |
-| `time` | `after`, `before`, `weekdays` | The time of day is in the window (which wraps past midnight when `after` is later than `before`) and the day is listed. |
-| `clock` | `after`, `before`, `weekdays` | The same window on the fast clock. |
-| `trigger` | `trigger` | The run was started by the trigger with that id. |
-| `and`, `or` | `conditions` | All, or any, of the nested conditions hold. |
-| `not` | `conditions` (one) | The nested condition does not hold. |
+| `type`      | Fields                        | Holds when                                                                                                              |
+| ----------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `state`     | `entity`, `state`             | The entity is in that state.                                                                                            |
+| `time`      | `after`, `before`, `weekdays` | The time of day is in the window (which wraps past midnight when `after` is later than `before`) and the day is listed. |
+| `clock`     | `after`, `before`, `weekdays` | The same window on the fast clock.                                                                                      |
+| `trigger`   | `trigger`                     | The run was started by the trigger with that id.                                                                        |
+| `and`, `or` | `conditions`                  | All, or any, of the nested conditions hold.                                                                             |
+| `not`       | `conditions` (one)            | The nested condition does not hold.                                                                                     |
 
 ## Actions (then)
 
@@ -86,18 +86,18 @@ Actions run in order. An action that fails (a command to an offline
 node, say) ends the run with an error. Any action can carry
 `disabled: true` to be skipped, which is handy while debugging.
 
-| `type` | Fields | Does |
-|---|---|---|
-| `command` | `entity`, `command` | Sends an entity's command: `throw`, `close`, `center`, `on`, `off`, `press`. |
-| `train` | `address`, `address_type`, `command`, `speed`, `direction`, `function`, `state` | Drives a locomotive by DCC address: `command` is `speed` (with `speed` 0 to 126 and an optional `direction`), `stop`, `estop` or `function` (with `function` and `state` on or off). See `docs/trains.md`. |
-| `event` | `event` | Produces that event from Interlock's node. |
-| `delay` | `for` | Waits. |
-| `wait` | `triggers`, `timeout`, `stop_on_timeout` | Waits for one of the triggers (any type but `start`, `time` and `interval`). After `timeout` the run goes on, or stops when `stop_on_timeout` is set. |
-| `if` | `conditions`, `then`, `else` | Runs `then` when the conditions hold, else `else`. |
-| `choose` | `choices` (each `name`, `conditions`, `actions`), `default` | Runs the first choice whose conditions hold, else `default`. |
-| `repeat` | one of `count`, `while`, `until`; `actions` | Repeats the actions a number of times, while conditions hold (checked first), or until they hold (checked after). At most 1000 times. |
-| `stop` | `reason`, `error` | Ends the run; `error: true` marks it failed. |
-| `log` | `message` | Writes to Interlock's log and the trace. |
+| `type`    | Fields                                                                          | Does                                                                                                                                                                                                       |
+| --------- | ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `command` | `entity`, `command`                                                             | Sends an entity's command: `throw`, `close`, `center`, `on`, `off`, `press`.                                                                                                                               |
+| `train`   | `address`, `address_type`, `command`, `speed`, `direction`, `function`, `state` | Drives a locomotive by DCC address: `command` is `speed` (with `speed` 0 to 126 and an optional `direction`), `stop`, `estop` or `function` (with `function` and `state` on or off). See `docs/trains.md`. |
+| `event`   | `event`                                                                         | Produces that event from Interlock's node.                                                                                                                                                                 |
+| `delay`   | `for`                                                                           | Waits.                                                                                                                                                                                                     |
+| `wait`    | `triggers`, `timeout`, `stop_on_timeout`                                        | Waits for one of the triggers (any type but `start`, `time` and `interval`). After `timeout` the run goes on, or stops when `stop_on_timeout` is set.                                                      |
+| `if`      | `conditions`, `then`, `else`                                                    | Runs `then` when the conditions hold, else `else`.                                                                                                                                                         |
+| `choose`  | `choices` (each `name`, `conditions`, `actions`), `default`                     | Runs the first choice whose conditions hold, else `default`.                                                                                                                                               |
+| `repeat`  | one of `count`, `while`, `until`; `actions`                                     | Repeats the actions a number of times, while conditions hold (checked first), or until they hold (checked after). At most 1000 times.                                                                      |
+| `stop`    | `reason`, `error`                                                               | Ends the run; `error: true` marks it failed.                                                                                                                                                               |
+| `log`     | `message`                                                                       | Writes to Interlock's log and the trace.                                                                                                                                                                   |
 
 ## Traces
 

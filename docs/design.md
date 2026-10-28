@@ -230,16 +230,16 @@ Entities are the layer automations and the UI work with. Each has an ID, a
 friendly name, a kind, a state, attributes and a set of commands. The first
 kinds:
 
-| Kind | State | Commands | Source |
-|---|---|---|---|
-| turnout | thrown, closed, moving, unknown | throw, close, center | event pairs |
-| block | occupied, clear, unknown | none | event pair |
-| reporter | list of locomotives with orientation | none | DCC detector range |
-| sensor | on, off | none | event pair, generic |
-| button | none | press | single event |
-| train | speed, direction, functions, controller | set speed, function, estop | train node |
-| command station | track power, faults, service mode busy | power on, off | CS node events and CDI |
-| node | online, offline, last seen | reboot, identify, factory reset | registry |
+| Kind            | State                                   | Commands                        | Source                 |
+| --------------- | --------------------------------------- | ------------------------------- | ---------------------- |
+| turnout         | thrown, closed, moving, unknown         | throw, close, center            | event pairs            |
+| block           | occupied, clear, unknown                | none                            | event pair             |
+| reporter        | list of locomotives with orientation    | none                            | DCC detector range     |
+| sensor          | on, off                                 | none                            | event pair, generic    |
+| button          | none                                    | press                           | single event           |
+| train           | speed, direction, functions, controller | set speed, function, estop      | train node             |
+| command station | track power, faults, service mode busy  | power on, off                   | CS node events and CDI |
+| node            | online, offline, last seen              | reboot, identify, factory reset | registry               |
 
 Every entity change and every raw event report goes on an internal bus;
 the WebSocket stream and the automation engine both subscribe to it.
