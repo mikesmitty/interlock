@@ -304,6 +304,17 @@
   margin-top: 1rem;
 }
 
+/* Panels side by side line up at the top, without the space one panel
+   after another gets. */
+.prog-layout > .panel {
+  margin: 0;
+}
+
+.prog-layout > .dec-picker {
+  grid-column: 1 / -1;
+  max-width: none;
+}
+
 .prog-panel {
   padding: 1rem;
 }

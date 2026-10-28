@@ -78,8 +78,8 @@ export function Programming() {
       }
     >
       {message && <p className="note note--error">{message}</p>}
-      <DecoderPicker />
       <div className="prog-layout">
+        <DecoderPicker />
         <ServiceMode track={track} onOp={record} onTrack={setTrack} />
         <OnTheMain roster={roster} onOp={record} />
         <div className="panel prog-history">
