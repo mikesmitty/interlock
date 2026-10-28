@@ -18,8 +18,10 @@ interface DiagramProps {
   hiddenLayers?: ReadonlySet<string>;
   /** The block being worked on, drawn in brass while editing. */
   activeBlock?: string;
-  selected?: ElementRef;
+  selected?: ElementRef[];
   hover?: ElementRef;
+  /** A selection box being dragged. */
+  box?: Bounds;
   /** Points to mark in amber: track ends that need attention. */
   marks?: Vec[];
   /** Where a stroke would join existing track. */
@@ -168,8 +170,8 @@ export function TrackDiagram(props: DiagramProps) {
     const l = plan.labels.find((x) => x.id === ref.id);
     return l && `M${l.x} ${l.y - px(9)}h${px(l.text.length * 7 + 4)}v${px(18)}h${-px(l.text.length * 7 + 4)}Z`;
   }
-  const selectedPath = props.selected && pathOf(props.selected);
-  const hoverPath = props.hover && !sameRef(props.hover, props.selected) && pathOf(props.hover);
+  const selectedPath = props.selected?.map(pathOf).join("");
+  const hoverPath = props.hover && !props.selected?.some((r) => sameRef(r, props.hover)) && pathOf(props.hover);
   const grid = editing ? gridSpacing(plan.grid, zoom) : 0;
 
   return (
@@ -331,6 +333,7 @@ export function TrackDiagram(props: DiagramProps) {
         <path key={`v${i}`} className="trk-preview" d={d} vectorEffect="non-scaling-stroke" />
       ))}
       {props.snapTo && <circle className="trk-snap" cx={props.snapTo.x} cy={props.snapTo.y} r={px(7)} vectorEffect="non-scaling-stroke" />}
+      {props.box && <rect className="trk-box" x={props.box.minX} y={props.box.minY} width={props.box.maxX - props.box.minX} height={props.box.maxY - props.box.minY} vectorEffect="non-scaling-stroke" />}
     </svg>
   );
 }

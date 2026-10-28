@@ -257,6 +257,14 @@
   pointer-events: none;
 }
 
+.trk-box {
+  fill: color-mix(in srgb, var(--brass) 8%, transparent);
+  stroke: var(--brass);
+  stroke-width: 1px;
+  stroke-dasharray: 4 3;
+  pointer-events: none;
+}
+
 .trk-hits path {
   pointer-events: stroke;
 }
@@ -297,6 +305,18 @@
 .trk-layer {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 0.5rem;
+  align-items: end;
+}
+
+.trk-layer__actions {
+  display: inline-flex;
+  gap: 0.25rem;
+}
+
+.trk-move {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
   gap: 0.5rem;
   align-items: end;
 }

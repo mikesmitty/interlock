@@ -12,35 +12,43 @@ import {
   KINDS,
   addJunction,
   addTrack,
+  allRefs,
   arcFrom,
   arcInfo,
   backgroundBounds,
   corners,
   dist,
   endNear,
+  exists,
   freeEnds,
   headingOf,
   idMaker,
   indexPlan,
   junctionCenter,
+  layerRefs,
   makeID,
   mergeTrack,
+  moveSelection,
   normalizeDegrees,
   openEnds,
   pieceShapes,
   placePiece,
   planBounds,
+  refsInBox,
   removeElements,
   round,
   routePath,
   sameRef,
+  selectionMiddle,
   setBlock,
+  setLayer,
   snap,
   straightFrom,
   sub,
   tangentAngle,
   trackPath,
   turnDiff,
+  turnSelection,
   union,
   unit,
   updateElement,
@@ -49,7 +57,7 @@ import {
 type Tool = "select" | "track" | "curve" | "piece" | "platform" | "label" | "block" | "erase" | "background";
 
 const TOOLS: { tool: Tool; label: string; key: string; hint: string }[] = [
-  { tool: "select", label: "Select", key: "v", hint: "Click track, a platform or a label to see and change it. Delete or Backspace removes it." },
+  { tool: "select", label: "Select", key: "v", hint: "Click to select, Shift-click to add or take away, or drag a box around what to select; ⌘A selects everything. Drag the selection to move it; Delete or Backspace removes it." },
   { tool: "track", label: "Straight", key: "t", hint: "Drag from the end of a track to carry it on straight, or from anywhere to lay a straight between grid points. Let go on another end to join it." },
   { tool: "curve", label: "Curve", key: "c", hint: "Drag from the end of a track to curve it at the radius below, a step at a time. Let go on another end to join it with the curve that fits." },
   { tool: "piece", label: "Turnout", key: "w", hint: "Click the end of a track to put the piece chosen below there. Its other ends join any track already in place." },
@@ -319,6 +327,14 @@ interface Stroke {
   background?: TrackBackground;
   /** For the drawing tools: what letting go adds. */
   result?: Draft;
+  /** For the select tool: moving the selection, or drawing a box to
+   * select what it takes in. */
+  mode?: "move" | "box";
+  refs?: ElementRef[];
+  /** The element the pointer went down on, selected if no box is drawn. */
+  clicked?: ElementRef;
+  additive?: boolean;
+  box?: Bounds;
 }
 
 interface Options {
@@ -346,7 +362,8 @@ function Editor({
   const dirty = session.past.length > 0;
   const [hidden] = layers;
   const [tool, setTool] = useState<Tool>(draft.tracks.length ? "select" : "track");
-  const [selected, setSelected] = useState<ElementRef>();
+  const [selection, setSelection] = useState<ElementRef[]>([]);
+  const [box, setBox] = useState<Bounds>();
   const [hover, setHover] = useState<ElementRef>();
   const [activeBlock, setActiveBlock] = useState<string | undefined>(draft.blocks[0]?.id);
   const [activeLayer, setActiveLayer] = useState<string>();
@@ -395,17 +412,12 @@ function Editor({
     return () => window.removeEventListener("beforeunload", warn);
   }, [dirty]);
 
-  // An element undo took away is no longer selected.
-  const selectedExists =
-    selected &&
-    (selected.kind === "track"
-      ? index.tracks.has(selected.id)
-      : selected.kind === "junction"
-        ? index.junctions.has(selected.id)
-        : selected.kind === "platform"
-          ? draft.platforms.some((p) => p.id === selected.id)
-          : draft.labels.some((l) => l.id === selected.id));
-  const current = selectedExists ? selected : undefined;
+  // What undo took away is no longer selected.
+  const current = selection.filter((r) => exists(draft, index, r));
+  const select = (refs: ElementRef[]) => {
+    setSelection(refs);
+    if (refs.length) setTool("select");
+  };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -419,12 +431,22 @@ function Editor({
       } else if (mod && e.key.toLowerCase() === "y") {
         e.preventDefault();
         redo();
-      } else if ((e.key === "Delete" || e.key === "Backspace") && current) {
+      } else if (mod && e.key.toLowerCase() === "a") {
         e.preventDefault();
-        commit(removeElements(sessionRef.current.draft, [current]));
-        setSelected(undefined);
+        select(allRefs(sessionRef.current.draft, hidden));
+      } else if ((e.key === "Delete" || e.key === "Backspace") && current.length) {
+        e.preventDefault();
+        commit(removeElements(sessionRef.current.draft, current));
+        setSelection([]);
       } else if (e.key === "Escape") {
-        setSelected(undefined);
+        setSelection([]);
+      } else if (e.key.startsWith("Arrow") && current.length && tool === "select") {
+        // A millimeter at a time, a grid space with Shift; a run of
+        // nudges is one step to undo.
+        e.preventDefault();
+        const d = e.shiftKey ? grid : 1;
+        const by = { ArrowLeft: { x: -d, y: 0 }, ArrowRight: { x: d, y: 0 }, ArrowUp: { x: 0, y: -d }, ArrowDown: { x: 0, y: d } }[e.key];
+        if (by) commit(moveSelection(sessionRef.current.draft, current, by), "nudge");
       } else if (!mod && !e.altKey) {
         const t = tools.find((t) => t.key === e.key);
         if (t) setTool(t.tool);
@@ -463,14 +485,35 @@ function Editor({
     if (e.button !== 0) return;
     setNote(undefined);
     if (tool === "select") {
-      setSelected(target);
+      const picked = target && current.some((r) => sameRef(r, target));
+      if (e.shiftKey && target) {
+        setSelection(picked ? current.filter((r) => !sameRef(r, target)) : [...current, target]);
+        return;
+      }
+      // Dragging what is selected moves it; a drag from anywhere else
+      // draws a box, and a click without one selects what it is on.
+      e.currentTarget.setPointerCapture(e.pointerId);
+      setFrozenArea(area);
+      stroke.current = {
+        base: draft,
+        start: at,
+        moved: false,
+        unassign: false,
+        plan: draft,
+        done: new Set(),
+        background: draft.background,
+        mode: picked ? "move" : "box",
+        refs: current,
+        clicked: target,
+        additive: e.shiftKey,
+      };
       return;
     }
     if (tool === "label") {
       const p = snap(at, grid);
       const id = idMaker(draft)("l");
       commit({ ...draft, labels: [...draft.labels, { id, x: p.x, y: p.y, text: "Label", ...(onLayer ? { layer: onLayer } : {}) }] });
-      setSelected({ kind: "label", id });
+      setSelection([{ kind: "label", id }]);
       return;
     }
     if (tool === "piece") {
@@ -516,6 +559,17 @@ function Editor({
       return;
     }
     s.moved = true;
+    if (s.mode === "move" && s.refs) {
+      const by = { x: round(at.x - s.start.x, 1), y: round(at.y - s.start.y, 1) };
+      show(s, moveSelection(s.base, s.refs, by));
+      setNote(`Moving ${Math.round(by.x)}, ${Math.round(by.y)} mm`);
+      return;
+    }
+    if (s.mode === "box") {
+      s.box = { minX: Math.min(s.start.x, at.x), minY: Math.min(s.start.y, at.y), maxX: Math.max(s.start.x, at.x), maxY: Math.max(s.start.y, at.y) };
+      setBox(s.box);
+      return;
+    }
     switch (tool) {
       case "background": {
         const bg = s.base.background;
@@ -629,7 +683,21 @@ function Editor({
     stroke.current = undefined;
     setFrozenArea(undefined);
     setPreview({ paths: [] });
+    setBox(undefined);
     if (!s) return;
+    if (s.mode === "move" && !s.moved && s.clicked) {
+      // A click on one of several selected elements selects it alone.
+      setSelection([s.clicked]);
+      return;
+    }
+    if (s.mode === "box") {
+      // Less than a few pixels across is a click.
+      const b = s.box;
+      const clicked = !b || Math.max(b.maxX - b.minX, b.maxY - b.minY) < reach / 2;
+      const got = clicked ? (s.clicked ? [s.clicked] : []) : refsInBox(draft, index, b, hidden);
+      setSelection(s.additive ? [...current, ...got.filter((r) => !current.some((c) => sameRef(c, r)))] : got);
+      return;
+    }
     const plan = s.result ?? (s.plan !== s.base || s.background !== s.base.background ? { ...s.plan, background: s.background } : undefined);
     if (plan) {
       setSession({ ...sessionRef.current, draft: plan, past: [...sessionRef.current.past, s.base].slice(-HISTORY), future: [], run: undefined });
@@ -810,6 +878,7 @@ function Editor({
             hiddenLayers={hidden}
             activeBlock={tool === "block" ? activeBlock : undefined}
             selected={current}
+            box={box}
             hover={hover}
             marks={ends}
             snapTo={preview.snapTo}
@@ -825,24 +894,36 @@ function Editor({
           />
         </div>
         <aside className="trk-side">
-          {current && (
+          {current.length === 1 && (
             <ElementDetails
-              item={current}
+              item={current[0]}
               draft={draft}
               index={index}
               entities={entities}
               commit={commit}
               onRemove={() => {
-                commit(removeElements(draft, [current]));
-                setSelected(undefined);
+                commit(removeElements(draft, current));
+                setSelection([]);
               }}
             />
           )}
+          {current.length > 1 && (
+            <SelectionDetails
+              refs={current}
+              draft={draft}
+              commit={commit}
+              onRemove={() => {
+                commit(removeElements(draft, current));
+                setSelection([]);
+              }}
+            />
+          )}
+          {current.length > 0 && <MoveTurn refs={current} draft={draft} index={index} commit={commit} />}
           <Blocks draft={draft} entities={entities} active={activeBlock} setActive={setActiveBlock} commit={commit} topology={dirty ? undefined : saved.topology} />
           <Stations draft={draft} commit={commit} />
-          <Layers draft={draft} commit={commit} layers={layers} />
+          <Layers draft={draft} commit={commit} layers={layers} onSelect={(id) => select(layerRefs(draft, id))} />
           <Problems ends={ends.length} saved={dirty ? undefined : saved} />
-          <Import draft={draft} commit={commit} />
+          <Import draft={draft} commit={commit} onImported={select} />
           <Background draft={draft} area={area} commit={commit} onAdded={() => setTool("background")} onRemoved={() => tool === "background" && setTool("select")} />
         </aside>
       </div>
@@ -1038,6 +1119,133 @@ function ElementDetails({
       <CommitInput label="Text" value={l.text} onCommit={(v) => v.trim() && change({ text: v.trim() })} />
       {layer(l.layer)}
       {remove}
+    </Section>
+  );
+}
+
+const KIND_WORDS: Record<ElementRef["kind"], [string, string]> = {
+  track: ["piece of track", "pieces of track"],
+  junction: ["turnout or crossing", "turnouts and crossings"],
+  platform: ["platform", "platforms"],
+  label: ["label", "labels"],
+};
+
+/** What a selection of many elements holds, and what can be done to all of them at once. */
+function SelectionDetails({ refs, draft, commit, onRemove }: { refs: ElementRef[]; draft: Draft; commit: (d: Draft) => void; onRemove: () => void }) {
+  const counts = (Object.keys(KIND_WORDS) as ElementRef["kind"][])
+    .map((k) => [k, refs.filter((r) => r.kind === k).length] as const)
+    .filter(([, n]) => n > 0)
+    .map(([k, n]) => `${n} ${KIND_WORDS[k][n === 1 ? 0 : 1]}`);
+  const trackRefs = refs.filter((r) => r.kind === "track" || r.kind === "junction");
+  const valueOf = (r: ElementRef, key: "block" | "layer") => {
+    const list: { id: string; block?: string; layer?: string }[] = { track: draft.tracks, junction: draft.junctions, platform: draft.platforms, label: draft.labels }[r.kind];
+    return list.find((x) => x.id === r.id)?.[key] ?? "";
+  };
+  /** The value all of them share, or "mixed". */
+  const common = (list: ElementRef[], key: "block" | "layer") => {
+    const values = new Set(list.map((r) => valueOf(r, key)));
+    return values.size === 1 ? [...values][0] : "mixed";
+  };
+  const block = common(trackRefs, "block");
+  const layer = common(refs, "layer");
+  return (
+    <Section title={`${refs.length} selected`}>
+      <p className="trk-sub muted">{counts.join(", ")}</p>
+      {trackRefs.length > 0 && (
+        <label className="trk-field">
+          <span>Block</span>
+          <select className="input input--select" value={block} onChange={(e) => commit(setBlock(draft, trackRefs, e.target.value || undefined))}>
+            {block === "mixed" && (
+              <option value="mixed" disabled>
+                Several
+              </option>
+            )}
+            <option value="">Not in a block</option>
+            {draft.blocks.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {draft.layers.length > 0 && (
+        <label className="trk-field">
+          <span>Layer</span>
+          <select className="input input--select" value={layer} onChange={(e) => commit(setLayer(draft, refs, e.target.value || undefined))}>
+            {layer === "mixed" && (
+              <option value="mixed" disabled>
+                Several
+              </option>
+            )}
+            <option value="">Not on a layer</option>
+            {draft.layers.map((l) => (
+              <option key={l.id} value={l.id}>
+                {l.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      <p>
+        <button type="button" className="btn btn--sm btn--quiet" onClick={onRemove}>
+          Remove all {refs.length}
+        </button>
+      </p>
+    </Section>
+  );
+}
+
+/** Moving and turning the selection by numbers, for what dragging can't
+ * do exactly. */
+function MoveTurn({ refs, draft, index, commit }: { refs: ElementRef[]; draft: Draft; index: ReturnType<typeof indexPlan>; commit: (d: Draft) => void }) {
+  const [degrees, setDegrees] = useState("90");
+  const [dx, setDx] = useState("0");
+  const [dy, setDy] = useState("0");
+  const about = selectionMiddle(draft, index, refs);
+  if (!about) return null;
+  const turn = (deg: number) => Number.isFinite(deg) && deg % 360 !== 0 && commit(turnSelection(draft, refs, deg, about));
+  const by = { x: Number(dx) || 0, y: Number(dy) || 0 };
+  return (
+    <Section title="Move and turn">
+      <p className="trk-sub muted">
+        Drag the selection to move it, or nudge it with the arrow keys: a millimeter at a time, {Math.round(draft.grid)} mm with Shift. It turns about its middle; what it was joined to stays where it is.
+      </p>
+      <div className="trk-rotate">
+        <label className="trk-field">
+          <span>Degrees, clockwise</span>
+          <input className="input input--num" type="number" step={0.1} value={degrees} onChange={(e) => setDegrees(e.target.value)} />
+        </label>
+        <span className="trk-rotate__turns">
+          <button type="button" className="btn btn--sm" onClick={() => turn(Number(degrees))}>
+            Turn
+          </button>
+        </span>
+      </div>
+      <p className="trk-note__actions">
+        <button type="button" className="btn btn--sm btn--quiet" onClick={() => turn(-90)} title="Turn a quarter left">
+          ↺ 90°
+        </button>
+        <button type="button" className="btn btn--sm btn--quiet" onClick={() => turn(90)} title="Turn a quarter right">
+          ↻ 90°
+        </button>
+        <button type="button" className="btn btn--sm btn--quiet" onClick={() => turn(180)} title="Turn it round">
+          180°
+        </button>
+      </p>
+      <div className="trk-move">
+        <label className="trk-field">
+          <span>Right, mm</span>
+          <input className="input input--num" type="number" value={dx} onChange={(e) => setDx(e.target.value)} />
+        </label>
+        <label className="trk-field">
+          <span>Down, mm</span>
+          <input className="input input--num" type="number" value={dy} onChange={(e) => setDy(e.target.value)} />
+        </label>
+        <button type="button" className="btn btn--sm" disabled={!by.x && !by.y} onClick={() => commit(moveSelection(draft, refs, by))}>
+          Move
+        </button>
+      </div>
     </Section>
   );
 }
@@ -1264,7 +1472,17 @@ function Stations({ draft, commit }: { draft: Draft; commit: (d: Draft) => void 
   );
 }
 
-function Layers({ draft, commit, layers: [hidden, setHidden] }: { draft: Draft; commit: (d: Draft) => void; layers: ReturnType<typeof useHiddenLayers> }) {
+function Layers({
+  draft,
+  commit,
+  layers: [hidden, setHidden],
+  onSelect,
+}: {
+  draft: Draft;
+  commit: (d: Draft) => void;
+  layers: ReturnType<typeof useHiddenLayers>;
+  onSelect: (id: string) => void;
+}) {
   const [name, setName] = useState("");
   function add() {
     const layerName = name.trim();
@@ -1296,9 +1514,14 @@ function Layers({ draft, commit, layers: [hidden, setHidden] }: { draft: Draft; 
         <div key={l.id} className="trk-layer">
           <input type="checkbox" aria-label={`Show ${l.name}`} checked={!hidden.has(l.id)} onChange={(e) => setHidden(l.id, !e.target.checked)} />
           <CommitInput label="Name" value={l.name} onCommit={(v) => v.trim() && commit({ ...draft, layers: draft.layers.map((x) => (x.id === l.id ? { ...x, name: v.trim() } : x)) })} />
-          <button type="button" className="btn btn--sm btn--quiet" onClick={() => remove(l.id)}>
-            Delete
-          </button>
+          <span className="trk-layer__actions">
+            <button type="button" className="btn btn--sm btn--quiet" onClick={() => onSelect(l.id)} title={`Select everything on ${l.name}`}>
+              Select
+            </button>
+            <button type="button" className="btn btn--sm btn--quiet" onClick={() => remove(l.id)}>
+              Delete
+            </button>
+          </span>
         </div>
       ))}
       {draft.layers.length > 0 && <p className="trk-sub muted">The boxes show and hide a layer on this browser only. Deleting a layer keeps what is on it.</p>}
@@ -1321,7 +1544,7 @@ function Layers({ draft, commit, layers: [hidden, setHidden] }: { draft: Draft; 
   );
 }
 
-function Import({ draft, commit }: { draft: Draft; commit: (d: Draft) => void }) {
+function Import({ draft, commit, onImported }: { draft: Draft; commit: (d: Draft) => void; onImported: (refs: ElementRef[]) => void }) {
   const [scale, setScale] = useState(10);
   const [layer, setLayer] = useState<string>();
   const [busy, setBusy] = useState(false);
@@ -1336,10 +1559,17 @@ function Import({ draft, commit }: { draft: Draft; commit: (d: Draft) => void })
     try {
       const imp = await api.importTrackPlan(file, scale);
       const on = layer && draft.layers.some((l) => l.id === layer) ? layer : undefined;
-      commit(mergeTrack(draft, imp.plan, on));
+      const merged = mergeTrack(draft, imp.plan, on);
+      commit(merged);
+      // Select what came in, ready to be moved and turned into place.
+      const had = new Set([...draft.tracks.map((t) => `t:${t.id}`), ...draft.junctions.map((j) => `j:${j.id}`)]);
+      onImported([
+        ...merged.tracks.filter((t) => !had.has(`t:${t.id}`)).map((t) => ({ kind: "track" as const, id: t.id })),
+        ...merged.junctions.filter((j) => !had.has(`j:${j.id}`)).map((j) => ({ kind: "junction" as const, id: j.id })),
+      ]);
       const free = freeEnds(indexPlan(imp.plan)).filter((p) => !p.bumper).length;
       setResult({
-        summary: `Added ${imp.plan.tracks.length} pieces of track and ${imp.plan.junctions.length} turnouts and crossings${free ? `, with ${free} track ends that lead nowhere yet` : ""}.`,
+        summary: `Added ${imp.plan.tracks.length} pieces of track and ${imp.plan.junctions.length} turnouts and crossings${free ? `, with ${free} track ends that lead nowhere yet` : ""}. They're selected: drag them, or move and turn them by numbers, to put them in place.`,
         notes: imp.notes ?? [],
       });
     } catch (err) {

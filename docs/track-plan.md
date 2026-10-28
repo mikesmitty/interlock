@@ -40,9 +40,10 @@ A layout planned in RailModeller Pro comes in as planned:
    RailModeller's default; change it if you changed RailModeller's
    setting.
 3. The track is added where it lies in the export, as one step you can
-   undo. Imports add to what is there, so a layout on two decks comes in
-   a deck at a time, each onto a layer of the plan (see **Layers**
-   below).
+   undo, and comes in selected, so you can move and turn it into place
+   (see **Selecting, moving and turning** below). Imports add to what is
+   there, so a layout on two decks comes in a deck at a time, each onto
+   a layer of the plan (see **Layers** below).
 
 RailModeller's export leaves out its crossovers and diamond crossings;
 the gaps they leave are marked in amber. Put crossovers back with the
@@ -80,8 +81,28 @@ Ctrl+Z) and **Redo** step back and forth through your changes.
   remove them.
 - **Select** (V): click track, a platform or a label to see what it is
   and change it: a curve's radius and length, a turnout's switch
-  machine, a buffer stop at a track end. Delete or Backspace removes
-  it.
+  machine, a buffer stop at a track end. See **Selecting, moving and
+  turning** below for working on many at once.
+
+### Selecting, moving and turning
+
+With the Select tool, drag a box to select everything wholly inside it,
+Shift-click to add an element or take it away, or press ⌘A (Ctrl+A) to
+select everything on the layers shown. **Select** beside a layer under
+**Layers** selects everything on it, and imported track comes in
+selected.
+
+- Delete or Backspace removes the whole selection, as does **Remove
+  all** in its panel.
+- Drag the selection to move it, or nudge it with the arrow keys: a
+  millimeter at a time, a grid space with Shift. **Move and turn** moves
+  it by a distance you type and turns it by any angle, or a quarter or
+  half turn, about its middle.
+- With many selected, the panel puts them all in a block or on a layer
+  at once.
+
+Moving or turning a selection takes it away from track it was joined to
+but doesn't include, which stays where it is, its ends now open.
 
 **Grid in mm**, shown with the Straight, Platform and Label tools, is the
 spacing they snap to. It starts at 33, the distance between the tracks

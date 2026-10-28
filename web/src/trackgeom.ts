@@ -1,7 +1,7 @@
 // Track plan geometry, worked out as internal/trackplan does: track to
 // scale in millimeters, x rightward and y downward, headings in degrees
 // clockwise from rightward. Keep the rules in step with the Go package.
-import type { JunctionKind, PlanJunction, PlanPoint, PlanTrack, TrackBackground, TrackPlan, Vec } from "./api";
+import type { JunctionKind, PlanJunction, PlanPlatform, PlanPoint, PlanTrack, TrackBackground, TrackPlan, Vec } from "./api";
 
 export const add = (a: Vec, b: Vec): Vec => ({ x: a.x + b.x, y: a.y + b.y });
 export const sub = (a: Vec, b: Vec): Vec => ({ x: a.x - b.x, y: a.y - b.y });
@@ -544,5 +544,147 @@ export function updateElement(plan: TrackPlan, ref: ElementRef, change: Record<s
       return { ...plan, platforms: plan.platforms.map(apply) };
     case "label":
       return { ...plan, labels: plan.labels.map(apply) };
+  }
+}
+
+// Selections: many elements moved, turned or changed together.
+
+const refKey = (r: ElementRef) => `${r.kind}:${r.id}`;
+
+/** Everything on the plan that isn't on a hidden layer. */
+export function allRefs(plan: TrackPlan, hidden?: ReadonlySet<string>): ElementRef[] {
+  const shown = (layer?: string) => !layer || !hidden?.has(layer);
+  return [
+    ...plan.tracks.filter((t) => shown(t.layer)).map((t) => ({ kind: "track" as const, id: t.id })),
+    ...plan.junctions.filter((j) => shown(j.layer)).map((j) => ({ kind: "junction" as const, id: j.id })),
+    ...plan.platforms.filter((p) => shown(p.layer)).map((p) => ({ kind: "platform" as const, id: p.id })),
+    ...plan.labels.filter((l) => shown(l.layer)).map((l) => ({ kind: "label" as const, id: l.id })),
+  ];
+}
+
+/** Everything on a layer. */
+export const layerRefs = (plan: TrackPlan, layer: string): ElementRef[] =>
+  allRefs(plan).filter((r) => {
+    const list: { id: string; layer?: string }[] = { track: plan.tracks, junction: plan.junctions, platform: plan.platforms, label: plan.labels }[r.kind];
+    return list.find((x) => x.id === r.id)?.layer === layer;
+  });
+
+/** The places that say where each element is: a track's ends and
+ * middle, a junction's ends, a platform's corners, a label's start. */
+function placesOf(plan: TrackPlan, index: PlanIndex, r: ElementRef): Vec[] {
+  switch (r.kind) {
+    case "track": {
+      const t = index.tracks.get(r.id);
+      const a = t && index.points.get(t.a);
+      const b = t && index.points.get(t.b);
+      return a && b ? [a, b, arcAt(a, b, t.angle, 0.5)] : [];
+    }
+    case "junction":
+      return (index.junctions.get(r.id)?.ends ?? []).map((e) => index.points.get(e)).filter((p): p is PlanPoint => !!p);
+    case "platform": {
+      const p = plan.platforms.find((x) => x.id === r.id);
+      return p ? corners(p, p.length, p.width, p.angle) : [];
+    }
+    case "label": {
+      const l = plan.labels.find((x) => x.id === r.id);
+      return l ? [l] : [];
+    }
+  }
+}
+
+/** The middle of a selection: the average of the places that say where
+ * its elements are. Turning a selection about it leaves it where it is,
+ * so a turn and the turn back return the selection exactly. */
+export function selectionMiddle(plan: TrackPlan, index: PlanIndex, refs: ElementRef[]): Vec | undefined {
+  const places = refs.flatMap((r) => placesOf(plan, index, r));
+  if (!places.length) return undefined;
+  return scale(
+    places.reduce((a, b) => add(a, b), { x: 0, y: 0 }),
+    1 / places.length,
+  );
+}
+
+/** The extent of a selection. */
+export const selectionBounds = (plan: TrackPlan, index: PlanIndex, refs: ElementRef[]): Bounds | undefined => boundsOf(refs.flatMap((r) => placesOf(plan, index, r)));
+
+/** What a box drawn over the plan takes in: the elements wholly inside it. */
+export function refsInBox(plan: TrackPlan, index: PlanIndex, box: Bounds, hidden?: ReadonlySet<string>): ElementRef[] {
+  const inside = (v: Vec) => v.x >= box.minX && v.x <= box.maxX && v.y >= box.minY && v.y <= box.maxY;
+  return allRefs(plan, hidden).filter((r) => {
+    const places = placesOf(plan, index, r);
+    return places.length > 0 && places.every(inside);
+  });
+}
+
+/** Moves the selected elements by f, and turns platforms by turn
+ * degrees. Points the selection shares with track left behind are split,
+ * so the selection comes away rather than stretching what it was joined
+ * to. */
+function transform(plan: TrackPlan, refs: ElementRef[], f: (v: Vec) => Vec, turn: number): TrackPlan {
+  const picked = new Set(refs.map(refKey));
+  const index = indexPlan(plan);
+  const id = idMaker(plan);
+  const moved = new Map<string, string>(); // point → the point the selection uses
+  const points = new Map(plan.points.map((p) => [p.id, p]));
+  const take = (point: string): string => {
+    const known = moved.get(point);
+    if (known) return known;
+    const p = points.get(point)!;
+    const shared = (index.at.get(point) ?? []).some((a) => !picked.has(`${a.kind}:${a.id}`));
+    const to = shared ? id("p") : point;
+    const at = f(p);
+    points.set(to, { ...p, id: to, x: round(at.x, 2) + 0, y: round(at.y, 2) + 0 });
+    moved.set(point, to);
+    return to;
+  };
+  const tracks = plan.tracks.map((t) => (picked.has(`track:${t.id}`) ? { ...t, a: take(t.a), b: take(t.b) } : t));
+  const junctions = plan.junctions.map((j) => {
+    if (!picked.has(`junction:${j.id}`)) return j;
+    const at = j.at && f(j.at);
+    return { ...j, ends: j.ends.map(take), ...(at ? { at: { x: round(at.x, 2) + 0, y: round(at.y, 2) + 0 } } : {}) };
+  });
+  const platforms = plan.platforms.map((p) => {
+    if (!picked.has(`platform:${p.id}`)) return p;
+    const at = f(p);
+    const angle = round(normalizeDegrees((p.angle ?? 0) + turn), 2);
+    const copy: PlanPlatform = { ...p, x: round(at.x, 2) + 0, y: round(at.y, 2) + 0 };
+    if (angle) copy.angle = angle;
+    else delete copy.angle;
+    return copy;
+  });
+  const labels = plan.labels.map((l) => {
+    if (!picked.has(`label:${l.id}`)) return l;
+    const at = f(l);
+    return { ...l, x: round(at.x, 2) + 0, y: round(at.y, 2) + 0 };
+  });
+  return { ...plan, points: [...points.values()], tracks, junctions, platforms, labels };
+}
+
+/** Moves a selection by an offset. */
+export const moveSelection = (plan: TrackPlan, refs: ElementRef[], by: Vec): TrackPlan => transform(plan, refs, (v) => add(v, by), 0);
+
+/** Turns a selection clockwise by degrees about a point. */
+export function turnSelection(plan: TrackPlan, refs: ElementRef[], degrees: number, about: Vec): TrackPlan {
+  const c = Math.cos(radians(degrees));
+  const s = Math.sin(radians(degrees));
+  return transform(plan, refs, (v) => ({ x: about.x + (v.x - about.x) * c - (v.y - about.y) * s, y: about.y + (v.x - about.x) * s + (v.y - about.y) * c }), degrees);
+}
+
+/** Puts every selected element on a layer, or on none. */
+export function setLayer(plan: TrackPlan, refs: ElementRef[], layer: string | undefined): TrackPlan {
+  return refs.reduce((p, r) => updateElement(p, r, { layer }), plan);
+}
+
+/** Whether an element is still on the plan. */
+export function exists(plan: TrackPlan, index: PlanIndex, r: ElementRef): boolean {
+  switch (r.kind) {
+    case "track":
+      return index.tracks.has(r.id);
+    case "junction":
+      return index.junctions.has(r.id);
+    case "platform":
+      return plan.platforms.some((p) => p.id === r.id);
+    case "label":
+      return plan.labels.some((l) => l.id === r.id);
   }
 }
