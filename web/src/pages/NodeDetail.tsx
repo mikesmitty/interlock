@@ -118,10 +118,14 @@ export function NodeDetail() {
                 className="btn btn--quiet"
                 disabled={busy}
                 onClick={() =>
-                  void act("Forgetting the node", async () => {
-                    await api.forgetNode(node.id);
-                    await navigate("/nodes");
-                  }, "Forgotten.")
+                  void act(
+                    "Forgetting the node",
+                    async () => {
+                      await api.forgetNode(node.id);
+                      await navigate("/nodes");
+                    },
+                    "Forgotten.",
+                  )
                 }
               >
                 Forget node

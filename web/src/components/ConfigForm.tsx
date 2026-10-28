@@ -180,9 +180,7 @@ export function ConfigForm({ nodeId, nodeName, online }: ConfigFormProps) {
             {message && <span className={message.kind === "error" ? "savebar__msg savebar__msg--error" : "savebar__msg"}>{message.text}</span>}
             {dirtyKeys.length > 0 && (
               <>
-                <span className="savebar__count">
-                  {dirtyKeys.length === 1 ? "1 change" : `${dirtyKeys.length} changes`} not yet on the node
-                </span>
+                <span className="savebar__count">{dirtyKeys.length === 1 ? "1 change" : `${dirtyKeys.length} changes`} not yet on the node</span>
                 <button className="btn btn--quiet" onClick={discard} disabled={saving}>
                   Discard
                 </button>
@@ -256,13 +254,15 @@ function isShown(node: CdiNode): boolean {
 function Items({ items, ...rest }: { items: CdiNode[] } & ItemProps) {
   return (
     <>
-      {items.filter(isShown).map((item) =>
-        item.kind === "group" ? (
-          <Group key={`${item.space}:${item.address}:${item.name}`} node={item} {...rest} />
-        ) : (
-          <Field key={item.key ?? `${item.space}:${item.address}`} node={item} {...rest} />
-        ),
-      )}
+      {items
+        .filter(isShown)
+        .map((item) =>
+          item.kind === "group" ? (
+            <Group key={`${item.space}:${item.address}:${item.name}`} node={item} {...rest} />
+          ) : (
+            <Field key={item.key ?? `${item.space}:${item.address}`} node={item} {...rest} />
+          ),
+        )}
     </>
   );
 }
@@ -280,14 +280,7 @@ function Group({ node, ...rest }: { node: CdiNode } & ItemProps) {
         <>
           <div className="cfg-tabs" role="tablist" aria-label={node.name}>
             {replicas.map((rep, i) => (
-              <button
-                key={rep.name}
-                role="tab"
-                type="button"
-                aria-selected={i === tab}
-                className="cfg-tab"
-                onClick={() => setTab(i)}
-              >
+              <button key={rep.name} role="tab" type="button" aria-selected={i === tab} className="cfg-tab" onClick={() => setTab(i)}>
                 {rep.name}
               </button>
             ))}
@@ -404,7 +397,19 @@ function Field({ node, values, edits, errors, disabled, onChange, onAction }: { 
       }
       break;
     case "float":
-      control = <input id={id} type="number" className="input input--num" step="any" min={node.min} max={node.max} value={value} disabled={disabled} onChange={(e) => onChange(key, e.target.value)} />;
+      control = (
+        <input
+          id={id}
+          type="number"
+          className="input input--num"
+          step="any"
+          min={node.min}
+          max={node.max}
+          value={value}
+          disabled={disabled}
+          onChange={(e) => onChange(key, e.target.value)}
+        />
+      );
       break;
     case "eventid": {
       const bad = value !== "" && !EVENT_RE.test(value);
@@ -468,7 +473,15 @@ function ActionButton({ node, disabled, onFire }: { node: CdiNode; disabled: boo
     return (
       <span className="confirm">
         <span>{node.dialog_text}</span>
-        <button type="button" className="btn btn--primary" onClick={() => { setConfirming(false); onFire(node.value ?? "1"); }} disabled={disabled}>
+        <button
+          type="button"
+          className="btn btn--primary"
+          onClick={() => {
+            setConfirming(false);
+            onFire(node.value ?? "1");
+          }}
+          disabled={disabled}
+        >
           {label}
         </button>
         <button type="button" className="btn btn--quiet" onClick={() => setConfirming(false)}>
@@ -484,7 +497,17 @@ function ActionButton({ node, disabled, onFire }: { node: CdiNode; disabled: boo
   );
 }
 
-function DangerZone({ nodeId, nodeName, disabled, onMessage }: { nodeId: string; nodeName: string; disabled: boolean; onMessage: (m: { kind: "ok" | "error"; text: string }) => void }) {
+function DangerZone({
+  nodeId,
+  nodeName,
+  disabled,
+  onMessage,
+}: {
+  nodeId: string;
+  nodeName: string;
+  disabled: boolean;
+  onMessage: (m: { kind: "ok" | "error"; text: string }) => void;
+}) {
   const [arm, setArm] = useState<"reboot" | "reset">();
   const [busy, setBusy] = useState(false);
 
@@ -510,7 +533,9 @@ function DangerZone({ nodeId, nodeName, disabled, onMessage }: { nodeId: string;
     const reset = arm === "reset";
     return (
       <div className="confirm confirm--block">
-        <span>{reset ? `Reset ${nodeName} to factory settings? Every value above goes back to its default.` : `Restart ${nodeName}? It will be off the bus for a few seconds.`}</span>
+        <span>
+          {reset ? `Reset ${nodeName} to factory settings? Every value above goes back to its default.` : `Restart ${nodeName}? It will be off the bus for a few seconds.`}
+        </span>
         <button type="button" className={reset ? "btn btn--danger" : "btn btn--primary"} disabled={busy || disabled} onClick={() => void run(arm)}>
           {reset ? "Yes, reset it" : "Yes, restart it"}
         </button>

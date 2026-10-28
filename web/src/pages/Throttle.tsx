@@ -46,9 +46,7 @@ export function Throttle() {
   const nodeNames: Record<string, string> = {};
   for (const n of Object.values(nodes)) nodeNames[n.id] = n.snip?.UserName || n.id;
 
-  const list = Object.values(trains).sort(
-    (a, b) => Number(b.roster) - Number(a.roster) || a.name.localeCompare(b.name) || a.address - b.address,
-  );
+  const list = Object.values(trains).sort((a, b) => Number(b.roster) - Number(a.roster) || a.name.localeCompare(b.name) || a.address - b.address);
   const roster = list.filter((t) => t.roster);
   const driving = list.filter((t) => t.controlled).length;
   const selected = id ? trains[id] : undefined;
@@ -123,10 +121,7 @@ export function Throttle() {
           <Missing id={id} onMessage={setMessage} />
         ) : loaded && list.length === 0 ? (
           <Empty title="Add a locomotive to start">
-            <p>
-              Give it a name and its DCC address on the left. The first speed you set finds the train on the command
-              station and takes control of it.
-            </p>
+            <p>Give it a name and its DCC address on the left. The first speed you set finds the train on the command station and takes control of it.</p>
             <p>Trains that other throttles drive also show up here once Interlock has seen them.</p>
           </Empty>
         ) : null}
@@ -135,17 +130,7 @@ export function Throttle() {
   );
 }
 
-function Roster({
-  list,
-  selected,
-  nodeNames,
-  onMessage,
-}: {
-  list: Train[];
-  selected?: string;
-  nodeNames: Record<string, string>;
-  onMessage: (m?: string) => void;
-}) {
+function Roster({ list, selected, nodeNames, onMessage }: { list: Train[]; selected?: string; nodeNames: Record<string, string>; onMessage: (m?: string) => void }) {
   const navigate = useNavigate();
   const { trains, consists } = useBus();
   const [name, setName] = useState("");
@@ -217,9 +202,7 @@ function Roster({
                   )}
                 </span>
                 <span className="thr-roster__address">{addressText(t)}</span>
-                <span className="thr-roster__speed">
-                  {t.estop ? "stop!" : t.speed ? `${t.speed} ${t.direction === "reverse" ? "rev" : "fwd"}` : "0"}
-                </span>
+                <span className="thr-roster__speed">{t.estop ? "stop!" : t.speed ? `${t.speed} ${t.direction === "reverse" ? "rev" : "fwd"}` : "0"}</span>
               </button>
             </li>
           );
@@ -227,13 +210,7 @@ function Roster({
       </ul>
       <div className="thr-roster__add">
         <form onSubmit={(e) => void add(e)}>
-          <input
-            className="input"
-            placeholder="Name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            aria-label="Name"
-          />
+          <input className="input" placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} aria-label="Name" />
           <input
             className="input"
             type="number"
@@ -255,13 +232,7 @@ function Roster({
           </button>
         </form>
         <form onSubmit={(e) => void search(e)} style={{ marginTop: "0.5rem" }}>
-          <input
-            className="input"
-            placeholder="Find on the bus by address"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            aria-label="Search address"
-          />
+          <input className="input" placeholder="Find on the bus by address" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search address" />
           <button className="btn btn--quiet" type="submit" disabled={busy || !query}>
             Find
           </button>
@@ -321,10 +292,7 @@ function Missing({ id, onMessage }: { id: string; onMessage: (m?: string) => voi
     <Empty title={valid ? `Locomotive ${id}` : "No such train"}>
       {valid ? (
         <>
-          <p>
-            This locomotive is not in the roster. Interlock can still drive it: taking control asks the command station
-            for its train node.
-          </p>
+          <p>This locomotive is not in the roster. Interlock can still drive it: taking control asks the command station for its train node.</p>
           <button className="btn btn--primary" onClick={() => void take()} disabled={busy}>
             {busy ? "Looking…" : `Take control of ${id}`}
           </button>
@@ -424,27 +392,15 @@ function Cab({
         <Status color={lamp.color}>{lamp.label}</Status>
         <div className="thr-cab__actions">
           {t.controlled ? (
-            <button
-              className="btn btn--quiet"
-              onClick={() => void act("Release", () => api.releaseTrain(t.id))}
-              disabled={!!busy}
-            >
+            <button className="btn btn--quiet" onClick={() => void act("Release", () => api.releaseTrain(t.id))} disabled={!!busy}>
               Release
             </button>
           ) : (
-            <button
-              className="btn"
-              onClick={() => void act("Take control", () => api.acquireTrain(t.id))}
-              disabled={!!busy}
-            >
+            <button className="btn" onClick={() => void act("Take control", () => api.acquireTrain(t.id))} disabled={!!busy}>
               {busy === "Take control" ? "Looking…" : "Take control"}
             </button>
           )}
-          <button
-            className="btn btn--quiet"
-            onClick={() => void act("Refresh", () => api.refreshTrain(t.id))}
-            disabled={!!busy}
-          >
+          <button className="btn btn--quiet" onClick={() => void act("Refresh", () => api.refreshTrain(t.id))} disabled={!!busy}>
             Refresh
           </button>
           {t.roster ? (
@@ -471,8 +427,7 @@ function Cab({
         {inConsist &&
           (inConsist.leads ? (
             <p className="thr-note">
-              Leads{" "}
-              <Link to={`/roster/consists/${encodeURIComponent(inConsist.consist.id)}`}>{inConsist.consist.name}</Link>:{" "}
+              Leads <Link to={`/roster/consists/${encodeURIComponent(inConsist.consist.id)}`}>{inConsist.consist.name}</Link>:{" "}
               {inConsist.consist.members
                 .slice(1)
                 .map((m) => trains[m.train]?.name ?? m.train)
@@ -481,10 +436,8 @@ function Cab({
             </p>
           ) : (
             <p className="note">
-              {t.name} runs in{" "}
-              <Link to={`/roster/consists/${encodeURIComponent(inConsist.consist.id)}`}>{inConsist.consist.name}</Link>; its
-              speed comes from {inConsist.lead?.name ?? "the lead"}.{" "}
-              {inConsist.lead && <Link to={`/throttle/${encodeURIComponent(inConsist.lead.id)}`}>Drive {inConsist.lead.name}</Link>}
+              {t.name} runs in <Link to={`/roster/consists/${encodeURIComponent(inConsist.consist.id)}`}>{inConsist.consist.name}</Link>; its speed comes from{" "}
+              {inConsist.lead?.name ?? "the lead"}. {inConsist.lead && <Link to={`/throttle/${encodeURIComponent(inConsist.lead.id)}`}>Drive {inConsist.lead.name}</Link>}
             </p>
           ))}
         <div className="thr-speed">
@@ -520,29 +473,14 @@ function Cab({
               <button className="btn" onClick={() => slide(0)} disabled={follower}>
                 Stop
               </button>
-              <button
-                className="btn btn--stop btn--primary"
-                onClick={() => void act("Emergency stop", () => api.trainEStop(t.id))}
-              >
+              <button className="btn btn--stop btn--primary" onClick={() => void act("Emergency stop", () => api.trainEStop(t.id))}>
                 Emergency stop
               </button>
               <span className="lever" role="group" aria-label="Direction">
-                <button
-                  type="button"
-                  className="lever__opt"
-                  aria-pressed={t.direction === "forward"}
-                  onClick={() => direction("forward")}
-                  disabled={follower}
-                >
+                <button type="button" className="lever__opt" aria-pressed={t.direction === "forward"} onClick={() => direction("forward")} disabled={follower}>
                   Forward
                 </button>
-                <button
-                  type="button"
-                  className="lever__opt"
-                  aria-pressed={t.direction === "reverse"}
-                  onClick={() => direction("reverse")}
-                  disabled={follower}
-                >
+                <button type="button" className="lever__opt" aria-pressed={t.direction === "reverse"} onClick={() => direction("reverse")} disabled={follower}>
                   Reverse
                 </button>
               </span>
@@ -555,8 +493,7 @@ function Cab({
             const hold = momentary.has(fn);
             const label = labels[String(fn)];
             if (!label && fn > 12 && !on) return null;
-            const send = (value: boolean) =>
-              void api.trainFunction(t.id, fn, value).catch((err) => onMessage(`F${fn}: ${describe(err)}`));
+            const send = (value: boolean) => void api.trainFunction(t.id, fn, value).catch((err) => onMessage(`F${fn}: ${describe(err)}`));
             return (
               <button
                 key={fn}
@@ -576,9 +513,7 @@ function Cab({
           })}
         </div>
         <p className="thr-note">
-          {t.known
-            ? `State read from the train; updated ${relativeTime(t.updated, now)}.`
-            : "Not read from the train yet; the first command finds it and takes control."}
+          {t.known ? `State read from the train; updated ${relativeTime(t.updated, now)}.` : "Not read from the train yet; the first command finds it and takes control."}
           {!t.roster && " This locomotive is not in the roster; add it to keep a name, function labels and its decoder's settings."}
         </p>
       </div>

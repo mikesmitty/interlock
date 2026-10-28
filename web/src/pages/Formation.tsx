@@ -150,13 +150,7 @@ function Vehicles({
                       <button type="button" className="linklike" disabled={i === 0} onClick={() => move(i, -1)} aria-label={`Move ${info.name} toward the front`}>
                         Up
                       </button>
-                      <button
-                        type="button"
-                        className="linklike"
-                        disabled={i === rows.length - 1}
-                        onClick={() => move(i, 1)}
-                        aria-label={`Move ${info.name} toward the rear`}
-                      >
+                      <button type="button" className="linklike" disabled={i === rows.length - 1} onClick={() => move(i, 1)} aria-label={`Move ${info.name} toward the rear`}>
                         Down
                       </button>
                       <button type="button" className="linklike" onClick={() => setRows(rows.filter((_, j) => j !== i))}>
@@ -207,8 +201,7 @@ function Vehicles({
         </button>
       </div>
       <p className="thr-note">
-        Locomotives and cars in another train aren't offered; take them out of it first. A locomotive facing backward runs the train backward
-        when its throttle goes forward.
+        Locomotives and cars in another train aren't offered; take them out of it first. A locomotive facing backward runs the train backward when its throttle goes forward.
       </p>
       <div className="ros-actions">
         <button className="btn btn--primary" type="submit" disabled={busy || !dirty}>

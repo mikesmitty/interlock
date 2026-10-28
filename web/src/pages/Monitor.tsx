@@ -112,12 +112,7 @@ export function Monitor() {
     setExpanded(undefined);
   }
 
-  const lead =
-    connection !== "live"
-      ? "Waiting for the server."
-      : links.length === 0
-        ? "No links are configured, so only this controller's own traffic appears."
-        : undefined;
+  const lead = connection !== "live" ? "Waiting for the server." : links.length === 0 ? "No links are configured, so only this controller's own traffic appears." : undefined;
 
   return (
     <Page title="Monitor" lead={lead}>
@@ -186,28 +181,22 @@ export function Monitor() {
                     const isOpen = expanded === e.seq;
                     return (
                       <RowGroup key={e.seq}>
-                        <tr
-                          className={classes.join(" ")}
-                          onClick={() => setExpanded(isOpen ? undefined : e.seq)}
-                          aria-expanded={isOpen}
-                        >
+                        <tr className={classes.join(" ")} onClick={() => setExpanded(isOpen ? undefined : e.seq)} aria-expanded={isOpen}>
                           <td className="dim">{clockTime(e.time)}</td>
                           <td className="dim">{e.dir === "out" ? "sent" : e.link}</td>
                           <td>{e.dir === "out" && !d?.source?.id ? "this controller" : describeEndpoint(d?.source, nodes)}</td>
                           <td>{d?.dest ? describeEndpoint(d.dest, nodes) : <span className="faint">all</span>}</td>
                           <td className="cell-type">{d?.type ?? e.kind}</td>
                           <td className="wrap">
-                          <Annotated text={d?.summary} labels={labels} />
-                        </td>
+                            <Annotated text={d?.summary} labels={labels} />
+                          </td>
                         </tr>
                         {isOpen && (
                           <tr className="raw">
                             <td colSpan={6}>
                               {e.frame ? <code>{e.frame}</code> : <code>assembled from several frames</code>}
                               {d?.payload && <span className="faint">payload {d.payload}</span>}
-                              {d?.mti !== undefined && d.mti !== 0 && (
-                                <span className="faint">MTI 0x{d.mti.toString(16).toUpperCase().padStart(3, "0")}</span>
-                              )}
+                              {d?.mti !== undefined && d.mti !== 0 && <span className="faint">MTI 0x{d.mti.toString(16).toUpperCase().padStart(3, "0")}</span>}
                             </td>
                           </tr>
                         )}
@@ -249,14 +238,7 @@ function SendFrame() {
     <details className="monitor__send">
       <summary>Send a raw frame</summary>
       <form onSubmit={(e) => void submit(e)}>
-        <input
-          className="input"
-          value={frame}
-          onChange={(e) => setFrame(e.target.value)}
-          placeholder=":X19490ABCN;"
-          aria-label="GridConnect frame"
-          spellCheck={false}
-        />
+        <input className="input" value={frame} onChange={(e) => setFrame(e.target.value)} placeholder=":X19490ABCN;" aria-label="GridConnect frame" spellCheck={false} />
         <button className="btn" type="submit" disabled={!frame.trim()}>
           Send
         </button>

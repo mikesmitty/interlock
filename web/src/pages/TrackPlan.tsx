@@ -1,6 +1,19 @@
 import { type PointerEvent as ReactPointerEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
-import { ApiError, api, type Entity, type EntityKind, type PlanJunction, type TrackBackground, type TrackBlock, type TrackPlan, type TrackPlanState, type TrackedTrain, type Train, type Vec } from "../api";
+import {
+  ApiError,
+  api,
+  type Entity,
+  type EntityKind,
+  type PlanJunction,
+  type TrackBackground,
+  type TrackBlock,
+  type TrackPlan,
+  type TrackPlanState,
+  type TrackedTrain,
+  type Train,
+  type Vec,
+} from "../api";
 import { type LampColor, Status } from "../components/Lamp";
 import { Empty, Page } from "../components/Page";
 import { TrackDiagram, ZOOM_STEP, blockState, trainsIn } from "../components/TrackDiagram";
@@ -60,10 +73,30 @@ import { MAX_ZOOM, MIN_ZOOM, type View, zoomBy } from "../trackview";
 type Tool = "select" | "track" | "curve" | "piece" | "platform" | "label" | "block" | "erase" | "background";
 
 const TOOLS: { tool: Tool; label: string; key: string; hint: string }[] = [
-  { tool: "select", label: "Select", key: "v", hint: "Click to select, Shift-click to add or take away, or drag a box around what to select; ⌘A selects everything. Drag the selection to move it; Delete or Backspace removes it." },
-  { tool: "track", label: "Straight", key: "t", hint: "Drag from the end of a track to carry it on straight, or from anywhere to lay a straight between grid points. Let go on another end to join it." },
-  { tool: "curve", label: "Curve", key: "c", hint: "Drag from the end of a track to curve it at the radius below, a step at a time. Let go on another end to join it with the curve that fits." },
-  { tool: "piece", label: "Turnout", key: "w", hint: "Click the end of a track to put the piece chosen below there. Its other ends join any track already in place. A crossover goes to the track beside, or with track on both sides, to the side of the end the pointer is on." },
+  {
+    tool: "select",
+    label: "Select",
+    key: "v",
+    hint: "Click to select, Shift-click to add or take away, or drag a box around what to select; ⌘A selects everything. Drag the selection to move it; Delete or Backspace removes it.",
+  },
+  {
+    tool: "track",
+    label: "Straight",
+    key: "t",
+    hint: "Drag from the end of a track to carry it on straight, or from anywhere to lay a straight between grid points. Let go on another end to join it.",
+  },
+  {
+    tool: "curve",
+    label: "Curve",
+    key: "c",
+    hint: "Drag from the end of a track to curve it at the radius below, a step at a time. Let go on another end to join it with the curve that fits.",
+  },
+  {
+    tool: "piece",
+    label: "Turnout",
+    key: "w",
+    hint: "Click the end of a track to put the piece chosen below there. Its other ends join any track already in place. A crossover goes to the track beside, or with track on both sides, to the side of the end the pointer is on.",
+  },
   { tool: "platform", label: "Platform", key: "p", hint: "Drag along where a platform goes, from one end to the other." },
   { tool: "label", label: "Label", key: "l", hint: "Click to write a label there; change the text on the right." },
   { tool: "block", label: "Block", key: "b", hint: "Drag over track to put it in the block chosen under Blocks. Hold Option or Alt to take track out of its block." },
@@ -161,10 +194,24 @@ export function TrackPlanPage() {
 function Zoom({ view, setView }: { view?: View; setView: (v: View | undefined) => void }) {
   return (
     <span className="trk-zoom" role="group" aria-label="Zoom">
-      <button type="button" className="btn btn--sm btn--quiet" disabled={!view || view.zoom <= MIN_ZOOM} onClick={() => view && setView(zoomBy(view, 1 / ZOOM_STEP))} aria-label="Zoom out" title="Zoom out (-)">
+      <button
+        type="button"
+        className="btn btn--sm btn--quiet"
+        disabled={!view || view.zoom <= MIN_ZOOM}
+        onClick={() => view && setView(zoomBy(view, 1 / ZOOM_STEP))}
+        aria-label="Zoom out"
+        title="Zoom out (-)"
+      >
         −
       </button>
-      <button type="button" className="btn btn--sm btn--quiet" disabled={!view || view.zoom >= MAX_ZOOM} onClick={() => view && setView(zoomBy(view, ZOOM_STEP))} aria-label="Zoom in" title="Zoom in (+)">
+      <button
+        type="button"
+        className="btn btn--sm btn--quiet"
+        disabled={!view || view.zoom >= MAX_ZOOM}
+        onClick={() => view && setView(zoomBy(view, ZOOM_STEP))}
+        aria-label="Zoom in"
+        title="Zoom in (+)"
+      >
         +
       </button>
       <button type="button" className="btn btn--sm btn--quiet" onClick={() => setView(undefined)} title="Show the whole plan (0)">
@@ -206,7 +253,10 @@ function Viewer({ state, entities, layers, onEdit }: { state: TrackPlanState; en
     return (
       <Page title="Track" lead={lead}>
         <Empty title="No track plan yet">
-          <p>Bring in the layout's track from RailModeller Pro, or draw it to scale; then divide it into blocks and link the blocks to their detectors and the turnouts to their switch machines.</p>
+          <p>
+            Bring in the layout's track from RailModeller Pro, or draw it to scale; then divide it into blocks and link the blocks to their detectors and the turnouts to their
+            switch machines.
+          </p>
           <p>
             <button type="button" className="btn btn--primary" onClick={onEdit}>
               Make the track plan
@@ -261,7 +311,8 @@ function Viewer({ state, entities, layers, onEdit }: { state: TrackPlanState; en
         />
       </div>
       <p className="trk-legend muted">
-        Click a turnout or crossover to throw or close it. Drag the plan to move it; pinch, or scroll with ⌘ or Ctrl held, to zoom. A train is drawn where tracking puts it once it has run from one block into the next, pointed the way it goes, with a dot where its decoder is.
+        Click a turnout or crossover to throw or close it. Drag the plan to move it; pinch, or scroll with ⌘ or Ctrl held, to zoom. A train is drawn where tracking puts it once it
+        has run from one block into the next, pointed the way it goes, with a dot where its decoder is.
       </p>
       <TrainTable plan={plan} tracked={trackedList} />
       <BlockTable state={state} entities={entities} tracked={trackedList} trains={trains} />
@@ -313,7 +364,11 @@ function TrainTable({ plan, tracked }: { plan: TrackPlan; tracked: TrackedTrain[
               if (!t.placed && t.block) notes.push("Where in the block isn't known until it runs into the next one.");
               if (!t.seen && t.block) notes.push("Not seen by a detector just now.");
               if (t.roster?.length && !t.length)
-                notes.push(t.formation ? "Give its locomotives' and cars' lengths to place the rest of the train." : "Give its length on its roster page, or make it up into a train with its cars, to place the rest of it.");
+                notes.push(
+                  t.formation
+                    ? "Give its locomotives' and cars' lengths to place the rest of the train."
+                    : "Give its length on its roster page, or make it up into a train with its cars, to place the rest of it.",
+                );
               if (t.roster?.length && !t.momentum) notes.push("Read its decoder's CVs 3 and 4 to follow it better as it speeds up and slows down.");
               return (
                 <tr key={t.id}>
@@ -334,7 +389,7 @@ function TrainTable({ plan, tracked }: { plan: TrackPlan; tracked: TrackedTrain[
                     ))}
                   </td>
                   <td>{where || <span className="faint">not in a block</span>}</td>
-                  <td>{t.placed ? (t.direction === "reverse" ? "Reverse" : "Forward") : <span className="faint">not known</span>}</td>
+                  <td>{t.placed ? t.direction === "reverse" ? "Reverse" : "Forward" : <span className="faint">not known</span>}</td>
                   <td className="num">
                     {t.top_speed ? `${Math.round(t.speed)} mm/s` : <span className="faint">not measured</span>}
                     {t.top_speed ? <div className="cell-sub">{Math.round(t.top_speed)} mm/s at full</div> : null}
@@ -882,7 +937,14 @@ function Editor({
       <div className="trk-tools" role="toolbar" aria-label="Drawing tools">
         <span className="trk-tools__group" role="group" aria-label="Tool">
           {tools.map((t) => (
-            <button key={t.tool} type="button" className="btn btn--sm btn--quiet" aria-pressed={tool === t.tool} onClick={() => setTool(t.tool)} title={`${t.label} (${t.key.toUpperCase()})`}>
+            <button
+              key={t.tool}
+              type="button"
+              className="btn btn--sm btn--quiet"
+              aria-pressed={tool === t.tool}
+              onClick={() => setTool(t.tool)}
+              title={`${t.label} (${t.key.toUpperCase()})`}
+            >
               {t.label}
             </button>
           ))}
@@ -1066,7 +1128,19 @@ function NumberOption({ label, value, min, onChange }: { label: string; value: n
 
 /** A text field that changes the plan when it loses focus or on Enter,
  * so typing makes one step to undo, not one per letter. */
-function CommitInput({ value, onCommit, label, type = "text", placeholder }: { value: string; onCommit: (v: string) => void; label: string; type?: "text" | "number"; placeholder?: string }) {
+function CommitInput({
+  value,
+  onCommit,
+  label,
+  type = "text",
+  placeholder,
+}: {
+  value: string;
+  onCommit: (v: string) => void;
+  label: string;
+  type?: "text" | "number";
+  placeholder?: string;
+}) {
   const [text, setText] = useState(value);
   useEffect(() => setText(value), [value]);
   return (
@@ -1088,7 +1162,19 @@ function CommitInput({ value, onCommit, label, type = "text", placeholder }: { v
   );
 }
 
-function EntitySelect({ label, kind, value, entities, onChange }: { label: string; kind: EntityKind; value?: string; entities: Record<string, Entity>; onChange: (id: string | undefined) => void }) {
+function EntitySelect({
+  label,
+  kind,
+  value,
+  entities,
+  onChange,
+}: {
+  label: string;
+  kind: EntityKind;
+  value?: string;
+  entities: Record<string, Entity>;
+  onChange: (id: string | undefined) => void;
+}) {
   const options = entitiesOf(entities, kind);
   return (
     <label className="trk-field">
@@ -1115,7 +1201,19 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-function Choice({ label, value, none, options, onChange }: { label: string; value?: string; none: string; options: { id: string; name: string }[]; onChange: (v: string | undefined) => void }) {
+function Choice({
+  label,
+  value,
+  none,
+  options,
+  onChange,
+}: {
+  label: string;
+  value?: string;
+  none: string;
+  options: { id: string; name: string }[];
+  onChange: (v: string | undefined) => void;
+}) {
   return (
     <label className="trk-field">
       <span>{label}</span>
@@ -1165,7 +1263,11 @@ function ElementDetails({
         const p = index.points.get(id)!;
         return (
           <label key={id} className="check">
-            <input type="checkbox" checked={p.bumper ?? false} onChange={(e) => commit({ ...draft, points: draft.points.map((q) => (q.id === id ? { ...q, bumper: e.target.checked || undefined } : q)) })} />
+            <input
+              type="checkbox"
+              checked={p.bumper ?? false}
+              onChange={(e) => commit({ ...draft, points: draft.points.map((q) => (q.id === id ? { ...q, bumper: e.target.checked || undefined } : q)) })}
+            />
             Buffer stop at {Math.round(p.x)}, {Math.round(p.y)}
           </label>
         );
@@ -1193,7 +1295,11 @@ function ElementDetails({
     return (
       <Section title={kind.name}>
         {kind.switches && <EntitySelect label="Switch machine" kind="turnout" value={j.switch} entities={entities} onChange={(id) => change({ switch: id })} />}
-        {(j.kind === "turnout" || j.kind === "wye") && <p className="trk-sub muted">Closed is the {j.kind === "turnout" ? "straight way" : "left leg seen from the points"}, thrown the {j.kind === "turnout" ? "branch" : "right"}.</p>}
+        {(j.kind === "turnout" || j.kind === "wye") && (
+          <p className="trk-sub muted">
+            Closed is the {j.kind === "turnout" ? "straight way" : "left leg seen from the points"}, thrown the {j.kind === "turnout" ? "branch" : "right"}.
+          </p>
+        )}
         {j.kind === "crossover" && (
           <p>
             <button type="button" className="btn btn--sm btn--quiet" onClick={() => change({ ends: [j.ends[2], j.ends[3], j.ends[0], j.ends[1]] })}>
@@ -1316,7 +1422,8 @@ function MoveTurn({ refs, draft, index, commit }: { refs: ElementRef[]; draft: D
   return (
     <Section title="Move and turn">
       <p className="trk-sub muted">
-        Drag the selection to move it, or nudge it with the arrow keys: a millimeter at a time, {Math.round(draft.grid)} mm with Shift. It turns about its middle; what it was joined to stays where it is.
+        Drag the selection to move it, or nudge it with the arrow keys: a millimeter at a time, {Math.round(draft.grid)} mm with Shift. It turns about its middle; what it was
+        joined to stays where it is.
       </p>
       <div className="trk-rotate">
         <label className="trk-field">
@@ -1402,7 +1509,10 @@ function Blocks({
   }
 
   function remove(id: string) {
-    const members: ElementRef[] = [...draft.tracks.filter((t) => t.block === id).map((t) => ({ kind: "track" as const, id: t.id })), ...draft.junctions.filter((j) => j.block === id).map((j) => ({ kind: "junction" as const, id: j.id }))];
+    const members: ElementRef[] = [
+      ...draft.tracks.filter((t) => t.block === id).map((t) => ({ kind: "track" as const, id: t.id })),
+      ...draft.junctions.filter((j) => j.block === id).map((j) => ({ kind: "junction" as const, id: j.id })),
+    ];
     const blocks = draft.blocks.filter((b) => b.id !== id);
     commit({ ...setBlock(draft, members, undefined), blocks });
     setActive(blocks[0]?.id);
@@ -1553,7 +1663,11 @@ function Stations({ draft, commit }: { draft: Draft; commit: (d: Draft) => void 
     <Section title="Stations">
       {draft.stations.map((s) => (
         <div key={s.id} className="trk-station">
-          <CommitInput label="Name" value={s.name} onCommit={(v) => v.trim() && commit({ ...draft, stations: draft.stations.map((x) => (x.id === s.id ? { ...x, name: v.trim() } : x)) })} />
+          <CommitInput
+            label="Name"
+            value={s.name}
+            onCommit={(v) => v.trim() && commit({ ...draft, stations: draft.stations.map((x) => (x.id === s.id ? { ...x, name: v.trim() } : x)) })}
+          />
           <button type="button" className="btn btn--sm btn--quiet" onClick={() => remove(s.id)}>
             Delete
           </button>
@@ -1620,7 +1734,11 @@ function Layers({
       {draft.layers.map((l) => (
         <div key={l.id} className="trk-layer">
           <input type="checkbox" aria-label={`Show ${l.name}`} checked={!hidden.has(l.id)} onChange={(e) => setHidden(l.id, !e.target.checked)} />
-          <CommitInput label="Name" value={l.name} onCommit={(v) => v.trim() && commit({ ...draft, layers: draft.layers.map((x) => (x.id === l.id ? { ...x, name: v.trim() } : x)) })} />
+          <CommitInput
+            label="Name"
+            value={l.name}
+            onCommit={(v) => v.trim() && commit({ ...draft, layers: draft.layers.map((x) => (x.id === l.id ? { ...x, name: v.trim() } : x)) })}
+          />
           <span className="trk-layer__actions">
             <button type="button" className="btn btn--sm btn--quiet" onClick={() => onSelect(l.id)} title={`Select everything on ${l.name}`}>
               Select
@@ -1688,7 +1806,9 @@ function Import({ draft, commit, onImported }: { draft: Draft; commit: (d: Draft
 
   return (
     <Section title="Import">
-      <p className="trk-sub muted">Bring in track from RailModeller Pro: export the layout for JMRI's PanelPro there, then choose the file here. The track is added to the plan where it lies in the export.</p>
+      <p className="trk-sub muted">
+        Bring in track from RailModeller Pro: export the layout for JMRI's PanelPro there, then choose the file here. The track is added to the plan where it lies in the export.
+      </p>
       <label className="trk-field">
         <span>Millimeters to a panel unit</span>
         <input className="input input--num" type="number" min={0.01} step="any" value={scale} onChange={(e) => setScale(Number(e.target.value) || 10)} />
@@ -1744,7 +1864,19 @@ function aspectOf(file: File): Promise<number> {
   });
 }
 
-function Background({ draft, area, commit, onAdded, onRemoved }: { draft: Draft; area: Bounds; commit: (d: Draft, run?: string) => void; onAdded: () => void; onRemoved: () => void }) {
+function Background({
+  draft,
+  area,
+  commit,
+  onAdded,
+  onRemoved,
+}: {
+  draft: Draft;
+  area: Bounds;
+  commit: (d: Draft, run?: string) => void;
+  onAdded: () => void;
+  onRemoved: () => void;
+}) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const bg = draft.background;
@@ -1790,7 +1922,11 @@ function Background({ draft, area, commit, onAdded, onRemoved }: { draft: Draft;
 
   return (
     <Section title="Background">
-      {!bg && <p className="trk-sub muted">Put a plan from your track planning software under the track to draw over it: export it as an image (PNG, JPEG, WebP, GIF or SVG) and choose it here.</p>}
+      {!bg && (
+        <p className="trk-sub muted">
+          Put a plan from your track planning software under the track to draw over it: export it as an image (PNG, JPEG, WebP, GIF or SVG) and choose it here.
+        </p>
+      )}
       {bg && (
         <>
           <label className="trk-field">
@@ -1822,17 +1958,35 @@ function Background({ draft, area, commit, onAdded, onRemoved }: { draft: Draft;
               />
             </label>
             <span className="trk-rotate__turns" role="group" aria-label="Quarter turns">
-              <button type="button" className="btn btn--sm btn--quiet" onClick={() => set({ rotation: normalizeDegrees((bg.rotation ?? 0) - 90) || undefined })} title="Turn a quarter left">
+              <button
+                type="button"
+                className="btn btn--sm btn--quiet"
+                onClick={() => set({ rotation: normalizeDegrees((bg.rotation ?? 0) - 90) || undefined })}
+                title="Turn a quarter left"
+              >
                 ↺ 90°
               </button>
-              <button type="button" className="btn btn--sm btn--quiet" onClick={() => set({ rotation: normalizeDegrees((bg.rotation ?? 0) + 90) || undefined })} title="Turn a quarter right">
+              <button
+                type="button"
+                className="btn btn--sm btn--quiet"
+                onClick={() => set({ rotation: normalizeDegrees((bg.rotation ?? 0) + 90) || undefined })}
+                title="Turn a quarter right"
+              >
                 ↻ 90°
               </button>
             </span>
           </div>
           <label className="trk-field">
             <span>Opacity {Math.round(bg.opacity * 100)}%</span>
-            <input type="range" className="trk-range" min={5} max={100} step={5} value={Math.round(bg.opacity * 100)} onChange={(e) => set({ opacity: Number(e.target.value) / 100 }, "background-opacity")} />
+            <input
+              type="range"
+              className="trk-range"
+              min={5}
+              max={100}
+              step={5}
+              value={Math.round(bg.opacity * 100)}
+              onChange={(e) => set({ opacity: Number(e.target.value) / 100 }, "background-opacity")}
+            />
           </label>
           <label className="check">
             <input type="checkbox" checked={bg.invert ?? false} onChange={(e) => set({ invert: e.target.checked || undefined })} />

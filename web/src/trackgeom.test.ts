@@ -64,7 +64,11 @@ test("a placed turnout's branch leaves along its curve", () => {
   near(turnDiff(junctionOutward("turnout", placed.ends, center, 2), 180 + 15), 0, "branch", 0.01);
   near(turnDiff(junctionOutward("turnout", placed.ends, center, 0), 0), 0, "points", 0.01);
   assert.match(routePath("turnout", placed.ends, center, { from: 0, to: 2 }), /^M1000 0Q/);
-  const cross = placePiece(PIECES.find((p) => p.id === "xd")!, { x: 0, y: 0 }, 0);
+  const cross = placePiece(
+    PIECES.find((p) => p.id === "xd")!,
+    { x: 0, y: 0 },
+    0,
+  );
   assert.deepEqual(cross.ends[2], { x: 0, y: 33 });
   assert.match(routePath("double_crossover", cross.ends, junctionCenter({}, cross.ends), { from: 0, to: 3 }), /^M0 0C155 0 155 33 310 33$/);
 });
@@ -104,7 +108,18 @@ test("idMaker and mergeTrack give imported track IDs of its own", () => {
   assert.equal(id("p"), "p5");
   assert.equal(id("f"), "f8");
   assert.equal(id("j"), "j1");
-  const merged = mergeTrack(line, { points: [{ id: "p1", x: 5, y: 5 }, { id: "p2", x: 9, y: 9, bumper: true }], tracks: [{ id: "t1", a: "p1", b: "p2" }], junctions: [] }, "upper");
+  const merged = mergeTrack(
+    line,
+    {
+      points: [
+        { id: "p1", x: 5, y: 5 },
+        { id: "p2", x: 9, y: 9, bumper: true },
+      ],
+      tracks: [{ id: "t1", a: "p1", b: "p2" }],
+      junctions: [],
+    },
+    "upper",
+  );
   assert.deepEqual(merged.tracks[2], { id: "t3", a: "p4", b: "p5", layer: "upper" });
   assert.deepEqual(merged.points[4], { id: "p5", x: 9, y: 9, bumper: true });
 });

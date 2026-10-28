@@ -3,20 +3,7 @@ import type { Action, ActionType, Choice } from "../../api";
 import { newAction, newCondition } from "../../automation";
 import { ConditionList } from "./ConditionRows";
 import { useBus } from "../../store";
-import {
-  AddButton,
-  Check,
-  CommandPicker,
-  DurationField,
-  EntityPicker,
-  EventField,
-  Field,
-  RemoveButton,
-  TextField,
-  TypeSelect,
-  removeAt,
-  replaceAt,
-} from "./fields";
+import { AddButton, Check, CommandPicker, DurationField, EntityPicker, EventField, Field, RemoveButton, TextField, TypeSelect, removeAt, replaceAt } from "./fields";
 import { TriggerList } from "./TriggerRows";
 
 const ACTION_TYPES: [ActionType, string][] = [
@@ -44,19 +31,8 @@ export function ActionList({ actions, onChange, addLabel = "Add an action" }: Ac
   return (
     <div className="auto-list">
       {actions.map((a, i) => (
-        <div
-          key={i}
-          className={[
-            BLOCKS.includes(a.type) ? "auto-row auto-row--block" : "auto-row",
-            a.disabled ? "is-off" : "",
-          ].join(" ")}
-        >
-          <TypeSelect
-            value={a.type}
-            options={ACTION_TYPES}
-            onChange={(type) => onChange(replaceAt(actions, i, newAction(type)))}
-            label={`Action ${i + 1} type`}
-          />
+        <div key={i} className={[BLOCKS.includes(a.type) ? "auto-row auto-row--block" : "auto-row", a.disabled ? "is-off" : ""].join(" ")}>
+          <TypeSelect value={a.type} options={ACTION_TYPES} onChange={(type) => onChange(replaceAt(actions, i, newAction(type)))} label={`Action ${i + 1} type`} />
           <ActionFields a={a} onChange={(next) => onChange(replaceAt(actions, i, next))} />
           <Check
             checked={!a.disabled}
@@ -75,9 +51,7 @@ export function ActionList({ actions, onChange, addLabel = "Add an action" }: Ac
         </div>
       ))}
       <div className="auto-list__add">
-        <AddButton onClick={() => onChange([...actions, newAction("command")])}>
-          {actions.length ? "Add another action" : addLabel}
-        </AddButton>
+        <AddButton onClick={() => onChange([...actions, newAction("command")])}>{actions.length ? "Add another action" : addLabel}</AddButton>
       </div>
     </div>
   );
@@ -104,12 +78,7 @@ function ActionFields({ a, onChange }: { a: Action; onChange: (a: Action) => voi
         <div className="auto-nested">
           <TriggerList triggers={a.triggers ?? []} onChange={(triggers) => set({ triggers })} allowStart={false} />
           <div className="auto-row auto-row--plain">
-            <DurationField
-              value={a.timeout}
-              onChange={(timeout) => set({ timeout })}
-              label="Give up after"
-              placeholder="never"
-            />
+            <DurationField value={a.timeout} onChange={(timeout) => set({ timeout })} label="Give up after" placeholder="never" />
             <Check checked={!!a.stop_on_timeout} onChange={(v) => set({ stop_on_timeout: v || undefined })}>
               stop the run when it gives up
             </Check>
@@ -126,11 +95,7 @@ function ActionFields({ a, onChange }: { a: Action; onChange: (a: Action) => voi
             <ActionList actions={a.then ?? []} onChange={(then) => set({ then })} />
           </Section>
           <Section label="Else">
-            <ActionList
-              actions={a.else ?? []}
-              onChange={(els) => set({ else: els })}
-              addLabel="Add an action for else"
-            />
+            <ActionList actions={a.else ?? []} onChange={(els) => set({ else: els })} addLabel="Add an action for else" />
           </Section>
         </div>
       );
@@ -160,11 +125,7 @@ function ActionFields({ a, onChange }: { a: Action; onChange: (a: Action) => voi
             </AddButton>
           </div>
           <Section label="Otherwise">
-            <ActionList
-              actions={a.default ?? []}
-              onChange={(def) => set({ default: def })}
-              addLabel="Add an action for when nothing matches"
-            />
+            <ActionList actions={a.default ?? []} onChange={(def) => set({ default: def })} addLabel="Add an action for when nothing matches" />
           </Section>
         </div>
       );
@@ -193,14 +154,7 @@ function ActionFields({ a, onChange }: { a: Action; onChange: (a: Action) => voi
             </Field>
             {mode === "count" && (
               <Field label="Times">
-                <input
-                  className="input input--num"
-                  type="number"
-                  min={1}
-                  max={1000}
-                  value={a.count ?? 1}
-                  onChange={(e) => set({ count: Number(e.target.value) })}
-                />
+                <input className="input input--num" type="number" min={1} max={1000} value={a.count ?? 1} onChange={(e) => set({ count: Number(e.target.value) })} />
               </Field>
             )}
           </div>
@@ -223,28 +177,14 @@ function ActionFields({ a, onChange }: { a: Action; onChange: (a: Action) => voi
     case "stop":
       return (
         <>
-          <TextField
-            label="Reason"
-            value={a.reason}
-            placeholder="optional"
-            onChange={(reason) => set({ reason })}
-            wide
-          />
+          <TextField label="Reason" value={a.reason} placeholder="optional" onChange={(reason) => set({ reason })} wide />
           <Check checked={!!a.error} onChange={(v) => set({ error: v || undefined })}>
             count it as a failure
           </Check>
         </>
       );
     case "log":
-      return (
-        <TextField
-          label="Message"
-          value={a.message}
-          placeholder="What to write"
-          onChange={(message) => set({ message })}
-          wide
-        />
-      );
+      return <TextField label="Message" value={a.message} placeholder="What to write" onChange={(message) => set({ message })} wide />;
   }
 }
 
@@ -252,12 +192,7 @@ function ChoiceFields({ choice, onChange }: { choice: Choice; onChange: (c: Choi
   return (
     <>
       <div className="auto-row auto-row--plain">
-        <TextField
-          label="Name"
-          value={choice.name}
-          placeholder="optional"
-          onChange={(name) => onChange({ ...choice, name })}
-        />
+        <TextField label="Name" value={choice.name} placeholder="optional" onChange={(name) => onChange({ ...choice, name })} />
       </div>
       <Section label="When">
         <ConditionList conditions={choice.conditions} onChange={(conditions) => onChange({ ...choice, conditions })} />
@@ -358,14 +293,7 @@ function TrainFields({ a, set }: { a: Action; set: (patch: Partial<Action>) => v
       {(a.command ?? "speed") === "speed" && (
         <>
           <Field label="Speed (0 to 126)">
-            <input
-              className="input input--short"
-              type="number"
-              min={0}
-              max={126}
-              value={a.speed ?? 0}
-              onChange={(e) => set({ speed: Number(e.target.value) })}
-            />
+            <input className="input input--short" type="number" min={0} max={126} value={a.speed ?? 0} onChange={(e) => set({ speed: Number(e.target.value) })} />
           </Field>
           <Field label="Direction">
             <select
@@ -387,21 +315,10 @@ function TrainFields({ a, set }: { a: Action; set: (patch: Partial<Action>) => v
       {a.command === "function" && (
         <>
           <Field label="Function">
-            <input
-              className="input input--short"
-              type="number"
-              min={0}
-              max={68}
-              value={a.function ?? 0}
-              onChange={(e) => set({ function: Number(e.target.value) })}
-            />
+            <input className="input input--short" type="number" min={0} max={68} value={a.function ?? 0} onChange={(e) => set({ function: Number(e.target.value) })} />
           </Field>
           <Field label="To">
-            <select
-              className="input input--select"
-              value={a.state ?? "on"}
-              onChange={(e) => set({ state: e.target.value === "off" ? "off" : "on" })}
-            >
+            <select className="input input--select" value={a.state ?? "on"} onChange={(e) => set({ state: e.target.value === "off" ? "off" : "on" })}>
               <option value="on">on</option>
               <option value="off">off</option>
             </select>

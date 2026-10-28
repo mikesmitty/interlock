@@ -255,8 +255,8 @@ function BackupRestore({ onRestarting }: { onRestarting: () => void }) {
       {file && confirming && (
         <div className="confirm confirm--block" style={{ marginTop: "0.75rem" }}>
           <span>
-            Replace this controller's configuration, entities, automations, roster, profiles and database with the ones in {file.name}? Interlock restarts
-            to apply it, and the files it replaces are kept in a before-restore folder next to the data.
+            Replace this controller's configuration, entities, automations, roster, profiles and database with the ones in {file.name}? Interlock restarts to apply it, and the
+            files it replaces are kept in a before-restore folder next to the data.
           </span>
           <button type="button" className="btn btn--primary" onClick={() => void restore()} disabled={busy}>
             {busy ? "Sending…" : "Restore and restart"}

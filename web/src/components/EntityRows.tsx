@@ -156,9 +156,7 @@ export function EntityRows({ entities, compact = false, editing, onEdit, editor,
                   {e.suggested && <span className="ent-tag">suggested</span>}
                   {e.hidden && <span className="ent-tag">hidden</span>}
                 </div>
-                <div className="cell-sub">
-                  {compact ? e.group : [e.node_name, e.group].filter(Boolean).join(" · ") || (e.source === "manual" ? "built by hand" : "")}
-                </div>
+                <div className="cell-sub">{compact ? e.group : [e.node_name, e.group].filter(Boolean).join(" · ") || (e.source === "manual" ? "built by hand" : "")}</div>
               </td>
               <td className="ent-detail">
                 <Detail e={e} now={now} />

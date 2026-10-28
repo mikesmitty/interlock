@@ -51,12 +51,11 @@ export function Automations() {
       {loaded && list.length === 0 && (
         <Empty title="No automations yet">
           <p>
-            An automation watches for something, checks a few things, and then acts: when Track 2 becomes occupied and Turnout 1 is thrown,
-            close Turnout 1 after three seconds.
+            An automation watches for something, checks a few things, and then acts: when Track 2 becomes occupied and Turnout 1 is thrown, close Turnout 1 after three seconds.
           </p>
           <p>
-            It is built from the <Link to="/entities">entities</Link> on the layout, so the layout needs a node or two first. Every run is
-            recorded as a trace you can read afterwards.
+            It is built from the <Link to="/entities">entities</Link> on the layout, so the layout needs a node or two first. Every run is recorded as a trace you can read
+            afterwards.
           </p>
         </Empty>
       )}

@@ -80,9 +80,7 @@ export function FirmwarePanel({ node, job }: { node: NodeInfo; job?: FirmwareJob
         ) : (
           <>
             {job && <Outcome job={job} now={now} />}
-            {upgradeActive && !job && (
-              <p className="note">The node says it is in the middle of an upgrade. Installing an image again will take over from where that left off.</p>
-            )}
+            {upgradeActive && !job && <p className="note">The node says it is in the middle of an upgrade. Installing an image again will take over from where that left off.</p>}
             {!node.online ? (
               <p className="muted">The node is offline. Firmware can be installed when it is back on the bus.</p>
             ) : (
@@ -118,8 +116,7 @@ export function FirmwarePanel({ node, job }: { node: NodeInfo; job?: FirmwareJob
             {file && confirming && node.online && (
               <div className="confirm confirm--block" style={{ marginTop: "0.75rem" }}>
                 <span>
-                  Install {file.name} on {node.snip?.UserName || node.id}? The node restarts when the image is in, and nothing on it works until it
-                  is back.
+                  Install {file.name} on {node.snip?.UserName || node.id}? The node restarts when the image is in, and nothing on it works until it is back.
                 </span>
                 <button type="button" className="btn btn--primary" onClick={() => void install()} disabled={busy}>
                   {busy ? "Starting…" : "Install now"}
@@ -131,8 +128,8 @@ export function FirmwarePanel({ node, job }: { node: NodeInfo; job?: FirmwareJob
             )}
             {error && <p className="note note--error">{error}</p>}
             <p className="fw__hint muted">
-              The image goes to the node 64 bytes at a time over the bus, which takes a minute or two for a few hundred kilobytes. A board that
-              tries new firmware before keeping it is watched until it has settled.
+              The image goes to the node 64 bytes at a time over the bus, which takes a minute or two for a few hundred kilobytes. A board that tries new firmware before keeping it
+              is watched until it has settled.
             </p>
           </>
         )}
@@ -170,13 +167,19 @@ function Outcome({ job, now }: { job: FirmwareJob; now: number }) {
   if (job.phase === "done") {
     return (
       <p className="fw__outcome">
-        <Status color="green">Installed</Status> {job.message} <span className="muted">({job.file}, {relativeTime(job.finished, now)})</span>
+        <Status color="green">Installed</Status> {job.message}{" "}
+        <span className="muted">
+          ({job.file}, {relativeTime(job.finished, now)})
+        </span>
       </p>
     );
   }
   return (
     <div className="note note--error fw__outcome">
-      <Status color="red">Failed</Status> {job.message} <span className="muted">({job.file}, {relativeTime(job.finished, now)})</span>
+      <Status color="red">Failed</Status> {job.message}{" "}
+      <span className="muted">
+        ({job.file}, {relativeTime(job.finished, now)})
+      </span>
     </div>
   );
 }

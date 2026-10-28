@@ -104,18 +104,10 @@ export function Programming() {
               {history.map((op) => (
                 <tr key={op.id}>
                   <td className="dim">{clockTime(op.finished)}</td>
-                  <td>
-                    {op.kind === "read"
-                      ? "Read"
-                      : op.kind === "write"
-                        ? "Write"
-                        : `Write on the main to ${op.train_name || op.train}`}
-                  </td>
+                  <td>{op.kind === "read" ? "Read" : op.kind === "write" ? "Write" : `Write on the main to ${op.train_name || op.train}`}</td>
                   <td className="num">{op.cv}</td>
                   <td className="num">{op.ok ? op.value : op.kind === "read" ? "" : op.value}</td>
-                  <td>
-                    {op.ok ? <Status color="green">Done</Status> : <Status color="red">{op.error ?? "Failed"}</Status>}
-                  </td>
+                  <td>{op.ok ? <Status color="green">Done</Status> : <Status color="red">{op.error ?? "Failed"}</Status>}</td>
                 </tr>
               ))}
             </tbody>
@@ -132,23 +124,11 @@ function CVField({ value, onChange }: { value: string; onChange: (v: string) => 
     <>
       <label className="auto-field">
         <span>CV</span>
-        <input
-          className="input input--short"
-          type="number"
-          min={1}
-          max={1024}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          required
-        />
+        <input className="input input--short" type="number" min={1} max={1024} value={value} onChange={(e) => onChange(e.target.value)} required />
       </label>
       <label className="auto-field">
         <span>Common</span>
-        <select
-          className="input input--select"
-          value={COMMON_CVS.some(([n]) => String(n) === value) ? value : ""}
-          onChange={(e) => e.target.value && onChange(e.target.value)}
-        >
+        <select className="input input--select" value={COMMON_CVS.some(([n]) => String(n) === value) ? value : ""} onChange={(e) => e.target.value && onChange(e.target.value)}>
           <option value="">Pick one…</option>
           {COMMON_CVS.map(([n, label]) => (
             <option key={n} value={n}>
@@ -168,28 +148,14 @@ function ValueField({ value, onChange }: { value: number | undefined; onChange: 
     <div className="prog-result">
       <label className="auto-field">
         <span>Value</span>
-        <input
-          className="input input--short"
-          type="number"
-          min={0}
-          max={255}
-          value={value ?? ""}
-          onChange={(e) => onChange(Math.max(0, Math.min(255, Number(e.target.value))))}
-        />
+        <input className="input input--short" type="number" min={0} max={255} value={value ?? ""} onChange={(e) => onChange(Math.max(0, Math.min(255, Number(e.target.value))))} />
       </label>
       <span className="prog-result__alt">
         0x{v.toString(16).toUpperCase().padStart(2, "0")} · {v.toString(2).padStart(8, "0")}
       </span>
       <span className="prog-bits" role="group" aria-label="Bits, 7 to 0">
         {[7, 6, 5, 4, 3, 2, 1, 0].map((bit) => (
-          <button
-            key={bit}
-            type="button"
-            className="prog-bit"
-            aria-pressed={(v & (1 << bit)) !== 0}
-            onClick={() => onChange(v ^ (1 << bit))}
-            title={`bit ${bit}`}
-          >
+          <button key={bit} type="button" className="prog-bit" aria-pressed={(v & (1 << bit)) !== 0} onClick={() => onChange(v ^ (1 << bit))} title={`bit ${bit}`}>
             {bit}
           </button>
         ))}
@@ -198,15 +164,7 @@ function ValueField({ value, onChange }: { value: number | undefined; onChange: 
   );
 }
 
-function ServiceMode({
-  track,
-  onOp,
-  onTrack,
-}: {
-  track?: ProgrammingTrack;
-  onOp: (op: CVOp) => void;
-  onTrack: (t: ProgrammingTrack) => void;
-}) {
+function ServiceMode({ track, onOp, onTrack }: { track?: ProgrammingTrack; onOp: (op: CVOp) => void; onTrack: (t: ProgrammingTrack) => void }) {
   const [cv, setCV] = useState("8");
   const [value, setValue] = useState<number>();
   const [busy, setBusy] = useState<string>();
@@ -252,36 +210,21 @@ function ServiceMode({
         <button className="btn btn--primary" type="submit" disabled={!!busy || !cv}>
           {busy === "read" ? "Reading…" : "Read"}
         </button>
-        <button
-          className="btn"
-          type="button"
-          onClick={() => void run("write")}
-          disabled={!!busy || !cv || value === undefined}
-        >
+        <button className="btn" type="button" onClick={() => void run("write")} disabled={!!busy || !cv || value === undefined}>
           {busy === "write" ? "Writing…" : "Write"}
         </button>
       </div>
       <ValueField value={value} onChange={setValue} />
       {result && (
         <p className={result.ok ? "note" : "note note--error"}>
-          {result.ok
-            ? result.kind === "read"
-              ? `CV ${result.cv} is ${result.value}.`
-              : `CV ${result.cv} is now ${result.value}.`
-            : result.error}
+          {result.ok ? (result.kind === "read" ? `CV ${result.cv} is ${result.value}.` : `CV ${result.cv} is now ${result.value}.`) : result.error}
         </p>
       )}
     </form>
   );
 }
 
-function OnTheMain({
-  roster,
-  onOp,
-}: {
-  roster: { id: string; name: string; address: number; long: boolean }[];
-  onOp: (op: CVOp) => void;
-}) {
+function OnTheMain({ roster, onOp }: { roster: { id: string; name: string; address: number; long: boolean }[]; onOp: (op: CVOp) => void }) {
   // Locomotives are named by address here: that is what a write on the main reaches.
   const [train, setTrain] = useState("");
   const [cv, setCV] = useState("3");
@@ -318,20 +261,12 @@ function OnTheMain({
     <form className="panel prog-panel" onSubmit={(e) => void write(e)}>
       <h2>On the main</h2>
       <p className="thr-note" style={{ marginBottom: "0.75rem" }}>
-        Writes a CV to one locomotive wherever it is on the layout. Reading on the main needs RailCom, which is not here
-        yet.
+        Writes a CV to one locomotive wherever it is on the layout. Reading on the main needs RailCom, which is not here yet.
       </p>
       <div className="prog-form">
         <label className="auto-field">
           <span>Locomotive</span>
-          <input
-            className="input input--short"
-            list="pom-trains"
-            value={train || id}
-            onChange={(e) => setTrain(e.target.value)}
-            placeholder="address"
-            required
-          />
+          <input className="input input--short" list="pom-trains" value={train || id} onChange={(e) => setTrain(e.target.value)} placeholder="address" required />
           <datalist id="pom-trains">
             {roster.map((t) => (
               <option key={t.id} value={addressID(t)}>
@@ -347,9 +282,7 @@ function OnTheMain({
       </div>
       <ValueField value={value} onChange={setValue} />
       {result && (
-        <p className={result.ok ? "note" : "note note--error"}>
-          {result.ok ? `CV ${result.cv} of ${result.train_name || result.train} is now ${result.value}.` : result.error}
-        </p>
+        <p className={result.ok ? "note" : "note note--error"}>{result.ok ? `CV ${result.cv} of ${result.train_name || result.train} is now ${result.value}.` : result.error}</p>
       )}
     </form>
   );

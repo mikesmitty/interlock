@@ -1,7 +1,35 @@
 import { type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type RefObject, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { type Entity, type PlanJunction, type PlanTrack, type TrackBackground, type TrackBlock, type TrackPlan, type TrackedTrain, type Train, type Vec, backgroundURL } from "../api";
+import {
+  type Entity,
+  type PlanJunction,
+  type PlanTrack,
+  type TrackBackground,
+  type TrackBlock,
+  type TrackPlan,
+  type TrackedTrain,
+  type Train,
+  type Vec,
+  backgroundURL,
+} from "../api";
 import { leadArrow, lineMiddle, locomotiveName } from "../tracking";
-import { type Bounds, type ElementKind, type ElementRef, KINDS, type PlanIndex, add, arcInfo, corners, junctionCenter, outward, routePath, sameRef, scale, trackMiddle, trackPath, unit } from "../trackgeom";
+import {
+  type Bounds,
+  type ElementKind,
+  type ElementRef,
+  KINDS,
+  type PlanIndex,
+  add,
+  arcInfo,
+  corners,
+  junctionCenter,
+  outward,
+  routePath,
+  sameRef,
+  scale,
+  trackMiddle,
+  trackPath,
+  unit,
+} from "../trackgeom";
 import { type View, fitView, panBy, pinchView, toPlan, viewBounds, zoomAt, zoomBy } from "../trackview";
 
 /** How a block's track is drawn: by its detector's state when operating,
@@ -470,9 +498,12 @@ export function TrackDiagram(props: DiagramProps) {
     }
     if (ref.kind === "platform") {
       const p = plan.platforms.find((x) => x.id === ref.id);
-      return p && `M${corners(p, p.length, p.width, p.angle)
-        .map((c) => `${c.x} ${c.y}`)
-        .join("L")}Z`;
+      return (
+        p &&
+        `M${corners(p, p.length, p.width, p.angle)
+          .map((c) => `${c.x} ${c.y}`)
+          .join("L")}Z`
+      );
     }
     const l = plan.labels.find((x) => x.id === ref.id);
     return l && `M${l.x} ${l.y - px(9)}h${px(l.text.length * 7 + 4)}v${px(18)}h${-px(l.text.length * 7 + 4)}Z`;
@@ -601,7 +632,14 @@ export function TrackDiagram(props: DiagramProps) {
             </text>
           </g>
         ) : (
-          <text key={`g${tag.id}`} className={tag.id === activeBlock ? "trk-blockname trk-blockname--active" : "trk-blockname"} x={tag.at.x} y={tag.at.y + px(14)} fontSize={px(10)} textAnchor="middle">
+          <text
+            key={`g${tag.id}`}
+            className={tag.id === activeBlock ? "trk-blockname trk-blockname--active" : "trk-blockname"}
+            x={tag.at.x}
+            y={tag.at.y + px(14)}
+            fontSize={px(10)}
+            textAnchor="middle"
+          >
             {tag.text}
           </text>
         );
@@ -640,7 +678,9 @@ export function TrackDiagram(props: DiagramProps) {
           {editing &&
             plan.labels
               .filter((l) => shown(l.layer))
-              .map((l) => <rect key={l.id} data-kind="label" data-id={l.id} x={l.x} y={l.y - px(9)} width={px(l.text.length * 7 + 4)} height={px(18)} fill="transparent" stroke="none" />)}
+              .map((l) => (
+                <rect key={l.id} data-kind="label" data-id={l.id} x={l.x} y={l.y - px(9)} width={px(l.text.length * 7 + 4)} height={px(18)} fill="transparent" stroke="none" />
+              ))}
         </g>
       )}
 
@@ -651,12 +691,35 @@ export function TrackDiagram(props: DiagramProps) {
         <path key={`v${i}`} className="trk-preview" d={d} vectorEffect="non-scaling-stroke" />
       ))}
       {props.snapTo && <circle className="trk-snap" cx={props.snapTo.x} cy={props.snapTo.y} r={px(7)} vectorEffect="non-scaling-stroke" />}
-      {props.box && <rect className="trk-box" x={props.box.minX} y={props.box.minY} width={props.box.maxX - props.box.minX} height={props.box.maxY - props.box.minY} vectorEffect="non-scaling-stroke" />}
+      {props.box && (
+        <rect
+          className="trk-box"
+          x={props.box.minX}
+          y={props.box.minY}
+          width={props.box.maxX - props.box.minX}
+          height={props.box.maxY - props.box.minY}
+          vectorEffect="non-scaling-stroke"
+        />
+      )}
     </svg>
   );
 }
 
-function Junction({ j, index, tone, entities, blocks, editing }: { j: PlanJunction; index: PlanIndex; tone: TrackTone; entities: Record<string, Entity>; blocks: Map<string, TrackBlock>; editing: boolean }) {
+function Junction({
+  j,
+  index,
+  tone,
+  entities,
+  blocks,
+  editing,
+}: {
+  j: PlanJunction;
+  index: PlanIndex;
+  tone: TrackTone;
+  entities: Record<string, Entity>;
+  blocks: Map<string, TrackBlock>;
+  editing: boolean;
+}) {
   const ends = j.ends.map((e) => index.points.get(e));
   if (ends.some((e) => !e)) return null;
   const center = junctionCenter(j, ends as Vec[]);
@@ -672,7 +735,12 @@ function Junction({ j, index, tone, entities, blocks, editing }: { j: PlanJuncti
     <g>
       <title>{ent ? `${title}. ${ent.name}: ${ent.state}` : `${title}. ${KINDS[j.kind].name}`}</title>
       {routes.map((r) => (
-        <path key={`${r.from}-${r.to}`} d={routePath(j.kind, ends as Vec[], center, r)} stroke={lined && r.position && r.position !== lined ? "var(--lamp-off)" : color} vectorEffect="non-scaling-stroke" />
+        <path
+          key={`${r.from}-${r.to}`}
+          d={routePath(j.kind, ends as Vec[], center, r)}
+          stroke={lined && r.position && r.position !== lined ? "var(--lamp-off)" : color}
+          vectorEffect="non-scaling-stroke"
+        />
       ))}
     </g>
   );

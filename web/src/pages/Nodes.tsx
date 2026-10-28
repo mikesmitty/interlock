@@ -1,17 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router";
-import {
-  addressName,
-  aliasHex,
-  api,
-  nodeModel,
-  nodeName,
-  trainNodeAddress,
-  trainNodeName,
-  trainsAtNode,
-  type NodeInfo,
-  type Train,
-} from "../api";
+import { addressName, aliasHex, api, nodeModel, nodeName, trainNodeAddress, trainNodeName, trainsAtNode, type NodeInfo, type Train } from "../api";
 import { Lamp } from "../components/Lamp";
 import { Empty, Page } from "../components/Page";
 import { plural, relativeTime, useNow } from "../format";
@@ -83,9 +72,8 @@ export function Nodes() {
       {loaded && others.length === 0 && links.length === 0 && (
         <Empty title="No other nodes yet">
           <p>
-            Interlock has no connection to a layout. Add a link to the USB port of a canbus-outpost, or to a GridConnect
-            TCP server, in <code>interlock.yaml</code>. <Link to="/settings">Settings</Link> shows where that file is
-            and which serial ports this machine has.
+            Interlock has no connection to a layout. Add a link to the USB port of a canbus-outpost, or to a GridConnect TCP server, in <code>interlock.yaml</code>.{" "}
+            <Link to="/settings">Settings</Link> shows where that file is and which serial ports this machine has.
           </p>
           <p>Nodes announce themselves as soon as a link comes up; nothing else is needed.</p>
         </Empty>
@@ -99,15 +87,12 @@ export function Nodes() {
           </p>
         </Empty>
       )}
-      {loaded && (others.length > 0 || links.length > 0) && (
-        <NodeTable list={list} now={now} onOpen={(id) => navigate(`/nodes/${id}`)} />
-      )}
+      {loaded && (others.length > 0 || links.length > 0) && <NodeTable list={list} now={now} onOpen={(id) => navigate(`/nodes/${id}`)} />}
       {loaded && trainNodes.length > 0 && (
         <>
           <h2 style={{ marginTop: "1.5rem" }}>Train nodes</h2>
           <p className="muted" style={{ marginBottom: "0.5rem" }}>
-            Made by the command station for the locomotives throttles asked for. Drive them from the{" "}
-            <Link to="/throttle">throttle</Link>.
+            Made by the command station for the locomotives throttles asked for. Drive them from the <Link to="/throttle">throttle</Link>.
           </p>
           <NodeTable list={trainNodes} trains={trains} now={now} onOpen={(id) => navigate(`/nodes/${id}`)} />
         </>
@@ -177,13 +162,7 @@ function NodeTable({
               <td className="dim">{n.id}</td>
               <td className="dim">{n.alias ? aliasHex(n.alias) : ""}</td>
               <td className="dim">{n.snip?.SoftwareVersion ?? ""}</td>
-              <td className="dim">
-                {n.local
-                  ? ""
-                  : n.online
-                    ? relativeTime(n.last_seen, now)
-                    : `offline, ${relativeTime(n.last_seen, now)}`}
-              </td>
+              <td className="dim">{n.local ? "" : n.online ? relativeTime(n.last_seen, now) : `offline, ${relativeTime(n.last_seen, now)}`}</td>
             </tr>
           ))}
         </tbody>

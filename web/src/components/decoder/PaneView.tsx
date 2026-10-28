@@ -150,11 +150,7 @@ function Control({ v, node, ctx, label }: { v: DecoderVariable; node?: DecoderNo
       );
     }
     case "constant":
-      return format === "checkbox" ? (
-        <input type="checkbox" aria-label={label} checked={value === 1} disabled readOnly />
-      ) : (
-        <span className="num">{String(value)}</span>
-      );
+      return format === "checkbox" ? <input type="checkbox" aria-label={label} checked={value === 1} disabled readOnly /> : <span className="num">{String(value)}</span>;
     case "speed_table":
       return <SpeedTableControl v={v} points={value as number[]} disabled={disabled} ctx={ctx} />;
     case "split_text":
@@ -181,15 +177,7 @@ function Control({ v, node, ctx, label }: { v: DecoderVariable; node?: DecoderNo
         const max = v.max ?? 255;
         return (
           <span className={format === "vslider" ? "slider slider--v" : "slider"}>
-            <input
-              type="range"
-              aria-label={label}
-              min={v.min}
-              max={max}
-              value={n}
-              disabled={disabled}
-              onChange={(e) => ctx.setValue(v, Number(e.target.value))}
-            />
+            <input type="range" aria-label={label} min={v.min} max={max} value={n} disabled={disabled} onChange={(e) => ctx.setValue(v, Number(e.target.value))} />
             <span className="num">{format === "hslider-percent" ? `${Math.round((n / max) * 100)}%` : n}</span>
           </span>
         );
@@ -310,14 +298,16 @@ function AddressField({ ctx }: { ctx: PaneContext }) {
     <div className={["dec-field", edited ? "is-dirty" : "", unread ? "is-unread" : ""].filter(Boolean).join(" ")}>
       <span className="dec-field__label">Address</span>
       <span className="dec-field__control">
-        <SourceLamp state={sourceOf(cvsOf(vs.map((v) => v.item), ctx.vars), ctx.table)} />
-        <TextControl
-          label="Address"
-          value={address === undefined ? "" : String(address)}
-          disabled={ctx.busy}
-          numeric
-          onCommit={(s) => ctx.setAddress(Number(s))}
+        <SourceLamp
+          state={sourceOf(
+            cvsOf(
+              vs.map((v) => v.item),
+              ctx.vars,
+            ),
+            ctx.table,
+          )}
         />
+        <TextControl label="Address" value={address === undefined ? "" : String(address)} disabled={ctx.busy} numeric onCommit={(s) => ctx.setAddress(Number(s))} />
         <span className="faint">{long ? "long" : "short"}</span>
         {edited && <span className="field__dirty">changed</span>}
       </span>
@@ -349,7 +339,15 @@ function FunctionMap({ node, ctx }: { node: DecoderNode; ctx: PaneContext }) {
               <tr key={ri}>
                 <th scope="row">
                   <span className="dec-fnmap__fn">
-                    <SourceLamp state={sourceOf(cvsOf(vs.filter((v) => !!v).map((v) => v.item), ctx.vars), ctx.table)} />
+                    <SourceLamp
+                      state={sourceOf(
+                        cvsOf(
+                          vs.filter((v) => !!v).map((v) => v.item),
+                          ctx.vars,
+                        ),
+                        ctx.table,
+                      )}
+                    />
                     {r.label}
                   </span>
                 </th>

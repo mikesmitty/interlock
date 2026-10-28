@@ -10,8 +10,7 @@ interface Props {
   onClose?: () => void;
 }
 
-const sameModel = (a?: NodeInfo, b?: NodeInfo) =>
-  !!a?.snip && !!b?.snip && a.snip.Manufacturer === b.snip.Manufacturer && a.snip.Model === b.snip.Model;
+const sameModel = (a?: NodeInfo, b?: NodeInfo) => !!a?.snip && !!b?.snip && a.snip.Manufacturer === b.snip.Manufacturer && a.snip.Model === b.snip.Model;
 
 /** Moves what names one node over to the node taking its place: for a
  * board swapped after a failure, or given a new node ID. */
@@ -39,8 +38,7 @@ export function ReplaceNode({ id, node, nodes, onClose }: Props) {
       }
       if (res.forgotten || !node) {
         await navigate(`/nodes/${encodeURIComponent(res.to)}`, { state: { replaced: { from: id, count: res.changes.length } } });
-      }
-      else {
+      } else {
         setPreview(res);
       }
     } catch (err) {
@@ -55,8 +53,8 @@ export function ReplaceNode({ id, node, nodes, onClose }: Props) {
     <section className="panel replace">
       <h2>Replace with another node</h2>
       <p className="muted">
-        When this board is swapped for a new one, or given a new node ID, move everything that names it over to the node taking its place: the track plan's links, automations, and the names and settings of its
-        entities. On the same kind of board, automations that use its events get the new board's events in the same places.
+        When this board is swapped for a new one, or given a new node ID, move everything that names it over to the node taking its place: the track plan's links, automations, and
+        the names and settings of its entities. On the same kind of board, automations that use its events get the new board's events in the same places.
       </p>
       {candidates.length === 0 ? (
         <p className="note">No other node has been seen. Connect the new board first; it shows up here once it has identified itself.</p>

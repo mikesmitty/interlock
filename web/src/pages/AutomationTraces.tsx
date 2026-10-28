@@ -98,9 +98,7 @@ export function AutomationTraces() {
         </p>
       ))}
       {fetched && traces.length === 0 && (
-        <p className="muted">
-          It has not run yet. Running it now skips the conditions and does the actions, which is the quickest way to try them out.
-        </p>
+        <p className="muted">It has not run yet. Running it now skips the conditions and does the actions, which is the quickest way to try them out.</p>
       )}
       {traces.length > 0 && (
         <div className="trace-layout">

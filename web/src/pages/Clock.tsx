@@ -66,13 +66,24 @@ export function Clock() {
             >
               <label className="clk-set__field">
                 <span>Other rate</span>
-                <input className="input input--num" type="number" step="0.25" min={-512} max={511.75} value={rateDraft} placeholder={String(clock.rate)} onChange={(e) => setRateDraft(e.target.value)} />
+                <input
+                  className="input input--num"
+                  type="number"
+                  step="0.25"
+                  min={-512}
+                  max={511.75}
+                  value={rateDraft}
+                  placeholder={String(clock.rate)}
+                  onChange={(e) => setRateDraft(e.target.value)}
+                />
               </label>
               <button type="submit" className="btn" disabled={busy || rateDraft === ""}>
                 Set rate
               </button>
             </form>
-            <p className="clk-note muted">A fast minute passes every {clock.rate > 0 ? `${Math.round((60 / clock.rate) * 10) / 10} seconds` : "never, at this rate"}. Negative rates run the clock backward.</p>
+            <p className="clk-note muted">
+              A fast minute passes every {clock.rate > 0 ? `${Math.round((60 / clock.rate) * 10) / 10} seconds` : "never, at this rate"}. Negative rates run the clock backward.
+            </p>
           </div>
         </div>
         <div>
@@ -108,13 +119,15 @@ export function Clock() {
                 Set date
               </button>
             </form>
-            <p className="clk-note muted">Setting the time or date tells every clock on the bus. Throttles and other nodes can set this clock the same way, and their changes show here.</p>
+            <p className="clk-note muted">
+              Setting the time or date tells every clock on the bus. Throttles and other nodes can set this clock the same way, and their changes show here.
+            </p>
           </div>
           <div className="panel clk-set" style={{ marginTop: "1rem" }}>
             <h2>What uses it</h2>
             <p className="clk-note muted" style={{ marginTop: 0 }}>
-              Interlock produces the default fast clock on the bus, so station clocks and throttles that follow the Broadcast Time protocol show this time. Automations can start when the fast
-              clock reads a time and check that it is within a window. The clock keeps its time between restarts.
+              Interlock produces the default fast clock on the bus, so station clocks and throttles that follow the Broadcast Time protocol show this time. Automations can start
+              when the fast clock reads a time and check that it is within a window. The clock keeps its time between restarts.
             </p>
           </div>
         </div>

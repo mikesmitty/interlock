@@ -563,8 +563,12 @@ export function DecoderSettings() {
     (pane ? pane.items.map((i) => vars.get(i)).filter((v): v is DecoderVariable => !!v && v.type !== "constant" && !isKnown(v, table)).length : 0) +
     mapRows.filter(({ m, r }) => !esuRowKnown(m, table, r)).length;
   const changedSettings =
-    (pane ? pane.items.filter((i) => { const v = vars.get(i); return v && isEdited(v, table); }).length : 0) +
-    mapRows.filter(({ m, r }) => esuRowEdited(m, table, r)).length;
+    (pane
+      ? pane.items.filter((i) => {
+          const v = vars.get(i);
+          return v && isEdited(v, table);
+        }).length
+      : 0) + mapRows.filter(({ m, r }) => esuRowEdited(m, table, r)).length;
   const roster = Object.values(trains)
     .filter((t) => t.roster)
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -587,7 +591,9 @@ export function DecoderSettings() {
     <Page title={entry ? entry.name : def.model} back={back} lead={lead}>
       {!programmable && <p className="note">This device is not programmed through DCC, so Interlock can show its settings but not read or write them.</p>}
       {entry && entry.installed !== decoderID && (
-        <p className="note">This decoder is not the one fitted in {entry.name}. Programming on the main reaches whichever decoder answers at {entry.address}.</p>
+        <p className="note">
+          This decoder is not the one fitted in {entry.name}. Programming on the main reaches whichever decoder answers at {entry.address}.
+        </p>
       )}
       <div className="panel dec-target">
         <label className="dec-target__pick">
@@ -630,8 +636,8 @@ export function DecoderSettings() {
 
       {restored > 0 && anyEdited && (
         <p className="note">
-          {restored === 1 ? "A change" : `${restored} changes`} made earlier {restored === 1 ? "is" : "are"} not written to the decoder yet. Pages with
-          changes are marked; write them or discard them there.
+          {restored === 1 ? "A change" : `${restored} changes`} made earlier {restored === 1 ? "is" : "are"} not written to the decoder yet. Pages with changes are marked; write
+          them or discard them there.
         </p>
       )}
 
@@ -731,8 +737,8 @@ export function DecoderSettings() {
           {confirmWrite && unreadList && !busy && (
             <div className="confirm confirm--block dec-confirm">
               <span>
-                {unreadList} on this page {unreadCount === 1 ? "was" : "were"} not read from the decoder in this session. Writing the page
-                replaces what the decoder holds with {unreadCount === 1 ? "it" : "them"}.
+                {unreadList} on this page {unreadCount === 1 ? "was" : "were"} not read from the decoder in this session. Writing the page replaces what the decoder holds with{" "}
+                {unreadCount === 1 ? "it" : "them"}.
               </span>
               <button className="btn btn--danger" onClick={() => void run("write", toWrite, writeCV)}>
                 Write page
@@ -790,8 +796,12 @@ export function DecoderSettings() {
         <details className="note dec-problems">
           <summary>Parts of this definition Interlock could not use</summary>
           <ul>
-            {def.problems?.map((p, i) => <li key={`p${i}`}>{p}</li>)}
-            {def.missing?.map((m) => <li key={m}>Missing file {m}</li>)}
+            {def.problems?.map((p, i) => (
+              <li key={`p${i}`}>{p}</li>
+            ))}
+            {def.missing?.map((m) => (
+              <li key={m}>Missing file {m}</li>
+            ))}
           </ul>
         </details>
       )}
@@ -860,17 +870,12 @@ function CheckMismatch({
         </>
       ) : (
         <span>
-          The decoder on the programming track could be {decoder}, but nothing saved tells it from {list(c.alike)}, with the same model at the same
-          address.
+          The decoder on the programming track could be {decoder}, but nothing saved tells it from {list(c.alike)}, with the same model at the same address.
         </span>
       )}
       {c.others.length > 0 && <span>It could be {list(c.others)}.</span>}
       {fresh && <span className="dim">New decoders answer at address 3. If this one is new, go on and set its address.</span>}
-      <span>
-        {kind === "read"
-          ? `Reading anyway saves what it reads for ${loco}.`
-          : `Writing anyway changes the decoder on the track and saves the values for ${loco}.`}
-      </span>
+      <span>{kind === "read" ? `Reading anyway saves what it reads for ${loco}.` : `Writing anyway changes the decoder on the track and saves the values for ${loco}.`}</span>
       <span className="dec-check__actions">
         <button className="btn btn--danger" onClick={onContinue}>
           {kind === "read" ? "Read anyway" : "Write anyway"}
@@ -999,8 +1004,8 @@ function DecoderProfiles({
     <section className="panel dec-profiles">
       <h2>Decoder profiles</h2>
       <p className="dim">
-        Keep a copy of this decoder's values to load again later, such as how it came or how it ran best. Loading one marks what differs as
-        changes; nothing reaches the decoder until you write them.
+        Keep a copy of this decoder's values to load again later, such as how it came or how it ran best. Loading one marks what differs as changes; nothing reaches the decoder
+        until you write them.
       </p>
       {profiles.length > 0 && (
         <ul className="dec-profiles__list">
@@ -1032,8 +1037,7 @@ function DecoderProfiles({
               {ask?.profile === st.name && ask.kind === "load" && (
                 <span className="confirm">
                   <span>
-                    {ask.all ? `Marking every value of ${st.name}` : `Loading ${st.name}`} replaces{" "}
-                    {ask.replaced === 1 ? "a change" : `${ask.replaced} changes`} not written yet.
+                    {ask.all ? `Marking every value of ${st.name}` : `Loading ${st.name}`} replaces {ask.replaced === 1 ? "a change" : `${ask.replaced} changes`} not written yet.
                   </span>
                   <button className="btn btn--danger" disabled={disabled} onClick={() => load(st, true, ask.all)}>
                     {ask.all ? "Mark all" : "Load"}
@@ -1078,9 +1082,8 @@ function DecoderProfiles({
       {last && unread > 0 && (
         <span className="confirm">
           <span>
-            {unread.toLocaleString()} value{unread === 1 ? " matches" : "s match"} {last.name} here but {unread === 1 ? "was" : "were"} not read
-            from the decoder in this session, so it may hold something else. Read their pages and load {last.name} again to check, or mark{" "}
-            {unread === 1 ? "it" : "them"} to write too.
+            {unread.toLocaleString()} value{unread === 1 ? " matches" : "s match"} {last.name} here but {unread === 1 ? "was" : "were"} not read from the decoder in this session,
+            so it may hold something else. Read their pages and load {last.name} again to check, or mark {unread === 1 ? "it" : "them"} to write too.
           </span>
           <button className="btn" onClick={() => load(last, false, true)}>
             Mark {unread === 1 ? "it" : "them"} too
@@ -1145,10 +1148,7 @@ function AddToRoster({
   return (
     <form className="panel dec-keep" onSubmit={(e) => void add(e)}>
       <h2>Keep in the roster</h2>
-      <p className="dim">
-        Save this decoder with a locomotive, with the values read so far and any changes not written yet, so its settings open without reading
-        them again.
-      </p>
+      <p className="dim">Save this decoder with a locomotive, with the values read so far and any changes not written yet, so its settings open without reading them again.</p>
       <div className="dec-keep__row">
         <label className="auto-field">
           <span>Locomotive</span>

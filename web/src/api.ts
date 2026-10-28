@@ -1,12 +1,6 @@
 // Typed access to the Interlock API. Shapes mirror the Go structs.
 
-import type {
-  DecoderCandidate,
-  DecoderDefinition,
-  DecoderIdentity,
-  DecoderIndex,
-  DecoderSource,
-} from "./decoder/types";
+import type { DecoderCandidate, DecoderDefinition, DecoderIdentity, DecoderIndex, DecoderSource } from "./decoder/types";
 
 export interface SNIP {
   Manufacturer: string;
@@ -1025,8 +1019,7 @@ export const api = {
   nodes: () => request<{ nodes: NodeInfo[] }>("/api/v1/nodes").then((r) => r.nodes),
   node: (id: string) => request<NodeInfo>(`/api/v1/nodes/${encodeURIComponent(id)}`),
   refreshNodes: () => request<{ status: string }>("/api/v1/nodes/refresh", { method: "POST" }),
-  refreshNode: (id: string) =>
-    request<{ status: string }>(`/api/v1/nodes/${encodeURIComponent(id)}/refresh`, { method: "POST" }),
+  refreshNode: (id: string) => request<{ status: string }>(`/api/v1/nodes/${encodeURIComponent(id)}/refresh`, { method: "POST" }),
   links: () => request<{ links: LinkStatus[] }>("/api/v1/links").then((r) => r.links),
   monitor: (params: { since?: number; limit?: number }) => {
     const q = new URLSearchParams();
@@ -1101,14 +1094,10 @@ export const api = {
   refreshEntities: () => request<{ status: string }>("/api/v1/entities/refresh", { method: "POST" }),
   trackPlan: () => request<TrackPlanState>("/api/v1/trackplan"),
   tracking: () => request<{ trains: TrackedTrain[] }>("/api/v1/tracking"),
-  saveTrackPlan: (plan: TrackPlan, revision: string) =>
-    request<TrackPlanState>("/api/v1/trackplan", { method: "PUT", body: JSON.stringify({ plan, revision }) }),
+  saveTrackPlan: (plan: TrackPlan, revision: string) => request<TrackPlanState>("/api/v1/trackplan", { method: "PUT", body: JSON.stringify({ plan, revision }) }),
   uploadBackground: (file: File) => upload<{ image: string }>("/api/v1/trackplan/backgrounds", "file", file),
   importTrackPlan: (file: File, scale: number) => upload<TrackImport>("/api/v1/trackplan/import", "file", file, { scale: String(scale) }),
-  eventNames: (node?: string) =>
-    request<{ events: EventName[] }>(
-      node ? `/api/v1/event-names?node=${encodeURIComponent(node)}` : "/api/v1/event-names",
-    ).then((r) => r.events),
+  eventNames: (node?: string) => request<{ events: EventName[] }>(node ? `/api/v1/event-names?node=${encodeURIComponent(node)}` : "/api/v1/event-names").then((r) => r.events),
   refreshEventNames: (node: string) =>
     request<{ status: string }>(`${nodePath(node)}/event-names/refresh`, {
       method: "POST",
@@ -1142,8 +1131,7 @@ export const api = {
     request<{ status: string }>(`${automationPath(id)}/stop`, {
       method: "POST",
     }),
-  traces: (id: string, limit?: number) =>
-    request<{ traces: Trace[] }>(`${automationPath(id)}/traces${limit ? `?limit=${limit}` : ""}`).then((r) => r.traces),
+  traces: (id: string, limit?: number) => request<{ traces: Trace[] }>(`${automationPath(id)}/traces${limit ? `?limit=${limit}` : ""}`).then((r) => r.traces),
   trace: (id: string, traceId: string) => request<Trace>(`${automationPath(id)}/traces/${encodeURIComponent(traceId)}`),
   trains: () => request<{ trains: Train[]; layout: LayoutState }>("/api/v1/trains"),
   train: (id: string) => request<Train>(trainPath(id)),
@@ -1205,23 +1193,20 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(d),
     }),
-  removeDecoder: (id: string, decoder: string) =>
-    request<Train>(`${trainPath(id)}/decoders/${encodeURIComponent(decoder)}`, { method: "DELETE" }),
+  removeDecoder: (id: string, decoder: string) => request<Train>(`${trainPath(id)}/decoders/${encodeURIComponent(decoder)}`, { method: "DELETE" }),
   installDecoder: (id: string, decoder: string) =>
     request<Train>(`${trainPath(id)}/install`, {
       method: "POST",
       body: JSON.stringify({ decoder }),
     }),
-  savedCVs: (id: string, decoder: string) =>
-    request<SavedCVs>(`${trainPath(id)}/decoders/${encodeURIComponent(decoder)}/cvs`),
+  savedCVs: (id: string, decoder: string) => request<SavedCVs>(`${trainPath(id)}/decoders/${encodeURIComponent(decoder)}/cvs`),
   saveCVs: (id: string, decoder: string, cvs: Record<string, number>, replace = false) =>
     request<SavedCVs>(`${trainPath(id)}/decoders/${encodeURIComponent(decoder)}/cvs`, {
       method: replace ? "PUT" : "PATCH",
       body: JSON.stringify({ cvs }),
     }),
   /** Checks that the decoder on the programming track is this one, beginning its session if it is. */
-  checkDecoder: (id: string, decoder: string) =>
-    request<DecoderCheck>(`${trainPath(id)}/decoders/${encodeURIComponent(decoder)}/check`, { method: "POST" }),
+  checkDecoder: (id: string, decoder: string) => request<DecoderCheck>(`${trainPath(id)}/decoders/${encodeURIComponent(decoder)}/check`, { method: "POST" }),
   /** Keeps a copy of a decoder's values; a name kept already is replaced only with replace. */
   keepProfile: (id: string, decoder: string, name: string, replace = false) =>
     request<DecoderProfile>(`${trainPath(id)}/decoders/${encodeURIComponent(decoder)}/profiles`, {
@@ -1231,10 +1216,8 @@ export const api = {
   deleteProfile: (id: string, decoder: string, name: string) =>
     request<void>(`${trainPath(id)}/decoders/${encodeURIComponent(decoder)}/profiles/${encodeURIComponent(name)}`, { method: "DELETE" }),
   /** Begins the session on a decoder though its check did not match. */
-  startSession: (id: string, decoder: string) =>
-    request<DecoderSession>(`${trainPath(id)}/decoders/${encodeURIComponent(decoder)}/session`, { method: "POST" }),
-  endSession: (id: string, decoder: string) =>
-    request<void>(`${trainPath(id)}/decoders/${encodeURIComponent(decoder)}/session`, { method: "DELETE" }),
+  startSession: (id: string, decoder: string) => request<DecoderSession>(`${trainPath(id)}/decoders/${encodeURIComponent(decoder)}/session`, { method: "POST" }),
+  endSession: (id: string, decoder: string) => request<void>(`${trainPath(id)}/decoders/${encodeURIComponent(decoder)}/session`, { method: "DELETE" }),
   /** Keeps the changes not written yet; keepalive lets it finish as the page closes. */
   saveChanges: (id: string, decoder: string, changes: Record<string, { value: number; bits: number }>, keepalive = false) =>
     request<void>(`${trainPath(id)}/decoders/${encodeURIComponent(decoder)}/changes`, {
@@ -1278,19 +1261,9 @@ export const api = {
     }),
   decoderSource: () => request<DecoderSource>("/api/v1/decoders"),
   decoderIndex: () => request<DecoderIndex>("/api/v1/decoders/index"),
-  decoderDefinition: (file: string, model: string) =>
-    request<DecoderDefinition>(`/api/v1/decoders/definition?${new URLSearchParams({ file, model }).toString()}`),
+  decoderDefinition: (file: string, model: string) => request<DecoderDefinition>(`/api/v1/decoders/definition?${new URLSearchParams({ file, model }).toString()}`),
   identifyDecoder: () => request<IdentifyResult>("/api/v1/programming/identify", { method: "POST" }),
-  decoderCV: (body: {
-    file: string;
-    model: string;
-    cv: string;
-    write?: boolean;
-    value?: number;
-    train?: string;
-    locomotive?: string;
-    decoder?: string;
-  }) =>
+  decoderCV: (body: { file: string; model: string; cv: string; write?: boolean; value?: number; train?: string; locomotive?: string; decoder?: string }) =>
     request<{ cv: string; value: number; ok: boolean; error?: string }>("/api/v1/programming/decoder-cv", {
       method: "POST",
       body: JSON.stringify(body),

@@ -112,19 +112,7 @@ export interface DecoderPane {
 }
 
 export interface DecoderNode {
-  kind:
-    | "column"
-    | "row"
-    | "group"
-    | "grid"
-    | "griditem"
-    | "display"
-    | "label"
-    | "separator"
-    | "dccaddress"
-    | "fnmap"
-    | "esu_fnmap"
-    | "cvtable";
+  kind: "column" | "row" | "group" | "grid" | "griditem" | "display" | "label" | "separator" | "dccaddress" | "fnmap" | "esu_fnmap" | "cvtable";
   children?: DecoderNode[];
   item?: string;
   label?: string;

@@ -83,7 +83,10 @@ export function DecoderPicker({
   const [query, setQuery] = useState("");
 
   useEffect(() => {
-    api.decoderSource().then(setSource).catch(() => setSource(undefined));
+    api
+      .decoderSource()
+      .then(setSource)
+      .catch(() => setSource(undefined));
   }, []);
 
   function loadIndex() {
@@ -232,14 +235,7 @@ export function DecoderPicker({
       )}
       <label className="dec-picker__search">
         <span>Search</span>
-        <input
-          className="input input--text"
-          type="search"
-          placeholder="LokSound 5 micro"
-          value={query}
-          onFocus={loadIndex}
-          onChange={(e) => setQuery(e.target.value)}
-        />
+        <input className="input input--text" type="search" placeholder="LokSound 5 micro" value={query} onFocus={loadIndex} onChange={(e) => setQuery(e.target.value)} />
       </label>
       {indexError && <p className="field__error">{indexError}</p>}
       {words.length > 0 && index && (

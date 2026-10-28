@@ -120,13 +120,10 @@ export function Entities() {
       {loaded && all.length === 0 && !adding && (
         <Empty title="No entities yet">
           <p>
-            Entities are the things on the layout: turnouts, blocks, reporters, sensors. Interlock builds them from the configuration of
-            nodes it knows a profile for, such as a canbus-outpost or a simple-dcc command station, as soon as the node is identified.
+            Entities are the things on the layout: turnouts, blocks, reporters, sensors. Interlock builds them from the configuration of nodes it knows a profile for, such as a
+            canbus-outpost or a simple-dcc command station, as soon as the node is identified.
           </p>
-          <p>
-            Nodes without a profile get suggestions worked out from their event names, which you confirm here. Any entity can also be built
-            by hand from event IDs.
-          </p>
+          <p>Nodes without a profile get suggestions worked out from their event names, which you confirm here. Any entity can also be built by hand from event IDs.</p>
           {Object.values(nodes).filter((n) => !n.local).length === 0 && (
             <p>
               No other node has been seen yet; <Link to="/nodes">Nodes</Link> says how to connect one.
@@ -139,8 +136,7 @@ export function Entities() {
         <section className="ent-section ent-section--suggested">
           <h2>Suggested</h2>
           <p className="muted">
-            Guessed from event names on {plural(new Set(suggested.map((e) => e.node)).size, "node")} without a profile. Confirm the ones that
-            are right; hide the rest.
+            Guessed from event names on {plural(new Set(suggested.map((e) => e.node)).size, "node")} without a profile. Confirm the ones that are right; hide the rest.
           </p>
           <div className="panel">
             <table className="table ent-table">
@@ -175,7 +171,14 @@ export function Entities() {
 
       {all.length > 0 && (
         <div className="ent-bar">
-          <input className="input" type="search" placeholder="Filter by name, node or state" value={filter} onChange={(e) => setFilter(e.target.value)} aria-label="Filter entities" />
+          <input
+            className="input"
+            type="search"
+            placeholder="Filter by name, node or state"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            aria-label="Filter entities"
+          />
           {hiddenCount > 0 && (
             <label className="check">
               <input type="checkbox" checked={showHidden} onChange={(e) => setShowHidden(e.target.checked)} />
@@ -357,7 +360,12 @@ function Editor({ entity, def, names, onDone, onMessage }: EditorProps) {
           (confirmDelete ? (
             <span className="confirm">
               <span>Delete {entity.name}?</span>
-              <button type="button" className="btn btn--danger btn--sm" disabled={saving} onClick={() => void run("Deleting", () => api.deleteEntity(entity.id), `Deleted ${entity.name}.`)}>
+              <button
+                type="button"
+                className="btn btn--danger btn--sm"
+                disabled={saving}
+                onClick={() => void run("Deleting", () => api.deleteEntity(entity.id), `Deleted ${entity.name}.`)}
+              >
                 Delete
               </button>
               <button type="button" className="btn btn--quiet btn--sm" onClick={() => setConfirmDelete(false)}>

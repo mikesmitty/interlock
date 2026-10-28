@@ -17,13 +17,26 @@ test("a reported locomotive takes the roster's name for its address", () => {
 });
 
 test("the middle of a line is halfway along it", () => {
-  assert.deepEqual(lineMiddle([{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 30 }]), { x: 10, y: 10 });
+  assert.deepEqual(
+    lineMiddle([
+      { x: 0, y: 0 },
+      { x: 10, y: 0 },
+      { x: 10, y: 30 },
+    ]),
+    { x: 10, y: 10 },
+  );
   assert.deepEqual(lineMiddle([{ x: 5, y: 5 }]), { x: 5, y: 5 });
   assert.equal(lineMiddle([]), undefined);
 });
 
 test("the arrow points out of the leading end", () => {
-  const t = { line: [{ x: 0, y: 0 }, { x: 100, y: 0 }], direction: "forward" } as TrackedTrain;
+  const t = {
+    line: [
+      { x: 0, y: 0 },
+      { x: 100, y: 0 },
+    ],
+    direction: "forward",
+  } as TrackedTrain;
   const fwd = leadArrow(t, 10)!;
   assert.deepEqual(fwd[0], { x: 106, y: 0 });
   assert.ok(fwd[1].x < 100 && fwd[2].x < 100);

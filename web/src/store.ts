@@ -188,8 +188,7 @@ class BusStore {
       const trace = JSON.parse((ev as MessageEvent<string>).data) as Trace;
       const liveTraces = this.state.liveTraces.filter((t) => t.id !== trace.id).concat(trace);
       this.set({
-        liveTraces:
-          liveTraces.length > MAX_LIVE_TRACES ? liveTraces.slice(liveTraces.length - MAX_LIVE_TRACES) : liveTraces,
+        liveTraces: liveTraces.length > MAX_LIVE_TRACES ? liveTraces.slice(liveTraces.length - MAX_LIVE_TRACES) : liveTraces,
       });
     });
     es.addEventListener("train", (ev) => {
@@ -281,9 +280,7 @@ class BusStore {
       const entities: Record<string, Entity> = {};
       for (const e of entityList) entities[e.id] = e;
       const haveHistory = this.state.lastSeq > 0 && this.state.lastSeq <= serverSeq;
-      const backlog = haveHistory
-        ? await api.monitor({ since: this.state.lastSeq, limit: 0 })
-        : await api.monitor({ limit: 500 });
+      const backlog = haveHistory ? await api.monitor({ since: this.state.lastSeq, limit: 0 }) : await api.monitor({ limit: 500 });
       const entries = mergeEntries(haveHistory ? this.state.entries : [], backlog.entries);
       this.set({
         nodes: map,

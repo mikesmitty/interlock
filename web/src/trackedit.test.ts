@@ -144,10 +144,14 @@ test("moving part of the track splits it from what stays", () => {
   assert.deepEqual(index.points.get("p2"), { id: "p2", x: 100, y: 0 });
   assert.deepEqual(index.points.get("p4"), { id: "p4", x: 100, y: 50 });
   assert.deepEqual(index.points.get("p3"), { id: "p3", x: 316, y: 266 });
-  const all = moveSelection(scene(), [
-    { kind: "track", id: "t1" },
-    { kind: "track", id: "t2" },
-  ], { x: 10, y: 0 });
+  const all = moveSelection(
+    scene(),
+    [
+      { kind: "track", id: "t1" },
+      { kind: "track", id: "t2" },
+    ],
+    { x: 10, y: 0 },
+  );
   assert.equal(all.points.length, 3, "track moved together stays joined");
   assert.equal(all.tracks[1].a, "p2");
 });
@@ -189,10 +193,14 @@ test("a box takes in what lies wholly inside it", () => {
 });
 
 test("layers: put a selection on one, and pick everything on it", () => {
-  const plan = setLayer(scene(), [
-    { kind: "track", id: "t2" },
-    { kind: "label", id: "l1" },
-  ], "upper");
+  const plan = setLayer(
+    scene(),
+    [
+      { kind: "track", id: "t2" },
+      { kind: "label", id: "l1" },
+    ],
+    "upper",
+  );
   assert.deepEqual(
     layerRefs(plan, "upper").map((r) => `${r.kind}:${r.id}`),
     ["track:t2", "label:l1"],

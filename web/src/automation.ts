@@ -79,11 +79,7 @@ export function trainName(trains: Record<string, Train>, address: number, long: 
   return `locomotive ${address} (${long ? "long" : "short"})`;
 }
 
-export function namesFrom(
-  entities: Record<string, Entity>,
-  nodes: Record<string, NodeInfo>,
-  trains: Record<string, Train> = {},
-): Names {
+export function namesFrom(entities: Record<string, Entity>, nodes: Record<string, NodeInfo>, trains: Record<string, Train> = {}): Names {
   return {
     entity: (id) => entities[id]?.name ?? id,
     node: (id) => (nodes[id] ? nodeName(nodes[id]) : id),
@@ -124,8 +120,7 @@ export function describeTrigger(t: Trigger, n: Names): string {
     }
     case "node": {
       const who = t.node ? n.node(t.node) : "any node";
-      const verb =
-        t.to === "online" ? "comes online" : t.to === "offline" ? "goes offline" : "comes online or goes offline";
+      const verb = t.to === "online" ? "comes online" : t.to === "offline" ? "goes offline" : "comes online or goes offline";
       return `When ${who} ${verb}`;
     }
     case "time":

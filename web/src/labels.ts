@@ -21,8 +21,7 @@ const ROLE_WORDS: Record<string, string> = {
 /** Decodes the low two bytes of a DCC detector event: who entered or left. */
 export function detectorReport(suffix: number): string {
   const code = suffix & 0x3fff;
-  const address =
-    (code & 0x3f80) === 0x3800 ? `${code & 0x7f} (short)` : (code & 0x3f80) === 0x3900 ? `consist ${code & 0x7f}` : String(code);
+  const address = (code & 0x3f80) === 0x3800 ? `${code & 0x7f} (short)` : (code & 0x3f80) === 0x3900 ? `consist ${code & 0x7f}` : String(code);
   switch (suffix >> 14) {
     case 0:
       return `${address} left`;

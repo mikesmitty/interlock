@@ -1,6 +1,21 @@
 import type { Trigger, TriggerType } from "../../api";
 import { newTrigger } from "../../automation";
-import { AddButton, ClockField, DurationField, EntityPicker, EventField, Field, NodePicker, RemoveButton, StatePicker, TextField, TypeSelect, WeekdayPicker, removeAt, replaceAt } from "./fields";
+import {
+  AddButton,
+  ClockField,
+  DurationField,
+  EntityPicker,
+  EventField,
+  Field,
+  NodePicker,
+  RemoveButton,
+  StatePicker,
+  TextField,
+  TypeSelect,
+  WeekdayPicker,
+  removeAt,
+  replaceAt,
+} from "./fields";
 
 const TRIGGER_TYPES: [TriggerType, string][] = [
   ["state", "An entity changes state"],

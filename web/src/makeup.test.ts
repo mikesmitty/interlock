@@ -10,7 +10,11 @@ const cars: Record<string, Car> = {
 };
 
 test("a train's length adds up its locomotives and cars", () => {
-  const vehicles = [{ locomotive: "motor", reverse: false }, { car: "c1", reverse: false }, { car: "c2", reverse: true }];
+  const vehicles = [
+    { locomotive: "motor", reverse: false },
+    { car: "c1", reverse: false },
+    { car: "c2", reverse: true },
+  ];
   assert.deepEqual(makeupLength(vehicles, trains, cars), { length: 228, unmeasured: 1 });
   assert.deepEqual(makeupLength([], trains, cars), { length: 0, unmeasured: 0 });
 });
@@ -27,7 +31,14 @@ test("what a train is made of reads as a list", () => {
   assert.equal(makeupText(f([{ car: "c1", reverse: false }]), trains), "1 car");
   assert.equal(makeupText(f([{ locomotive: "motor", reverse: false }]), trains), "Motor car");
   assert.equal(
-    makeupText(f([{ car: "c1", reverse: false }, { locomotive: "motor", reverse: false }, { car: "c2", reverse: false }]), trains),
+    makeupText(
+      f([
+        { car: "c1", reverse: false },
+        { locomotive: "motor", reverse: false },
+        { car: "c2", reverse: false },
+      ]),
+      trains,
+    ),
     "Motor car and 2 cars",
   );
 });

@@ -5,14 +5,7 @@ import type { ClockState } from "./api";
 
 /** The fast time right now, extrapolated from the last state. */
 export function fastNow(state: ClockState, now: number): Date {
-  const base = Date.UTC(
-    Number(state.date.slice(0, 4)),
-    Number(state.date.slice(5, 7)) - 1,
-    Number(state.date.slice(8, 10)),
-    state.hour,
-    state.minute,
-    state.second,
-  );
+  const base = Date.UTC(Number(state.date.slice(0, 4)), Number(state.date.slice(5, 7)) - 1, Number(state.date.slice(8, 10)), state.hour, state.minute, state.second);
   if (!state.running) return new Date(base);
   const elapsed = now - new Date(state.updated).getTime();
   return new Date(base + Math.max(0, elapsed) * state.rate);

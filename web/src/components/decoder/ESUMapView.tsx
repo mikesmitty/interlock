@@ -14,9 +14,7 @@ export function ESUMapView({ map, ctx }: { map: ESUMap; ctx: PaneContext }) {
   const rows = Array.from({ length: map.rows }, (_, r) => r);
   return (
     <div className="dec-esumap">
-      <p className="dec-label">
-        Each row switches its outputs, logical functions and sounds on while all of its conditions hold. Choose a row to change it.
-      </p>
+      <p className="dec-label">Each row switches its outputs, logical functions and sounds on while all of its conditions hold. Choose a row to change it.</p>
       <table className="table dec-esumap__table">
         <thead>
           <tr>

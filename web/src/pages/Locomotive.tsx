@@ -62,8 +62,7 @@ export function Locomotive() {
         )}
         {t.consist && consists[t.consist] && (
           <p className="note">
-            Runs in <Link to={`/roster/consists/${encodeURIComponent(t.consist)}`}>{consists[t.consist].name}</Link>, which is made
-            up: break it up before changing the address.
+            Runs in <Link to={`/roster/consists/${encodeURIComponent(t.consist)}`}>{consists[t.consist].name}</Link>, which is made up: break it up before changing the address.
           </p>
         )}
         <Decoders key={`d-${t.id}`} train={t} />
@@ -198,9 +197,7 @@ function Decoders({ train: t }: { train: Train }) {
   return (
     <div className="panel ros-decoders">
       <h2>Decoders</h2>
-      {decoders.length === 0 && !adding && (
-        <p className="dim">No decoder yet. Add the one fitted to open its settings by name and keep its CV values here.</p>
-      )}
+      {decoders.length === 0 && !adding && <p className="dim">No decoder yet. Add the one fitted to open its settings by name and keep its CV values here.</p>}
       {decoders.length > 0 && (
         <ul className="ros-decoders__list">
           {decoders.map((d) => (
@@ -284,7 +281,7 @@ function DecoderRow({ train: t, decoder: d, onMessage }: { train: Train; decoder
         <span className="dim">{fitted ? "Fitted" : d.address ? `Not fitted; drives at ${addressText({ address: d.address, long: !!d.long })} when it is` : "Not fitted"}</span>
       </div>
       <div className="cell-sub">
-        {d.file ? (d.model === d.family || !d.family ? d.model : `${d.model}, ${d.family}`) : <span className="ros-warn">No definition chosen</span>}
+        {d.file ? d.model === d.family || !d.family ? d.model : `${d.model}, ${d.family}` : <span className="ros-warn">No definition chosen</span>}
         {id && `; maker ${id.manufacturer}${id.product_id !== undefined ? `, product ${id.product_id}` : ""}`}
         {count > 0 && saved?.updated
           ? `; ${count.toLocaleString()} saved value${count === 1 ? "" : "s"}${
@@ -330,9 +327,7 @@ function DecoderRow({ train: t, decoder: d, onMessage }: { train: Train; decoder
           title="Choose the definition"
           intro="Saved values stay; they are matched to the new definition by CV."
           onPick={(p, identity) =>
-            void act("Change definition", () =>
-              api.updateDecoder(t.id, d.id, { ...p, ...(identity ? { identity: rosterIdentity(identity) } : {}) }),
-            ).then(() => setChoosing(false))
+            void act("Change definition", () => api.updateDecoder(t.id, d.id, { ...p, ...(identity ? { identity: rosterIdentity(identity) } : {}) })).then(() => setChoosing(false))
           }
         />
       )}

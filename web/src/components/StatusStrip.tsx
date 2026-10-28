@@ -12,8 +12,7 @@ export function StatusStrip() {
   const local = Object.values(nodes).find((n) => n.local);
 
   const serverColor = connection === "live" ? "green" : connection === "reconnecting" ? "red" : "amber";
-  const serverLabel =
-    connection === "live" ? "Connected to server" : connection === "reconnecting" ? "Server connection lost, retrying" : "Connecting to server";
+  const serverLabel = connection === "live" ? "Connected to server" : connection === "reconnecting" ? "Server connection lost, retrying" : "Connecting to server";
 
   let nodeColor: "green" | "amber" | "off" = "off";
   let nodeLabel = "Controller node not started";
@@ -41,7 +40,12 @@ export function StatusStrip() {
           </Link>
         )}
         {links.map((link) => (
-          <Link key={link.name} className="strip__item" to="/settings" title={link.connected ? `${link.name}: connected to ${link.target}` : `${link.name}: not connected${link.last_error ? ` (${link.last_error})` : ""}`}>
+          <Link
+            key={link.name}
+            className="strip__item"
+            to="/settings"
+            title={link.connected ? `${link.name}: connected to ${link.target}` : `${link.name}: not connected${link.last_error ? ` (${link.last_error})` : ""}`}
+          >
             <Lamp color={link.connected ? "green" : "red"} label={link.connected ? "connected" : "not connected"} />
             <span>{link.name}</span>
           </Link>

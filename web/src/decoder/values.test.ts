@@ -104,14 +104,29 @@ test("wide splits beyond 32 bits", () => {
 });
 
 test("enums keep unknown values", () => {
-  const mode = v({ item: "Mode", type: "enum", choices: [{ label: "Off", value: 0 }, { label: "On", value: 1 }], parts: [{ cv: "50", mask: 0x03, width: 2 }] });
+  const mode = v({
+    item: "Mode",
+    type: "enum",
+    choices: [
+      { label: "Off", value: 0 },
+      { label: "On", value: 1 },
+    ],
+    parts: [{ cv: "50", mask: 0x03, width: 2 }],
+  });
   const t = table({ "50": 3 });
   assert.equal(decode(mode, t), 3);
   assert.deepEqual(choicesFor(mode, 3).at(-1), { label: "Reserved value 3", value: 3 });
 });
 
 test("long addresses", () => {
-  const long = v({ item: "Long Address", type: "long_address", parts: [{ cv: "17", mask: 0xff, width: 8 }, { cv: "18", mask: 0xff, width: 8 }] });
+  const long = v({
+    item: "Long Address",
+    type: "long_address",
+    parts: [
+      { cv: "17", mask: 0xff, width: 8 },
+      { cv: "18", mask: 0xff, width: 8 },
+    ],
+  });
   let t = table({ "17": 0, "18": 0 });
   t = apply(t, encode(long, 6641, t, none));
   assert.equal(t["17"].value, 0xc0 | (6641 >> 8));
@@ -123,8 +138,29 @@ test("long addresses", () => {
 test("setting an address picks short or long", () => {
   const vars = new Map<string, DecoderVariable>([
     ["Short Address", v({ item: "Short Address", type: "short_address", max: 127, factor: 1, parts: [{ cv: "1", mask: 0xff, width: 8 }] })],
-    ["Address Format", v({ item: "Address Format", type: "enum", choices: [{ label: "Short", value: 0 }, { label: "Long", value: 1 }], parts: [{ cv: "29", mask: 0x20, shift: 5, width: 1 }] })],
-    ["Long Address", v({ item: "Long Address", type: "long_address", parts: [{ cv: "17", mask: 0xff, width: 8 }, { cv: "18", mask: 0xff, width: 8 }] })],
+    [
+      "Address Format",
+      v({
+        item: "Address Format",
+        type: "enum",
+        choices: [
+          { label: "Short", value: 0 },
+          { label: "Long", value: 1 },
+        ],
+        parts: [{ cv: "29", mask: 0x20, shift: 5, width: 1 }],
+      }),
+    ],
+    [
+      "Long Address",
+      v({
+        item: "Long Address",
+        type: "long_address",
+        parts: [
+          { cv: "17", mask: 0xff, width: 8 },
+          { cv: "18", mask: 0xff, width: 8 },
+        ],
+      }),
+    ],
   ]);
   const a = addressItems(vars);
   let t = table({ "1": 3, "29": 0x06, "17": 0xc0, "18": 0 });
@@ -142,19 +178,35 @@ test("text in consecutive CVs", () => {
   const name = v({ item: "Name", type: "split_text", text: { term_byte: 0, pad_byte: 0 }, parts: ["1", "2", "3", "4", "5"].map((cv) => ({ cv, mask: 0xff, width: 8 })) });
   let t = table({ "1": 0, "2": 0, "3": 0, "4": 0, "5": 0 });
   t = apply(t, encode(name, "GP40", t, none));
-  assert.deepEqual([1, 2, 3, 4, 5].map((n) => t[String(n)].value), [71, 80, 52, 48, 0]);
+  assert.deepEqual(
+    [1, 2, 3, 4, 5].map((n) => t[String(n)].value),
+    [71, 80, 52, 48, 0],
+  );
   assert.equal(decode(name, t), "GP40");
 });
 
 test("dates count from the base", () => {
-  const made = v({ item: "Made", type: "split_date_time", date_time: { base: "2000-01-01T00:00:00", unit: "Seconds", factor: 1, display: "dateOnly" }, parts: ["1", "2", "3", "4"].map((cv) => ({ cv, mask: 0xff, width: 8 })) });
+  const made = v({
+    item: "Made",
+    type: "split_date_time",
+    date_time: { base: "2000-01-01T00:00:00", unit: "Seconds", factor: 1, display: "dateOnly" },
+    parts: ["1", "2", "3", "4"].map((cv) => ({ cv, mask: 0xff, width: 8 })),
+  });
   const day = 86400 * 366;
   const t = table({ "1": day & 0xff, "2": (day >> 8) & 0xff, "3": (day >> 16) & 0xff, "4": (day >> 24) & 0xff });
   assert.equal(decode(made, t), "2001-01-01");
 });
 
 test("two-digit pairs", () => {
-  const n = v({ item: "Number", type: "split_hundreds", max: 2047, parts: [{ cv: "201", mask: 0xff, width: 8 }, { cv: "181", mask: 0xff, width: 8 }] });
+  const n = v({
+    item: "Number",
+    type: "split_hundreds",
+    max: 2047,
+    parts: [
+      { cv: "201", mask: 0xff, width: 8 },
+      { cv: "181", mask: 0xff, width: 8 },
+    ],
+  });
   let t = table({ "201": 0, "181": 0 });
   t = apply(t, encode(n, 2047, t, none));
   assert.equal(t["201"].value, 47);
@@ -171,11 +223,29 @@ test("speed tables stay rising", () => {
 });
 
 test("qualifiers compare the shown value", () => {
-  const mode = v({ item: "Mode", type: "enum", choices: [{ label: "Off", value: 0 }, { label: "Blink", value: 7 }], parts: [{ cv: "50", mask: 0xff, width: 8 }] });
+  const mode = v({
+    item: "Mode",
+    type: "enum",
+    choices: [
+      { label: "Off", value: 0 },
+      { label: "Blink", value: 7 },
+    ],
+    parts: [{ cv: "50", mask: 0xff, width: 8 }],
+  });
   const vars = new Map([["Mode", mode]]);
   const t = table({ "50": 7 });
   assert.equal(qualified([{ item: "Mode", relation: "eq", value: 7 }], t, vars), true);
-  assert.equal(qualified([{ item: "Mode", relation: "ne", value: 0 }, { item: "Mode", relation: "lt", value: 7 }], t, vars), false);
+  assert.equal(
+    qualified(
+      [
+        { item: "Mode", relation: "ne", value: 0 },
+        { item: "Mode", relation: "lt", value: 7 },
+      ],
+      t,
+      vars,
+    ),
+    false,
+  );
   assert.equal(qualified([{ relation: "never" }], t, vars), false);
   assert.equal(qualified([{ item: "Gone", relation: "eq", value: 1 }], t, vars), true);
 });
@@ -187,8 +257,20 @@ test("presets set several settings", () => {
     item: "P",
     type: "composite",
     composite: [
-      { label: "Off", settings: [{ item: "A", value: 0 }, { item: "B", value: 0 }] },
-      { label: "Busy", settings: [{ item: "A", value: 1 }, { item: "B", value: 20 }] },
+      {
+        label: "Off",
+        settings: [
+          { item: "A", value: 0 },
+          { item: "B", value: 0 },
+        ],
+      },
+      {
+        label: "Busy",
+        settings: [
+          { item: "A", value: 1 },
+          { item: "B", value: 20 },
+        ],
+      },
     ],
   });
   const vars = new Map([
@@ -242,8 +324,23 @@ test("an edit to a never-read CV merges with what the decoder holds", () => {
 
 test("saved values count as known and are saved back", () => {
   const short = v({ item: "Short Address", type: "short_address", parts: [{ cv: "1", mask: 0x7f, shift: 0, width: 7 }], max: 127 });
-  const format = v({ item: "Address Format", type: "enum", parts: [{ cv: "29", mask: 0x20, shift: 5, width: 1 }], choices: [{ label: "Short", value: 0 }, { label: "Long", value: 1 }] });
-  const long = v({ item: "Long Address", type: "long_address", parts: [{ cv: "17", mask: 0x3f, shift: 0, width: 6 }, { cv: "18", mask: 0xff, shift: 0, width: 8 }] });
+  const format = v({
+    item: "Address Format",
+    type: "enum",
+    parts: [{ cv: "29", mask: 0x20, shift: 5, width: 1 }],
+    choices: [
+      { label: "Short", value: 0 },
+      { label: "Long", value: 1 },
+    ],
+  });
+  const long = v({
+    item: "Long Address",
+    type: "long_address",
+    parts: [
+      { cv: "17", mask: 0x3f, shift: 0, width: 6 },
+      { cv: "18", mask: 0xff, shift: 0, width: 8 },
+    ],
+  });
   const vars = new Map([short, format, long].map((x) => [x.item, x]));
   let t: CVTable = { "1": { value: 0, state: "unknown", known: false, edited: 0 } };
   t = withSaved(t, { "1": 3, "29": 0x26, "17": 0xd9, "18": 0xf1 });
@@ -332,7 +429,12 @@ test("a kept profile loads as changes where it differs", () => {
   t = applyUpdates(t, [{ cv: "1", value: 4, bits: 0xff }], "edited");
   t["5"] = { value: 0, state: "unknown", known: false, edited: 0 };
   t["8"] = { value: 151, state: "read", known: true, edited: 0 };
-  const r = loadProfile(t, { "1": 5, "3": 10, "29": 7, "4": 8, "5": 0, "8": 99, "99": 1 }, (cv) => cv !== "8", () => 0xff);
+  const r = loadProfile(
+    t,
+    { "1": 5, "3": 10, "29": 7, "4": 8, "5": 0, "8": 99, "99": 1 },
+    (cv) => cv !== "8",
+    () => 0xff,
+  );
   assert.equal(r.changed, 3, "CVs 1, 29 and 5, which had no value");
   assert.equal(r.replaced, 1, "the change to CV 1");
   assert.equal(r.unread, 2, "CVs 3 and 4 match, though neither was read in this session");
@@ -348,7 +450,12 @@ test("a kept profile loads as changes where it differs", () => {
     ],
   );
   assert.equal(r.table["99"], undefined, "a CV the definition lacks is left out");
-  const back = loadProfile(t, { "1": 3 }, () => true, () => 0xff);
+  const back = loadProfile(
+    t,
+    { "1": 3 },
+    () => true,
+    () => 0xff,
+  );
   assert.deepEqual([back.changed, back.replaced, back.unread], [0, 1, 1]);
   assert.deepEqual(back.table["1"], { value: 3, state: "saved", known: true, edited: 0 }, "a profile that undoes a change drops it");
   assert.deepEqual(pendingChanges(r.table)["29"], { value: 7, bits: 0xff });
@@ -360,7 +467,13 @@ test("a kept profile loads in full where the session has not seen the decoder ho
   t = withSession(t, { read: ["29"], written: [] });
   t = applyUpdates(t, [{ cv: "1", value: 4, bits: 0x7f }], "edited");
   const profile = { "1": 3, "3": 10, "29": 6, "4": 9 };
-  const r = loadProfile(t, profile, () => true, () => 0xff, true);
+  const r = loadProfile(
+    t,
+    profile,
+    () => true,
+    () => 0xff,
+    true,
+  );
   assert.deepEqual([r.changed, r.replaced, r.unread], [3, 1, 1], "CVs 1, 3 and 4; not 29, read in this session");
   assert.deepEqual(
     ["1", "3", "29", "4"].map((cv) => [r.table[cv].state, r.table[cv].value, r.table[cv].edited]),
@@ -372,12 +485,32 @@ test("a kept profile loads in full where the session has not seen the decoder ho
     ],
   );
   assert.deepEqual(pendingChanges(r.table)["3"], { value: 10, bits: 0xff }, "a value marked though it matches is kept as a change");
-  const again = loadProfile(r.table, profile, () => true, () => 0xff, true);
+  const again = loadProfile(
+    r.table,
+    profile,
+    () => true,
+    () => 0xff,
+    true,
+  );
   assert.deepEqual([again.changed, again.replaced, again.unread], [0, 0, 0], "loading it again finds nothing more to mark");
   // Loaded first for the differences, then in full.
-  const first = loadProfile(t, profile, () => true, () => 0xff);
+  const first = loadProfile(
+    t,
+    profile,
+    () => true,
+    () => 0xff,
+  );
   assert.deepEqual([first.changed, first.unread], [1, 2], "CV 4 differs; CVs 1 and 3 are taken as they are");
-  assert.equal(loadProfile(first.table, profile, () => true, () => 0xff, true).changed, 2);
+  assert.equal(
+    loadProfile(
+      first.table,
+      profile,
+      () => true,
+      () => 0xff,
+      true,
+    ).changed,
+    2,
+  );
 });
 
 test("only values read or written in this session are confirmed", () => {

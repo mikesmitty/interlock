@@ -46,9 +46,7 @@ export function makeupText(f: Pick<Formation, "vehicles">, trains: Record<string
 
 /** The made-up train a locomotive or car is in, other than skip. */
 export function formationOf(v: Pick<Vehicle, "locomotive" | "car">, formations: Record<string, Formation>, skip?: string): Formation | undefined {
-  return Object.values(formations).find(
-    (f) => f.id !== skip && f.vehicles.some((w) => (v.locomotive ? w.locomotive === v.locomotive : w.car === v.car)),
-  );
+  return Object.values(formations).find((f) => f.id !== skip && f.vehicles.some((w) => (v.locomotive ? w.locomotive === v.locomotive : w.car === v.car)));
 }
 
 /** A length in millimeters as the pages write it: "456 mm". */

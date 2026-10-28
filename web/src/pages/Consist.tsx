@@ -78,11 +78,7 @@ export function ConsistPage() {
               Break up
             </button>
           ) : (
-            <button
-              className="btn btn--primary"
-              disabled={busy || c.members.length < 2}
-              onClick={() => void act("Make up", () => api.makeUpConsist(c.id))}
-            >
+            <button className="btn btn--primary" disabled={busy || c.members.length < 2} onClick={() => void act("Make up", () => api.makeUpConsist(c.id))}>
               {busy ? "Making up…" : "Make up"}
             </button>
           )}
@@ -121,7 +117,12 @@ function Members({ consist: c, trains }: { consist: Consist; trains: Record<stri
   const [message, setMessage] = useState<string>();
   const locked = c.made_up;
   const dirty = JSON.stringify(rows) !== JSON.stringify(c.members);
-  const addresses = new Set(rows.map((m) => trains[m.train]).filter(Boolean).map((t) => `${t.address}:${t.long}`));
+  const addresses = new Set(
+    rows
+      .map((m) => trains[m.train])
+      .filter(Boolean)
+      .map((t) => `${t.address}:${t.long}`),
+  );
   const choices = Object.values(trains)
     .filter((t) => t.roster && !addresses.has(`${t.address}:${t.long}`))
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -180,7 +181,11 @@ function Members({ consist: c, trains }: { consist: Consist; trains: Record<stri
                   {i === 0 ? (
                     <span className="dim">Forward</span>
                   ) : locked ? (
-                    m.reverse ? "Backward" : "Forward"
+                    m.reverse ? (
+                      "Backward"
+                    ) : (
+                      "Forward"
+                    )
                   ) : (
                     <select
                       className="input input--select"
@@ -202,13 +207,7 @@ function Members({ consist: c, trains }: { consist: Consist; trains: Record<stri
                         <input type="checkbox" checked={m.f0} disabled={locked} onChange={(e) => change(i, { f0: e.target.checked })} /> F0
                       </label>
                       <label className="check">
-                        <input
-                          type="checkbox"
-                          checked={m.functions}
-                          disabled={locked}
-                          onChange={(e) => change(i, { functions: e.target.checked })}
-                        />{" "}
-                        other functions
+                        <input type="checkbox" checked={m.functions} disabled={locked} onChange={(e) => change(i, { functions: e.target.checked })} /> other functions
                       </label>
                     </span>
                   )}

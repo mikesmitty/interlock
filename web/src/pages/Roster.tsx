@@ -84,18 +84,9 @@ export function Roster() {
       {importing && <ImportPanel onClose={() => setImporting(false)} />}
       {loaded && list.length === 0 && !importing && !adding && (
         <Empty title="Start the roster">
-          <p>
-            Add each locomotive with its DCC address, or import a JMRI roster: its locomotives come in with their
-            decoders, saved CV values and function labels.
-          </p>
-          <p>
-            A locomotive can have more than one decoder, for when you swap them. Each keeps its own settings, and the
-            fitted one gives the locomotive its address.
-          </p>
-          <p>
-            Add the cars too, each with its length, and make trains up of locomotives and cars. Train tracking adds up a train's
-            lengths to know where the rest of it is.
-          </p>
+          <p>Add each locomotive with its DCC address, or import a JMRI roster: its locomotives come in with their decoders, saved CV values and function labels.</p>
+          <p>A locomotive can have more than one decoder, for when you swap them. Each keeps its own settings, and the fitted one gives the locomotive its address.</p>
+          <p>Add the cars too, each with its length, and make trains up of locomotives and cars. Train tracking adds up a train's lengths to know where the rest of it is.</p>
         </Empty>
       )}
       {list.length > 0 && (carList.length > 0 || formationList.length > 0 || consistList.length > 0) && <h2 className="ros-heading">Locomotives</h2>}
@@ -556,8 +547,8 @@ function ImportPanel({ onClose }: { onClose: () => void }) {
     <div className="panel ros-import">
       <h2>Import from JMRI</h2>
       <p className="dim">
-        Choose <code>roster.xml</code> and the locomotive files from the <code>roster</code> folder of your JMRI profile,
-        or a zip of the profile folder. Nothing changes until you import.
+        Choose <code>roster.xml</code> and the locomotive files from the <code>roster</code> folder of your JMRI profile, or a zip of the profile folder. Nothing changes until you
+        import.
       </p>
       {!result && <input className="input" type="file" multiple accept=".xml,.zip" onChange={(e) => void choose(e.target.files)} disabled={busy} />}
       {busy && !preview && <p className="dim">Reading the roster…</p>}

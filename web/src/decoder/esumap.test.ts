@@ -30,8 +30,7 @@ const v5: ESUMap = {
   ],
 };
 
-const known = (cvs: Record<string, number>): CVTable =>
-  Object.fromEntries(Object.entries(cvs).map(([cv, value]) => [cv, { value, state: "read", known: true, edited: 0 }]));
+const known = (cvs: Record<string, number>): CVTable => Object.fromEntries(Object.entries(cvs).map(([cv, value]) => [cv, { value, state: "read", known: true, edited: 0 }]));
 
 test("cells follow the server's layout", () => {
   assert.deepEqual(esuCell(v5, 0, 0, 1), { cv: "16.3.257", mask: 0x0c, shift: 2 });

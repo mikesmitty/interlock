@@ -34,7 +34,17 @@ export function AutomationEditor() {
   useEffect(() => {
     if (!id || doc) return;
     if (existing) {
-      setDoc(structuredClone({ ...existing, running: undefined, queued: undefined, last_triggered: undefined, last_result: undefined, last_trace: undefined, problems: undefined }) as Automation);
+      setDoc(
+        structuredClone({
+          ...existing,
+          running: undefined,
+          queued: undefined,
+          last_triggered: undefined,
+          last_result: undefined,
+          last_trace: undefined,
+          problems: undefined,
+        }) as Automation,
+      );
     } else if (loaded) {
       api
         .automation(id)
@@ -119,7 +129,13 @@ export function AutomationEditor() {
           <div className="auto-row auto-row--plain">
             <label className="auto-field auto-field--wide">
               <span>Name</span>
-              <input className="input input--text" value={doc.name} onChange={(e) => update({ name: e.target.value })} placeholder="Close Turnout 1 behind a train" autoFocus={!id} />
+              <input
+                className="input input--text"
+                value={doc.name}
+                onChange={(e) => update({ name: e.target.value })}
+                placeholder="Close Turnout 1 behind a train"
+                autoFocus={!id}
+              />
             </label>
             <label className="auto-field auto-field--wide">
               <span>Description</span>
