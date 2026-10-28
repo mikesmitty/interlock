@@ -10,7 +10,7 @@ DCC addresses (`1234`, `3` short, `3l` long).
 ## Live updates
 
 ```
-GET /api/v1/events?topics=nodes,links,monitor,entities,automations,trains,clock,trackplan,tracking
+GET /api/v1/events?topics=nodes,links,monitor,entities,automations,trains,clock,trackplan,tracking,interlocking
 ```
 
 is a server-sent event stream; the default is every topic. Events:
@@ -29,6 +29,8 @@ is a server-sent event stream; the default is every topic. Events:
 | `clock` | clock | the fast clock, on every change and fast minute |
 | `trackplan` | trackplan | the track plan, its revision and topology, after each save |
 | `tracked` | tracking | a tracked train, when it moves (a few times a second), is seen or is lost, or with `removed` when it is no longer followed |
+| `route` | interlocking | a route that was set, changed or was released |
+| `routes` | interlocking | `{"routes": [...]}`, every route, when a save of the track plan changed them |
 | `lagged` | | the client fell behind and missed events |
 
 ## Controller
@@ -278,6 +280,7 @@ way. See [The track plan](./track-plan.md).
 
 ```
 GET    /api/v1/tracking                      {trains: [...]}
+DELETE /api/v1/tracking/{id}                 forget where a train is; 204, 404 for a train not followed
 ```
 
 Each train detectors have seen. A train made up in the roster has its
@@ -292,6 +295,36 @@ and which way it faces), the `blocks` it is in with its front first, its
 millimeters a second, its `length`, whether its decoder's `momentum` is
 on record, and while placed, its `line` on the plan from rear to front
 and its `decoder`'s place. See [Train tracking](./tracking.md).
+
+Forgetting a train, as when it was taken off the layout, publishes it
+with `removed`; it is followed again once a detector reports its decoder
+entering a block.
+
+## Routes
+
+```
+GET    /api/v1/routes                        {routes: [...]} every route of the plan, set or not
+GET    /api/v1/routes/{id}                   one route
+POST   /api/v1/routes/{id}/set               set it; 409 {error} saying what stands in the way
+POST   /api/v1/routes/{id}/cancel            {force?} release it; 409 with a train on it unless force
+```
+
+A route is a way from the end of one block into another over track in no
+block, one of the topology's `links` taken one way. Its `id` is the two
+blocks' IDs, `from~to`, with `~2`, `~3` after it where more than one way
+joins them. Each has its `from` and `to` ports, the `turnouts` positions
+it needs, the `length` of track between the blocks, and that track as
+`legs` from the first block (a track's ID, or a junction's with
+`junction` and the `route` through it, and `reverse` when taken from its
+last end). A route that is set has a `state`: `setting` while its
+turnouts move, with the junctions still moving in `waiting`; `set`; or
+`occupied` with a `train` on it, by its tracked ID. `released` counts
+its legs released behind the train, and `since` is when it was set.
+
+Setting a route set already moves back any of its turnouts that have
+moved away. While a route holds a turnout, a command that would move
+it, from any client, gets 409 with the route named. See
+[Routes and interlocking](./interlocking.md).
 
 ## Monitor
 

@@ -58,6 +58,11 @@ type Options struct {
 // Subscriber is told whenever an entity changes.
 type Subscriber func(Entity)
 
+// Guard decides whether a command may be sent, returning a *LockedError
+// if not. The interlocking keeps turnouts its routes are set through
+// where the routes need them with one.
+type Guard func(e Entity, command string) error
+
 // identifyPause spaces Identify Events requests to different nodes so a
 // bus full of nodes is not asked all at once.
 const identifyPause = 100 * time.Millisecond
@@ -75,6 +80,7 @@ type Manager struct {
 	online   map[openlcb.NodeID]bool
 	subs     map[int]Subscriber
 	nextSub  int
+	guard    Guard
 
 	identify chan openlcb.NodeID
 	queued   map[openlcb.NodeID]bool
@@ -641,6 +647,7 @@ func (m *Manager) Command(ctx context.Context, id, command string) (Entity, erro
 		return Entity{}, ErrNotFound
 	}
 	snapshot := *ent
+	guard := m.guard
 	m.mu.RUnlock()
 	if !snapshot.Available {
 		return snapshot, ErrUnavailable
@@ -650,6 +657,11 @@ func (m *Manager) Command(ctx context.Context, id, command string) (Entity, erro
 	ev, bound := snapshot.Events[command]
 	if !ok || !r.Command || !bound {
 		return snapshot, fmt.Errorf("%w: %q", ErrUnknownCommand, command)
+	}
+	if guard != nil {
+		if err := guard(snapshot, command); err != nil {
+			return snapshot, err
+		}
 	}
 	if err := m.opts.Bus.SendEvent(ctx, ev); err != nil {
 		return snapshot, err
@@ -662,6 +674,14 @@ func (m *Manager) Command(ctx context.Context, id, command string) (Entity, erro
 		return *ent, nil
 	}
 	return snapshot, nil
+}
+
+// SetGuard has every command checked by g before it is sent, from the
+// API, automations and throttle apps alike; nil checks none.
+func (m *Manager) SetGuard(g Guard) {
+	m.mu.Lock()
+	m.guard = g
+	m.mu.Unlock()
 }
 
 // Update applies a change to an entity and saves it.

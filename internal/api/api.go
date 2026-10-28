@@ -89,6 +89,8 @@ type Deps struct {
 	TrackPlan TrackPlan
 	// Tracking follows the trains on the plan; nil disables it.
 	Tracking Tracking
+	// Interlocking sets routes over the plan; nil disables it.
+	Interlocking Interlocking
 	// Replace moves what names one node over to another; nil disables it.
 	Replace Replacer
 	// Restart restarts the server; nil means it cannot.
@@ -224,6 +226,11 @@ func New(deps Deps) *API {
 	a.mux.HandleFunc("POST /api/v1/trackplan/backgrounds", a.uploadBackground)
 	a.mux.HandleFunc("GET /api/v1/trackplan/backgrounds/{name}", a.getBackground)
 	a.mux.HandleFunc("GET /api/v1/tracking", a.getTracking)
+	a.mux.HandleFunc("DELETE /api/v1/tracking/{id}", a.forgetTracked)
+	a.mux.HandleFunc("GET /api/v1/routes", a.listRoutes)
+	a.mux.HandleFunc("GET /api/v1/routes/{id}", a.getRoute)
+	a.mux.HandleFunc("POST /api/v1/routes/{id}/set", a.setRoute)
+	a.mux.HandleFunc("POST /api/v1/routes/{id}/cancel", a.cancelRoute)
 	a.mux.HandleFunc("POST /api/v1/restart", a.restart)
 	a.mux.HandleFunc("GET /api/v1/links", a.links)
 	a.mux.HandleFunc("GET /api/v1/monitor", a.monitorEntries)

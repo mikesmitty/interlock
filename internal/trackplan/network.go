@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 )
 
 // Network is the plan's track as pieces joined end to end, for following
@@ -146,6 +147,11 @@ func (n *Network) Next(l Leg, position func(junction string) Position) (Leg, err
 	if !ok {
 		return Leg{}, ErrTrackEnds
 	}
+	return n.enter(in, position)
+}
+
+// enter is the leg a train takes into a piece by one of its ends.
+func (n *Network) enter(in attach, position func(junction string) Position) (Leg, error) {
 	pc := n.g.pieces[in.piece]
 	var set Position
 	if pc.junction >= 0 && junctionKinds[n.g.plan.Junctions[pc.junction].Kind].switches {
@@ -203,4 +209,71 @@ func (n *Network) Switch(junction string) string {
 		return ""
 	}
 	return n.g.plan.Junctions[n.g.pieces[i].junction].Switch
+}
+
+// Way is the track a link covers, taken from one of its ends to the
+// other: the legs from where track leaves from's block to where it
+// enters to's, with the junctions set as settings say. A link between
+// blocks that meet end to end covers none.
+func (n *Network) Way(from, to Port, settings []Setting) ([]Leg, error) {
+	position := func(junction string) Position {
+		if i := slices.IndexFunc(settings, func(s Setting) bool { return s.Junction == junction }); i >= 0 {
+			return settings[i].Position
+		}
+		return ""
+	}
+	var leg Leg
+	found := false
+	for _, a := range n.g.at[from.Point] {
+		if n.g.pieces[a.piece].block == from.Block {
+			continue
+		}
+		var err error
+		if leg, err = n.enter(a, position); err != nil {
+			return nil, err
+		}
+		found = true
+		break
+	}
+	if !found {
+		return nil, fmt.Errorf("no track leaves block %s at %s", from.Block, from.Point)
+	}
+	var legs []Leg
+	for range len(n.g.pieces) + 1 {
+		if block := n.Block(leg); block != "" {
+			i, _ := n.piece(leg)
+			first, _ := n.ends(i, leg)
+			if block != to.Block || n.g.pieces[i].ends[first] != to.Point {
+				return nil, fmt.Errorf("the way from block %s leads into block %s at %s, not block %s at %s", from.Block, block, n.g.pieces[i].ends[first], to.Block, to.Point)
+			}
+			return legs, nil
+		}
+		legs = append(legs, leg)
+		var err error
+		if leg, err = n.Next(leg, position); err != nil {
+			return nil, err
+		}
+	}
+	return nil, fmt.Errorf("the way from block %s goes round without reaching a block", from.Block)
+}
+
+// Fouls reports whether two legs share track, so that two trains can't
+// be on them at once: the same track either way, or one junction on two
+// routes, other than a crossover's two straight tracks.
+func (n *Network) Fouls(a, b Leg) bool {
+	if a.Piece != b.Piece || a.Junction != b.Junction {
+		return false
+	}
+	if !a.Junction || a.Route == b.Route {
+		return true
+	}
+	i, okA := n.piece(a)
+	_, okB := n.piece(b)
+	if !okA || !okB {
+		return false
+	}
+	pc := n.g.pieces[i]
+	routes := pc.routes
+	parallel := junctionKinds[n.g.plan.Junctions[pc.junction].Kind].parallel
+	return !parallel || routes[a.Route].position != Closed || routes[b.Route].position != Closed
 }

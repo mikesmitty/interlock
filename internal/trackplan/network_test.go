@@ -94,3 +94,75 @@ func TestNetworkMeasuresAndPlaces(t *testing.T) {
 		t.Error("a junction taken as a track, or a route it doesn't have, is valid")
 	}
 }
+
+func TestWayFollowsEachLink(t *testing.T) {
+	for _, kind := range []string{KindCrossover, KindDoubleCrossover} {
+		p := station()
+		p.Junctions[0].Kind = kind
+		n := p.Network()
+		for _, l := range p.Topology().Links {
+			for _, way := range []Link{l, l.reversed()} {
+				legs, err := n.Way(way.From, way.To, way.Turnouts)
+				if err != nil {
+					t.Errorf("%s: %s to %s: %v", kind, way.From.Block, way.To.Block, err)
+					continue
+				}
+				length := 0.0
+				for _, leg := range legs {
+					length += n.Length(leg)
+				}
+				if len(legs) != 1 || !legs[0].Junction || math.Round(length) != way.Length {
+					t.Errorf("%s: %s to %s covers %+v, %v mm; want the crossover, %v mm", kind, way.From.Block, way.To.Block, legs, length, way.Length)
+				}
+			}
+		}
+	}
+
+	// From A1 east with the crossover thrown is B2, not B1.
+	n := station().Network()
+	thrown := []Setting{{Junction: "x1", Position: Thrown}}
+	if _, err := n.Way(Port{Block: "a1", Point: "u1"}, Port{Block: "b1", Point: "u2"}, thrown); err == nil {
+		t.Error("A1 to B1 with the crossover thrown has a way")
+	}
+	if legs, err := n.Way(Port{Block: "a1", Point: "u1"}, Port{Block: "b2", Point: "l2"}, thrown); err != nil || len(legs) != 1 || legs[0].Route != 2 {
+		t.Errorf("A1 to B2 thrown = %+v, %v", legs, err)
+	}
+	// Blocks that meet end to end have nothing between them.
+	p := Plan{
+		Grid:   DefaultGrid,
+		Points: []Point{{ID: "p1", X: 0, Y: 0, Bumper: true}, {ID: "p2", X: 100, Y: 0}, {ID: "p3", X: 200, Y: 0, Bumper: true}},
+		Tracks: []Track{{ID: "t1", A: "p1", B: "p2", Block: "a"}, {ID: "t2", A: "p2", B: "p3", Block: "b"}},
+		Blocks: []Block{{ID: "a", Name: "A"}, {ID: "b", Name: "B"}},
+	}
+	if legs, err := p.Network().Way(Port{Block: "a", Point: "p2"}, Port{Block: "b", Point: "p2"}, nil); err != nil || len(legs) != 0 {
+		t.Errorf("A to B end to end = %+v, %v", legs, err)
+	}
+}
+
+func TestFouls(t *testing.T) {
+	x := func(route int) Leg { return Leg{Piece: "x1", Junction: true, Route: route} }
+	tests := []struct {
+		name string
+		kind string
+		a, b Leg
+		want bool
+	}{
+		{"one track, either way", KindCrossover, Leg{Piece: "t1"}, Leg{Piece: "t1", Reverse: true}, true},
+		{"two tracks", KindCrossover, Leg{Piece: "t1"}, Leg{Piece: "t2"}, false},
+		{"a crossover's two straight tracks", KindCrossover, x(0), x(1), false},
+		{"across a crossover and straight on", KindCrossover, x(2), x(0), true},
+		{"a double crossover's straight tracks", KindDoubleCrossover, x(0), x(1), false},
+		{"a double crossover both ways across", KindDoubleCrossover, x(2), x(3), true},
+		{"a crossing's two tracks", KindCrossing, x(0), x(1), true},
+	}
+	for _, tt := range tests {
+		p := station()
+		p.Junctions[0].Kind = tt.kind
+		if tt.kind == KindCrossing {
+			p.Junctions[0].Switch = ""
+		}
+		if got := p.Network().Fouls(tt.a, tt.b); got != tt.want {
+			t.Errorf("%s: Fouls = %v, want %v", tt.name, got, tt.want)
+		}
+	}
+}

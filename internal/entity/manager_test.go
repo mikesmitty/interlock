@@ -277,6 +277,25 @@ func TestManagerFollowsTheBus(t *testing.T) {
 		t.Errorf("missing entity: %v", err)
 	}
 
+	// A guard keeps a turnout where something holds it.
+	h.m.SetGuard(func(e Entity, command string) error {
+		if e.ID == turnout && command == "close" {
+			return &LockedError{Reason: "held thrown"}
+		}
+		return nil
+	})
+	var locked *LockedError
+	if _, err := h.m.Command(context.Background(), turnout, "close"); !errors.As(err, &locked) || locked.Reason != "held thrown" {
+		t.Errorf("guarded close: %v", err)
+	}
+	if events, _ := h.bus.sent(); len(events) != 1 {
+		t.Errorf("a refused command was sent: %v", events)
+	}
+	if _, err := h.m.Command(context.Background(), turnout, "throw"); err != nil {
+		t.Errorf("unguarded throw: %v", err)
+	}
+	h.m.SetGuard(nil)
+
 	// Blocks: a report, and an invalid reply meaning the other state.
 	h.report(evOccupied)
 	if b := h.get(t, block); b.State != StateOccupied {

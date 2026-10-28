@@ -264,3 +264,25 @@ func TestATrainIsFollowedByTheDecoderLastSeen(t *testing.T) {
 		t.Errorf("target %v; want the rear locomotive's reverse as the train's forward", tr.target)
 	}
 }
+
+func TestATrainTakenOffIsForgotten(t *testing.T) {
+	l := line(t)
+	l.setRoster([]train.Train{{Entry: train.Entry{ID: "loco", Name: "Loco", Address: 5, Length: 100}, Roster: true}}, nil, nil)
+	addr := detector.Address{Type: detector.Short, Number: 5}
+	tr := place(l, addr, 300)
+	tr.top = 120
+	if l.forget("nothing") {
+		t.Error("forgot a train that isn't followed")
+	}
+	if !l.forget("5") || tr.known() || tr.stretch != nil || tr.top != 120 {
+		t.Fatalf("after forgetting: known %v, stretch %v, top %v", tr.known(), tr.stretch, tr.top)
+	}
+	if l.forget("5") {
+		t.Error("forgot it twice")
+	}
+	// Seen again, it is known by its block.
+	l.enter(addr, "a")
+	if !tr.known() || tr.block != "a" || tr.stretch != nil {
+		t.Errorf("seen again: block %q, stretch %v", tr.block, tr.stretch)
+	}
+}

@@ -435,6 +435,43 @@ export interface TrackedTrain {
   removed?: boolean;
 }
 
+/** A leg of track: one track end to end, or one route through a junction, taken one way. */
+export interface TrackLeg {
+  /** The track's ID, or the junction's when junction is set. */
+  piece: string;
+  junction?: boolean;
+  /** The route through a junction, in its kind's order. */
+  route?: number;
+  /** Taken from the route's last end to its first. */
+  reverse?: boolean;
+}
+
+/** The ways a route that is set stands. */
+export type RouteState = "setting" | "set" | "occupied";
+
+/** A way from one block into another over the track between them, and whether it is set. */
+export interface Route {
+  /** The two blocks' IDs, from~to, with ~2 and so on after it when more than one way joins them. */
+  id: string;
+  /** The end of the block it leaves by, and of the block it leads into. */
+  from: TrackPort;
+  to: TrackPort;
+  turnouts?: { junction: string; switch?: string; position: "closed" | "thrown" }[];
+  /** Millimeters of track between the two blocks. */
+  length: number;
+  /** That track, in order from the first block. */
+  legs: TrackLeg[];
+  /** Absent for a route not set. */
+  state?: RouteState;
+  /** The junctions not yet where it needs them. */
+  waiting?: string[];
+  /** The tracked train on it, or last on it, by ID. */
+  train?: string;
+  /** How many of its legs, from the first, have been released behind the train. */
+  released?: number;
+  since?: string;
+}
+
 // Replacing a node: moving what names one node over to another.
 
 export interface ReplaceChange {
@@ -1094,6 +1131,10 @@ export const api = {
   refreshEntities: () => request<{ status: string }>("/api/v1/entities/refresh", { method: "POST" }),
   trackPlan: () => request<TrackPlanState>("/api/v1/trackplan"),
   tracking: () => request<{ trains: TrackedTrain[] }>("/api/v1/tracking"),
+  forgetTracked: (id: string) => request<void>(`/api/v1/tracking/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  routes: () => request<{ routes: Route[] }>("/api/v1/routes"),
+  setRoute: (id: string) => request<Route>(`/api/v1/routes/${encodeURIComponent(id)}/set`, { method: "POST" }),
+  cancelRoute: (id: string, force = false) => request<Route>(`/api/v1/routes/${encodeURIComponent(id)}/cancel`, { method: "POST", body: JSON.stringify({ force }) }),
   saveTrackPlan: (plan: TrackPlan, revision: string) => request<TrackPlanState>("/api/v1/trackplan", { method: "PUT", body: JSON.stringify({ plan, revision }) }),
   uploadBackground: (file: File) => upload<{ image: string }>("/api/v1/trackplan/backgrounds", "file", file),
   importTrackPlan: (file: File, scale: number) => upload<TrackImport>("/api/v1/trackplan/import", "file", file, { scale: String(scale) }),

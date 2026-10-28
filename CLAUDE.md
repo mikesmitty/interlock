@@ -124,6 +124,14 @@ applied at the next start; the replaced files go to `before-restore-*/`.
   block unseen, and keeps places over a restart in the store. One
   goroutine owns the state (`layout.go`); handlers only queue. Its
   tests run the simulated layout and check against true positions.
+  `Forget` drops a train taken off the layout.
+- `internal/interlocking` — routes: each topology link taken one way
+  (`route.go`, ID `from~to`, its legs from `Network.Way`), set when
+  nothing is in the way, its turnouts moved and locked (the entity
+  manager's `Guard` refuses commands that would move them, from any
+  client), released leg by leg behind the train by tracking's stretch
+  with a clearance (`Network.Fouls` says which legs share track), and
+  kept over a restart. One goroutine owns the state (`state.go`).
 - `internal/layoutsim` — the simulated layout: trains as stretches
   along the plan's `Network` (`trackplan/network.go`, legs through track
   and junction routes; `trackplan/stretch.go`, the track a train covers)

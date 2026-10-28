@@ -25,6 +25,7 @@ export default defineConfig({
           { text: "Entities", link: "/entities" },
           { text: "The track plan", link: "/track-plan" },
           { text: "Train tracking", link: "/tracking" },
+          { text: "Routes and interlocking", link: "/interlocking" },
           { text: "Automations", link: "/automations" },
           { text: "Trains", link: "/trains" },
           { text: "The roster", link: "/roster" },

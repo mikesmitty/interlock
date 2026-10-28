@@ -20,6 +20,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"slices"
 	"sync"
@@ -77,7 +78,10 @@ type Train struct {
 	// where its decoder is, while it is placed.
 	Line    []trackplan.Vec `json:"line,omitempty"`
 	Decoder *trackplan.Vec  `json:"decoder,omitempty"`
-	Updated time.Time       `json:"updated,omitzero"`
+	// Stretch is the track the train covers, rear to front, while it is
+	// placed: what the interlocking releases routes behind.
+	Stretch trackplan.Stretch `json:"-"`
+	Updated time.Time         `json:"updated,omitzero"`
 	// Removed is set on the last update about a train no longer
 	// followed, as when its locomotive joins a train in the roster.
 	Removed bool `json:"removed,omitempty"`
@@ -233,6 +237,26 @@ func (tk *Tracker) decoderCVs(decoder string) decoderCVs {
 	return decoderCVs{start: get("2"), mid: get("6"), high: get("5"), accel: get("3"), decel: get("4"), known: has("3") && has("4")}
 }
 
+// ErrNotTracked is a train tracking doesn't follow.
+var ErrNotTracked = errors.New("tracking: no such train")
+
+// Forget stops following where a train is, by its ID, as when it has
+// been taken off the layout: it is published as removed, and found again
+// when a detector next reports its decoder entering a block.
+func (tk *Tracker) Forget(ctx context.Context, id string) error {
+	done := make(chan bool, 1)
+	tk.push(func(l *layout) { done <- l.forget(id) })
+	select {
+	case found := <-done:
+		if !found {
+			return ErrNotTracked
+		}
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 // List returns the tracked trains by name.
 func (tk *Tracker) List() []Train {
 	tk.mu.RLock()
@@ -300,6 +324,8 @@ func (tk *Tracker) Run(ctx context.Context) error {
 				continue
 			}
 			if !t.known() {
+				// Not seen yet, or forgotten.
+				dirty = tk.drop(key) || dirty
 				continue
 			}
 			published[key] = now

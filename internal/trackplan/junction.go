@@ -50,6 +50,9 @@ type kindInfo struct {
 	// center is true for kinds drawn through the point where their
 	// routes part, which the junction keeps.
 	center bool
+	// parallel is true for kinds whose closed routes are two tracks side
+	// by side, which two trains can use at once.
+	parallel bool
 }
 
 var junctionKinds = map[string]kindInfo{
@@ -59,9 +62,9 @@ var junctionKinds = map[string]kindInfo{
 		routes: []route{{0, 1, Closed}, {0, 2, Thrown}}},
 	KindCrossing: {name: "crossing", ends: 4,
 		routes: []route{{0, 1, ""}, {2, 3, ""}}},
-	KindCrossover: {name: "crossover", ends: 4, switches: true,
+	KindCrossover: {name: "crossover", ends: 4, switches: true, parallel: true,
 		routes: []route{{0, 1, Closed}, {2, 3, Closed}, {0, 3, Thrown}}},
-	KindDoubleCrossover: {name: "double crossover", ends: 4, switches: true,
+	KindDoubleCrossover: {name: "double crossover", ends: 4, switches: true, parallel: true,
 		routes: []route{{0, 1, Closed}, {2, 3, Closed}, {0, 3, Thrown}, {2, 1, Thrown}}},
 }
 

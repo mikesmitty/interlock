@@ -17,6 +17,7 @@ import {
   type MonitorEntry,
   type NodeInfo,
   type Trace,
+  type Route,
   type TrackPlanState,
   type TrackedTrain,
   type Train,
@@ -55,6 +56,8 @@ export interface BusState {
   trackPlan?: TrackPlanState;
   /** The trains train tracking follows, by ID. */
   tracked: Record<string, TrackedTrain>;
+  /** Every route the plan has, set or not, by ID. */
+  routes: Record<string, Route>;
 }
 
 const MAX_LIVE_TRACES = 50;
@@ -70,6 +73,12 @@ function mergeEntries(current: MonitorEntry[], incoming: MonitorEntry[]): Monito
   for (const e of incoming) bySeq.set(e.seq, e);
   const merged = [...bySeq.values()].sort((a, b) => a.seq - b.seq);
   return merged.length > MAX_ENTRIES ? merged.slice(merged.length - MAX_ENTRIES) : merged;
+}
+
+function byID<T extends { id: string }>(list: T[]): Record<string, T> {
+  const out: Record<string, T> = {};
+  for (const x of list) out[x.id] = x;
+  return out;
 }
 
 class BusStore {
@@ -92,6 +101,7 @@ class BusStore {
     layout: { power_off: false, power_known: false, emergency_stop: false },
     firmware: {},
     tracked: {},
+    routes: {},
   };
   private listeners = new Set<Listener>();
   private source?: EventSource;
@@ -142,6 +152,14 @@ class BusStore {
       if (t.removed) delete tracked[t.id];
       else tracked[t.id] = t;
       this.set({ tracked });
+    });
+    es.addEventListener("route", (ev) => {
+      const r = JSON.parse((ev as MessageEvent<string>).data) as Route;
+      this.set({ routes: { ...this.state.routes, [r.id]: r } });
+    });
+    es.addEventListener("routes", (ev) => {
+      const { routes } = JSON.parse((ev as MessageEvent<string>).data) as { routes: Route[] };
+      this.set({ routes: byID(routes) });
     });
     es.addEventListener("clock", (ev) => {
       this.set({ clock: JSON.parse((ev as MessageEvent<string>).data) as ClockState });
@@ -259,6 +277,7 @@ class BusStore {
       const clock = await api.clock().catch(() => undefined);
       const trackPlan = await api.trackPlan().catch(() => undefined);
       const trackingResponse = await api.tracking().catch(() => ({ trains: [] as TrackedTrain[] }));
+      const routesResponse = await api.routes().catch(() => ({ routes: [] as Route[] }));
       const carsResponse = await api.cars().catch(() => ({ cars: [] as Car[] }));
       const formationsResponse = await api.formations().catch(() => ({ formations: [] as Formation[] }));
       const cars: Record<string, Car> = {};
@@ -298,6 +317,7 @@ class BusStore {
         clock,
         trackPlan,
         tracked,
+        routes: byID(routesResponse.routes),
         entries,
         lastSeq: Math.max(this.state.lastSeq, backlog.last_seq),
         lagged: false,

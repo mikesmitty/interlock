@@ -69,7 +69,10 @@ Each train tracking has placed is drawn on its track as a bar, pointed
 at the end that leads, with a red dot where its decoder is. A train
 whose place in its block isn't known yet is named in the block. The
 **Trains** table lists each train with the blocks it is in, the way it
-is going, its speed, and what would help follow it better. The
+is going, its speed, and what would help follow it better. **Forget…**
+there drops a train that has been taken off the layout, so it no longer
+fills a block; tracking finds it again when a detector next sees it run
+into a block. The
 **Blocks** table names the trains in each block, marking a block only
 the front or rear of a train reaches into.
 
@@ -82,6 +85,9 @@ the front or rear of a train reaches into.
 - Trains driven from a throttle that doesn't go through Interlock move
   only when a detector sees them, from block to block.
 - A train's place can't be set by hand. Run it into the next block.
+
+[Routes](./interlocking.md) are released behind a train by where
+tracking puts its rear.
 
 ## Trying it without hardware
 

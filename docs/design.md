@@ -838,10 +838,24 @@ since its result could change the model.
   sensing was weighed and set aside: the outpost's comparators trip at
   about 8 mA, a resistor axle draws about 1.5 mA, and lowering the
   threshold would move RailCom's too.
+- Interlocking (2026-10-28): `internal/interlocking` sets routes, the
+  topology's links each taken one way, from one block's end into the
+  next block over track in no block. Setting one checks that no train
+  is in the block it leads into or on track it would move, and that no
+  other route holds its track, its turnouts the other way or the same
+  block; then it moves its turnouts and locks them. The entity manager
+  asks the interlocking before every command (`entity.Guard`), so the
+  web interface, automations and throttle apps alike are refused. As
+  tracking moves a train's rear past each piece of the route by a
+  30 mm clearance, that piece is released, and the route once the train
+  is in the next block and clear of it. Routes set are kept over a
+  restart. Tracking can forget a train taken off the layout. Verified
+  against the simulated layout: a route over the crossover set, refused
+  a conflicting route and a command to the crossover, and was released
+  about 3 s after the train's front reached the next block.
 - Next: the rest of Phase 7, hardware verification against
-  canbus-outpost and simple-dcc, and Phase 8's interlocking (routes
-  set, locked and released behind trains), built on tracking against
-  the simulated layout.
+  canbus-outpost and simple-dcc, and Phase 8's automatic driving, with
+  signals, approach locking and a trip stop to round out interlocking.
 
 ## References
 

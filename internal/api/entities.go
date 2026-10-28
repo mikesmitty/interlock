@@ -159,6 +159,7 @@ func (a *API) refreshEntities(w http.ResponseWriter, _ *http.Request) {
 
 func (a *API) entityError(w http.ResponseWriter, err error) {
 	var invalid *entity.InvalidError
+	var locked *entity.LockedError
 	switch {
 	case errors.Is(err, entity.ErrNotFound):
 		writeError(w, http.StatusNotFound, err.Error())
@@ -170,6 +171,8 @@ func (a *API) entityError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusConflict, err.Error())
 	case errors.As(err, &invalid):
 		writeError(w, http.StatusBadRequest, invalid.Reason)
+	case errors.As(err, &locked):
+		writeError(w, http.StatusConflict, locked.Reason)
 	default:
 		a.busError(w, err)
 	}

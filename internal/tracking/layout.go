@@ -686,6 +686,20 @@ func (l *layout) enter(addr detector.Address, block string) {
 	t.stretch, t.anchored = nil, false
 }
 
+// forget stops following where the train with the API ID id is, keeping
+// the speed measured for it, and reports whether there was one.
+func (l *layout) forget(id string) bool {
+	for _, t := range l.trains {
+		if !t.known() || l.unitFor(t).id != id {
+			continue
+		}
+		t.block, t.seen, t.stretch, t.anchored = "", false, nil, false
+		l.changed[t.key] = true
+		return true
+	}
+	return false
+}
+
 // exit is a decoder no longer reported in a block. Where it was last
 // seen is kept; it is between blocks, or the detector lost it a moment.
 func (l *layout) exit(addr detector.Address, block string) {
@@ -908,6 +922,7 @@ func (l *layout) view(t *tracked) Train {
 	// By the estimate, not the reports: a detector reports a decoder
 	// gone only a second after it left.
 	v.Blocks = t.stretch.Blocks(l.net)
+	v.Stretch = slices.Clone(t.stretch)
 	for _, s := range t.stretch {
 		for d := s.From; ; d += lineStep {
 			d = min(d, s.To)

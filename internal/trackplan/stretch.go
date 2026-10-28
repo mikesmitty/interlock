@@ -124,8 +124,8 @@ func (p Stretch) Blocks(n *Network) []string {
 }
 
 // Overlaps reports whether two stretches share track: the same stretch of a
-// track or junction route, or any part of one junction on two routes,
-// which can't both be used at once.
+// track or junction route, or any part of one junction on two routes
+// that can't both be used at once (see Network.Fouls).
 func (p Stretch) Overlaps(n *Network, o Stretch) bool {
 	const touch = 0.5
 	for _, a := range p {
@@ -137,7 +137,10 @@ func (p Stretch) Overlaps(n *Network, o Stretch) bool {
 				continue
 			}
 			if a.Leg.Route != b.Leg.Route {
-				return true
+				if n.Fouls(a.Leg, b.Leg) {
+					return true
+				}
+				continue
 			}
 			alo, ahi := n.forward(a)
 			blo, bhi := n.forward(b)

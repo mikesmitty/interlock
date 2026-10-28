@@ -124,6 +124,26 @@
   margin: 1.5rem 0 0.5rem;
 }
 
+/* Setting a route: from a block, to where it leads, under the routes
+   set. */
+.trk-route-form {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem 1.25rem;
+}
+
+.trk-route-form > p {
+  margin: 0;
+}
+
+.trk-route-fields {
+  align-items: flex-end;
+}
+
+.trk-route-fields .auto-field {
+  min-width: 12rem;
+}
+
 .trk-zoom {
   display: inline-flex;
   gap: 0.25rem;
@@ -252,6 +272,21 @@
   .trk-canvas--work {
     height: 60vh;
   }
+}
+
+/* A route set, lit under the track it holds as on a panel: green once
+   its turnouts are where it needs them, amber while they move. */
+.trk-route {
+  fill: none;
+  stroke: color-mix(in srgb, var(--lamp-green) 50%, transparent);
+  stroke-width: 11px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+
+.trk-route--setting {
+  stroke: color-mix(in srgb, var(--lamp-amber) 55%, transparent);
 }
 
 /* The editor's marks over the track: what is selected or under the

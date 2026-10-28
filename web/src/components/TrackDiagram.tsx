@@ -3,14 +3,17 @@ import {
   type Entity,
   type PlanJunction,
   type PlanTrack,
+  type Route,
   type TrackBackground,
   type TrackBlock,
+  type TrackLeg,
   type TrackPlan,
   type TrackedTrain,
   type Train,
   type Vec,
   backgroundURL,
 } from "../api";
+import { heldLegs } from "../routes";
 import { leadArrow, lineMiddle, locomotiveName } from "../tracking";
 import {
   type Bounds,
@@ -77,6 +80,10 @@ interface DiagramProps {
   tracked?: TrackedTrain[];
   /** The roster, for the names of the locomotives detectors report. */
   trains?: Record<string, Train>;
+  /** The routes set, lit along the track they hold while operating. */
+  routes?: Route[];
+  /** The junctions a route holds, with the route's name. */
+  locked?: Map<string, string>;
 }
 
 /** Line widths in pixels, whatever the zoom. */
@@ -508,6 +515,16 @@ export function TrackDiagram(props: DiagramProps) {
     const l = plan.labels.find((x) => x.id === ref.id);
     return l && `M${l.x} ${l.y - px(9)}h${px(l.text.length * 7 + 4)}v${px(18)}h${-px(l.text.length * 7 + 4)}Z`;
   }
+  function legPath(leg: TrackLeg): string | undefined {
+    if (!leg.junction) return pathOf({ kind: "track", id: leg.piece });
+    const j = index.junctions.get(leg.piece);
+    const ends = j?.ends.map(pos);
+    const r = j && KINDS[j.kind].routes[leg.route ?? 0];
+    if (!j || !r || !ends || ends.some((e) => !e)) return undefined;
+    return routePath(j.kind, ends as Vec[], junctionCenter(j, ends as Vec[]), r);
+  }
+  const lit = editing ? [] : (props.routes ?? []).map((r) => ({ id: r.id, state: r.state, d: heldLegs(r).map(legPath).join("") })).filter((r) => r.d);
+
   const selectedPath = props.selected?.map(pathOf).join("");
   const hoverPath = props.hover && !props.selected?.some((r) => sameRef(r, props.hover)) && pathOf(props.hover);
   const grid = editing ? gridSpacing(plan.grid, zoom) : 0;
@@ -570,6 +587,9 @@ export function TrackDiagram(props: DiagramProps) {
           ))}
       </g>
 
+      {lit.map((r) => (
+        <path key={r.id} className={`trk-route trk-route--${r.state}`} d={r.d} vectorEffect="non-scaling-stroke" />
+      ))}
       {hoverPath && <path className="trk-halo trk-halo--hover" d={hoverPath} vectorEffect="non-scaling-stroke" />}
       {selectedPath && <path className="trk-halo" d={selectedPath} vectorEffect="non-scaling-stroke" />}
 
@@ -671,7 +691,13 @@ export function TrackDiagram(props: DiagramProps) {
                   vectorEffect="non-scaling-stroke"
                   onClick={!editing && ent ? () => props.onTurnout?.(j) : undefined}
                 >
-                  {!editing && ent && <title>{`${ent.name}: ${ent.state}. Click to ${ent.state === "closed" ? "throw" : "close"} it.`}</title>}
+                  {!editing && ent && (
+                    <title>
+                      {props.locked?.has(j.id)
+                        ? `${ent.name}: ${ent.state}, locked by the route ${props.locked.get(j.id)}.`
+                        : `${ent.name}: ${ent.state}. Click to ${ent.state === "closed" ? "throw" : "close"} it.`}
+                    </title>
+                  )}
                 </path>
               );
             })}

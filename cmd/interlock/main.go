@@ -28,6 +28,7 @@ import (
 	"github.com/mikesmitty/interlock/internal/eventtable"
 	"github.com/mikesmitty/interlock/internal/firmware"
 	"github.com/mikesmitty/interlock/internal/identity"
+	"github.com/mikesmitty/interlock/internal/interlocking"
 	"github.com/mikesmitty/interlock/internal/monitor"
 	"github.com/mikesmitty/interlock/internal/nodeconfig"
 	"github.com/mikesmitty/interlock/internal/profile"
@@ -255,6 +256,14 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	trains.SubscribeLayout(tracker.HandleLayout)
 	trackPlan.Subscribe(tracker.HandlePlan)
 
+	// The interlocking: routes set over the plan, their turnouts locked
+	// and released behind the trains tracking follows.
+	interlock := interlocking.New(interlocking.Options{Entities: entities, Plan: trackPlan, Tracking: tracker, Store: st, Logger: logger})
+	entities.SetGuard(interlock.Guard)
+	entities.Subscribe(interlock.HandleEntity)
+	tracker.Subscribe(interlock.HandleTrain)
+	trackPlan.Subscribe(interlock.HandlePlan)
+
 	// The fast clock, broadcast on the bus.
 	fast := clock.New(ctx, clock.Options{Bus: local, Store: st, Logger: logger})
 
@@ -348,7 +357,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	}
 
 	var wg sync.WaitGroup
-	wg.Add(9)
+	wg.Add(10)
 	go func() {
 		defer wg.Done()
 		if err := decoders.Download(ctx); err != nil && ctx.Err() == nil {
@@ -401,6 +410,12 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			logger.Error("train tracking stopped", "error", err)
 		}
 	}()
+	go func() {
+		defer wg.Done()
+		if err := interlock.Run(ctx); err != nil {
+			logger.Error("the interlocking stopped", "error", err)
+		}
+	}()
 
 	// Moving what names one node over to another, for a replaced board.
 	replacer := &replace.Replacer{Nodes: reg, Events: table, Entities: entities, Parts: []replace.Part{entities, trackPlan, engine}}
@@ -409,27 +424,28 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		Listen: cfg.Listen,
 		Logger: logger,
 		API: api.New(api.Deps{
-			Node:        local,
-			Registry:    reg,
-			Monitor:     mon,
-			Bus:         h,
-			Config:      nodeCfg,
-			Entities:    entities,
-			EventNames:  table,
-			Profiles:    profiles,
-			Automations: engine,
-			Trains:      trains,
-			Programmer:  prog,
-			Decoders:    decoders,
-			Firmware:    upgrader,
-			Clock:       fast,
-			Backups:     &backup.Manager{Dir: *dataDir, DB: st, Version: version.Version},
-			TrackPlan:   trackPlan,
-			Tracking:    tracker,
-			Replace:     replacer,
-			Restart:     restart,
-			SerialPorts: transport.SerialPorts,
-			Logger:      logger,
+			Node:         local,
+			Registry:     reg,
+			Monitor:      mon,
+			Bus:          h,
+			Config:       nodeCfg,
+			Entities:     entities,
+			EventNames:   table,
+			Profiles:     profiles,
+			Automations:  engine,
+			Trains:       trains,
+			Programmer:   prog,
+			Decoders:     decoders,
+			Firmware:     upgrader,
+			Clock:        fast,
+			Backups:      &backup.Manager{Dir: *dataDir, DB: st, Version: version.Version},
+			TrackPlan:    trackPlan,
+			Tracking:     tracker,
+			Interlocking: interlock,
+			Replace:      replacer,
+			Restart:      restart,
+			SerialPorts:  transport.SerialPorts,
+			Logger:       logger,
 		}),
 		UI: web.Dist(),
 	})

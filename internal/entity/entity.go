@@ -39,6 +39,14 @@ type InvalidError struct {
 
 func (e *InvalidError) Error() string { return "entity: " + e.Reason }
 
+// LockedError is a command a guard refused: something holds the entity
+// where it is, as a route holds the turnouts it is set through.
+type LockedError struct {
+	Reason string
+}
+
+func (e *LockedError) Error() string { return e.Reason }
+
 // Spec is the blueprint a builder produces: everything about an entity
 // except its live state.
 type Spec struct {

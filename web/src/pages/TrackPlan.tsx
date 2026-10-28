@@ -6,6 +6,7 @@ import {
   type Entity,
   type EntityKind,
   type PlanJunction,
+  type Route,
   type TrackBackground,
   type TrackBlock,
   type TrackPlan,
@@ -17,6 +18,7 @@ import {
 import { type LampColor, Status } from "../components/Lamp";
 import { Empty, Page } from "../components/Page";
 import { TrackDiagram, ZOOM_STEP, blockState, trainsIn } from "../components/TrackDiagram";
+import { routeName, routeStateText, routesFrom, setRoutes } from "../routes";
 import { useBus } from "../store";
 import {
   type Bounds,
@@ -240,8 +242,17 @@ function LayerToggles({ plan, layers: [hidden, setHidden] }: { plan: TrackPlan; 
 
 function Viewer({ state, entities, layers, onEdit }: { state: TrackPlanState; entities: Record<string, Entity>; layers: ReturnType<typeof useHiddenLayers>; onEdit: () => void }) {
   const { plan } = state;
-  const { tracked, trains } = useBus();
+  const { tracked, trains, routes } = useBus();
   const trackedList = useMemo(() => Object.values(tracked), [tracked]);
+  const routeList = useMemo(() => Object.values(routes), [routes]);
+  const names = useMemo(() => namesFor(plan, entities, tracked), [plan, entities, tracked]);
+  const routesSet = useMemo(() => setRoutes(routeList), [routeList]);
+  const locked = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const r of routesSet)
+      for (const leg of r.legs.slice(r.released ?? 0)) if (leg.junction && !m.has(leg.piece)) m.set(leg.piece, `from ${names.block(r.from.block)} to ${names.block(r.to.block)}`);
+    return m;
+  }, [routesSet, names]);
   const background = plan.background?.operating ? plan.background : undefined;
   const index = useMemo(() => indexPlan(plan), [plan]);
   const area = useMemo(() => areaOf(plan, background, 60, { x: 300, y: 150 }), [plan, background]);
@@ -308,15 +319,184 @@ function Viewer({ state, entities, layers, onEdit }: { state: TrackPlanState; en
           onTurnout={toggle}
           tracked={trackedList}
           trains={trains}
+          routes={routesSet}
+          locked={locked}
         />
       </div>
       <p className="trk-legend muted">
         Click a turnout or crossover to throw or close it. Drag the plan to move it; pinch, or scroll with ⌘ or Ctrl held, to zoom. A train is drawn where tracking puts it once it
-        has run from one block into the next, pointed the way it goes, with a dot where its decoder is.
+        has run from one block into the next, pointed the way it goes, with a dot where its decoder is. A route set is lit along the track it holds.
       </p>
+      <RouteTable plan={plan} routes={routeList} set={routesSet} names={names} />
       <TrainTable plan={plan} tracked={trackedList} />
       <BlockTable state={state} entities={entities} tracked={trackedList} trains={trains} />
     </Page>
+  );
+}
+
+/** What the Track page calls blocks, turnouts and trains. */
+interface Names {
+  block: (id: string) => string;
+  turnout: (junction: string) => string;
+  train: (id: string) => string;
+}
+
+function namesFor(plan: TrackPlan, entities: Record<string, Entity>, tracked: Record<string, TrackedTrain>): Names {
+  const blocks = new Map(plan.blocks.map((b) => [b.id, b.name]));
+  const junctions = new Map(plan.junctions.map((j) => [j.id, j]));
+  return {
+    block: (id) => blocks.get(id) ?? id,
+    turnout: (id) => {
+      const j = junctions.get(id);
+      return (j?.switch && entities[j.switch]?.name) || `${j ? kindWord(j.kind) : "junction"} ${id}`;
+    },
+    train: (id) => tracked[id]?.name ?? (id || "A train"),
+  };
+}
+
+const kindWord = (kind: PlanJunction["kind"]) => (kind === "double_crossover" ? "double crossover" : kind);
+
+const routeColor = (state?: Route["state"]): LampColor => (state === "setting" ? "amber" : state === "occupied" ? "red" : "green");
+
+/** The routes set, and setting one: from a block to one it leads to. */
+function RouteTable({ plan, routes, set, names }: { plan: TrackPlan; routes: Route[]; set: Route[]; names: Names }) {
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  // A route a train is on, whose canceling waits for a yes.
+  const [forcing, setForcing] = useState<{ id: string; reason: string }>();
+  if (routes.length === 0) return null;
+  const starts = plan.blocks.filter((b) => routes.some((r) => r.from.block === b.id));
+  const choices = from ? routesFrom(from, routes, names.block) : [];
+  const name = (r: Route) => routeName(r, routes, names.block, names.turnout);
+
+  async function setRoute() {
+    if (!to) return;
+    setBusy(true);
+    setError(undefined);
+    try {
+      await api.setRoute(to);
+      setTo("");
+    } catch (err) {
+      setError(message(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function cancel(r: Route, force = false) {
+    setError(undefined);
+    try {
+      await api.cancelRoute(r.id, force);
+      setForcing(undefined);
+    } catch (err) {
+      if (!force && err instanceof ApiError && err.status === 409) setForcing({ id: r.id, reason: err.message });
+      else setError(`${name(r)}: ${message(err)}`);
+    }
+  }
+
+  return (
+    <>
+      <h2 className="trk-h2">Routes</h2>
+      {set.length > 0 && (
+        <div className="panel">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Route</th>
+                <th>State</th>
+                <th aria-label="Actions" />
+              </tr>
+            </thead>
+            <tbody>
+              {set.map((r) => (
+                <tr key={r.id}>
+                  <td>
+                    <div className="cell-title">{name(r)}</div>
+                    {forcing?.id === r.id && (
+                      <div className="cell-sub">
+                        {forcing.reason} Cancel it anyway? Its turnouts can then be moved under the train.{" "}
+                        <button type="button" className="linklike" onClick={() => void cancel(r, true)}>
+                          Yes, cancel it
+                        </button>{" "}
+                        <button type="button" className="linklike" onClick={() => setForcing(undefined)}>
+                          Keep it
+                        </button>
+                      </div>
+                    )}
+                  </td>
+                  <td>
+                    <Status color={routeColor(r.state)}>{routeStateText(r, names.train, names.turnout)}</Status>
+                  </td>
+                  <td>
+                    <span className="ros-actions">
+                      {r.state === "setting" && (
+                        <button type="button" className="linklike" onClick={() => void api.setRoute(r.id).catch((err: unknown) => setError(`${name(r)}: ${message(err)}`))}>
+                          Set again
+                        </button>
+                      )}
+                      <button type="button" className="linklike" onClick={() => void cancel(r)}>
+                        Cancel
+                      </button>
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <form
+        className="panel trk-route-form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void setRoute();
+        }}
+      >
+        {set.length === 0 && <p className="dim">No routes set.</p>}
+        <div className="ros-actions trk-route-fields">
+          <label className="auto-field">
+            <span>From</span>
+            <select
+              className="input input--select"
+              value={from}
+              onChange={(e) => {
+                setFrom(e.target.value);
+                setTo("");
+              }}
+            >
+              <option value="">Choose a block…</option>
+              {starts.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="auto-field">
+            <span>To</span>
+            <select className="input input--select" value={to} onChange={(e) => setTo(e.target.value)} disabled={!from}>
+              <option value="">{from ? "Choose where it leads…" : "Choose a block first"}</option>
+              {choices.map((r) => (
+                <option key={r.id} value={r.id} disabled={!!r.state}>
+                  {name(r).slice(names.block(r.from.block).length + 3)}
+                  {r.state ? " (set)" : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button className="btn btn--primary" type="submit" disabled={busy || !to}>
+            Set route
+          </button>
+        </div>
+        {error && <p className="field__error">{error}</p>}
+        <p className="thr-note">
+          Setting a route moves its turnouts and locks them, so nothing in Interlock moves them until the train has gone by: the track behind it is released as it goes, and the
+          route once the train is in the block it leads to. A route isn't set over track a train is on or into a block with a train in it, nor over track another route holds.
+        </p>
+      </form>
+    </>
   );
 }
 
@@ -341,7 +521,19 @@ function lengthOf(b: TrackBlock, topology?: TrackPlanState["topology"]): ReactNo
 
 /** The trains tracking follows: where each is and how it goes. */
 function TrainTable({ plan, tracked }: { plan: TrackPlan; tracked: TrackedTrain[] }) {
+  // The train whose forgetting waits for a yes.
+  const [forgetting, setForgetting] = useState<string>();
+  const [error, setError] = useState<string>();
   if (tracked.length === 0) return null;
+  async function forget(t: TrackedTrain) {
+    setError(undefined);
+    try {
+      await api.forgetTracked(t.id);
+      setForgetting(undefined);
+    } catch (err) {
+      setError(`${t.name}: ${message(err)}`);
+    }
+  }
   const names = new Map(plan.blocks.map((b) => [b.id, b.name]));
   const sorted = [...tracked].sort((a, b) => a.name.localeCompare(b.name));
   return (
@@ -355,6 +547,7 @@ function TrainTable({ plan, tracked }: { plan: TrackPlan; tracked: TrackedTrain[
               <th>Where</th>
               <th>Going</th>
               <th className="num">Speed</th>
+              <th aria-label="Actions" />
             </tr>
           </thead>
           <tbody>
@@ -387,6 +580,17 @@ function TrainTable({ plan, tracked }: { plan: TrackPlan; tracked: TrackedTrain[
                         {n}
                       </div>
                     ))}
+                    {forgetting === t.id && (
+                      <div className="cell-sub">
+                        Forget where {t.name} is? Do this when it has been taken off the layout. It is found again when a detector next sees it run into a block.{" "}
+                        <button type="button" className="linklike" onClick={() => void forget(t)}>
+                          Yes, forget it
+                        </button>{" "}
+                        <button type="button" className="linklike" onClick={() => setForgetting(undefined)}>
+                          Keep it
+                        </button>
+                      </div>
+                    )}
                   </td>
                   <td>{where || <span className="faint">not in a block</span>}</td>
                   <td>{t.placed ? t.direction === "reverse" ? "Reverse" : "Forward" : <span className="faint">not known</span>}</td>
@@ -394,11 +598,17 @@ function TrainTable({ plan, tracked }: { plan: TrackPlan; tracked: TrackedTrain[
                     {t.top_speed ? `${Math.round(t.speed)} mm/s` : <span className="faint">not measured</span>}
                     {t.top_speed ? <div className="cell-sub">{Math.round(t.top_speed)} mm/s at full</div> : null}
                   </td>
+                  <td>
+                    <button type="button" className="linklike" onClick={() => setForgetting(t.id)}>
+                      Forget…
+                    </button>
+                  </td>
                 </tr>
               );
             })}
           </tbody>
         </table>
+        {error && <p className="field__error">{error}</p>}
       </div>
     </>
   );
