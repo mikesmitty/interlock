@@ -805,8 +805,17 @@ since its result could change the model.
   matched by their place in the two boards' configuration, and only on
   the same model. It previews before it applies and can forget the old
   node after. Verified against two simulated outposts.
+- Simulated layout (2026-10-27): `cmd/simlayout` runs a command station,
+  outposts and trains on an Interlock's own track plan, so Phase 8 can be
+  built before the layout has more than one detector. Trains are paths
+  along the plan's network, moved at their decoders' speed with momentum
+  and speed curve; detectors see only the decoder, with the outpost's
+  entry and exit timing. Its test layout is a double-track loop with two
+  stations, a siding and a crossover. It runs as a second Interlock on
+  subway, on port 8081.
 - Next: the rest of Phase 7, hardware verification against
-  canbus-outpost and simple-dcc, and Phase 8's train tracking.
+  canbus-outpost and simple-dcc, and Phase 8's train tracking, built
+  against the simulated layout.
 
 ## References
 

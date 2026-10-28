@@ -36,6 +36,9 @@ applied at the next start; the replaced files go to `before-restore-*/`.
 - `cmd/simnode/` — simulated node that joins the hub port; use it to
   develop and test without hardware. As an outpost it moves its servos on
   command and walks a locomotive around its tracks (`-pace`).
+- `cmd/simlayout/` — a simulated layout for an Interlock of its own: a
+  command station, outposts and trains running on that Interlock's track
+  plan (`internal/layoutsim`). Seeds its test layout into an empty plan.
 - `openlcb/` — public OpenLCB protocol packages. **Must not import
   `internal/`**; other Go programs should be able to use them.
   - `openlcb` core types (NodeID, EventID, MTI, Message, SNIP, PIP, errors)
@@ -109,6 +112,13 @@ applied at the next start; the replaced files go to `before-restore-*/`.
   in `<data>/backgrounds/` under a name made from its contents; saves
   delete the ones not named. The browser computes the same geometry in
   `web/src/trackgeom.ts`; keep them in step.
+- `internal/layoutsim` — the simulated layout: trains as paths along
+  the plan's `Network` (`trackplan/network.go`, legs through track and
+  junction routes) moved at their decoders' speed with momentum,
+  turnouts from simulated servos, detectors with RailCom's timing (entry
+  after a few packets, exit a second late, the decoder only), and the
+  test layout. The simulated outposts' node IDs are 0x10 apart because
+  each takes the four after its own for its reporter ranges.
 - `internal/replace` — moves what names one node over to another, for a
   replaced board or a new node ID: entity IDs (`entity.MoveID`), events
   matched by their place in the two boards' configuration (same model

@@ -109,6 +109,47 @@ show; the simulated command station makes train nodes for the Throttle
 page and has a decoder on its programming track. Both take firmware
 upgrades and configuration writes like the real boards.
 
+### A simulated layout
+
+`cmd/simlayout` simulates a whole layout for trying the track plan and
+trains together. Give it an Interlock of its own, with no links to real
+boards:
+
+```bash
+bin/interlock -data ./simdata &
+go run ./cmd/simlayout -api http://127.0.0.1:8080 -state ./simdata/simlayout.json
+```
+
+It joins the hub as a command station and four outposts (node IDs
+0A.00.00.00.01.00, then 0A.00.00.00.01.10, .20, .30 and .40). If the
+plan is empty, it saves its test layout as the plan, and adds its trains
+to the roster. The test layout is a double-track loop with two stations,
+Park Av and Main St. A siding at Main St lets one train pass another, and
+a crossover east of Park Av turns trains back. Its nine blocks and three
+turnouts are already linked to the simulated outposts.
+
+Its trains run along the plan at the speed their decoders are set to,
+with the decoders' momentum (CVs 3 and 4) and speed curve (CVs 2, 5
+and 6). The outposts' servos set the turnouts, taking their throw time to
+move. The detectors see the trains the way canbus-outpost's RailCom
+detectors do:
+
+- They see only the car with the decoder, not the rest of the train.
+- A train entering a block is reported within a few DCC packets.
+- A train leaving is reported a second after the decoder was last seen.
+
+A train stops where the track ends and where it would run into another
+train. At a junction set against it, or still moving, it waits and goes
+on once the junction is set its way. With `-state`, the trains keep their places when
+the simulator restarts. `-trains` takes a YAML list of other trains: each
+has a name, an address, a length, the distance from its leading end to
+its decoder, a top speed in millimeters a second, and the block it
+starts in.
+
+The simulator follows the plan as it is saved, so blocks and turnouts
+drawn in the editor work as soon as they're linked to a simulated
+outpost's tracks and servos.
+
 ## Where to go next
 
 - [Nodes and firmware](./nodes.md): configuring a node and installing

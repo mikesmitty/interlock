@@ -46,6 +46,10 @@ go run ./cmd/simnode -cdi cs -id 0A.00.00.00.00.43   # and a simulated command s
 go run ./cmd/simnode -make-firmware outpost-2.0.0.bin -firmware-version 2.0.0   # an image to install on it
 ```
 
+`go run ./cmd/simlayout` instead simulates a whole layout, trains running
+on the track plan included, for an Interlock of its own (see
+[Getting started](docs/getting-started.md#a-simulated-layout)).
+
 Open http://localhost:8080 to see the node appear, then watch the monitor.
 
 ## Building
