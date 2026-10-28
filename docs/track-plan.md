@@ -13,6 +13,22 @@ block is and which blocks are a station's platform tracks. Interlock
 works this out from the plan every time it is saved, measuring along
 the track.
 
+## Zooming and moving the plan
+
+The plan fits its window at first. To look closer:
+
+- **Zoom** with a pinch on a trackpad or touch screen, or scroll with ⌘
+  (Ctrl elsewhere) held. The plan zooms about the pointer, so point at
+  what you want to see. The − and + buttons above the plan, or the
+  minus and plus keys, zoom about its middle, and **Fit** (or the 0 key)
+  shows all of it again.
+- **Move** the plan by dragging it. While editing, where a drag draws,
+  scroll instead (two fingers on a trackpad), or drag with Space held or
+  with the middle mouse button; on a touch screen, drag with two
+  fingers.
+
+While operating, scrolling over the plan scrolls the page.
+
 ## The plan
 
 The plan is drawn in millimeters on the layout, so curves have their
@@ -40,7 +56,8 @@ A layout planned in RailModeller Pro comes in as planned:
    RailModeller's default; change it if you changed RailModeller's
    setting.
 3. The track is added where it lies in the export, as one step you can
-   undo, and comes in selected, so you can move and turn it into place
+   undo, and comes in selected, with the whole plan in view, so you can
+   move and turn it into place
    (see **Selecting, moving and turning** below). Imports add to what is
    there, so a layout on two decks comes in a deck at a time, each onto
    a layer of the plan (see **Layers** below).

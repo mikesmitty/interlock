@@ -1,6 +1,7 @@
-import { type PointerEvent as ReactPointerEvent, useEffect, useRef } from "react";
+import { type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type RefObject, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { type Entity, type PlanJunction, type PlanTrack, type TrackBackground, type TrackBlock, type TrackPlan, type Vec, backgroundURL } from "../api";
 import { type Bounds, type ElementKind, type ElementRef, KINDS, type PlanIndex, add, arcInfo, corners, junctionCenter, outward, routePath, sameRef, scale, trackMiddle, trackPath, unit } from "../trackgeom";
+import { type View, fitView, panBy, pinchView, toPlan, viewBounds, zoomAt, zoomBy } from "../trackview";
 
 /** How a block's track is drawn: by its detector's state when operating,
  * or by whether it is the block being worked on when editing. */
@@ -10,10 +11,12 @@ interface DiagramProps {
   plan: TrackPlan;
   index: PlanIndex;
   entities: Record<string, Entity>;
-  /** The part of the plan drawn, in millimeters. */
-  area: Bounds;
-  /** Pixels per millimeter. */
-  zoom: number;
+  /** The part of the plan to show until there is a view. */
+  fit: Bounds;
+  /** The part of the plan in view; without one the diagram fits fit to
+   * the canvas and reports that. */
+  view?: View;
+  onView: (view: View) => void;
   editing?: boolean;
   hiddenLayers?: ReadonlySet<string>;
   /** The block being worked on, drawn in brass while editing. */
@@ -34,6 +37,8 @@ interface DiagramProps {
   onPointerDown?: (at: Vec, e: ReactPointerEvent<SVGSVGElement>, target?: ElementRef) => void;
   onPointerMove?: (at: Vec, e: ReactPointerEvent<SVGSVGElement>, target?: ElementRef) => void;
   onPointerUp?: (e: ReactPointerEvent<SVGSVGElement>) => void;
+  /** A press given to onPointerDown became a pinch or was cancelled. */
+  onPointerCancel?: () => void;
   onPointerLeave?: () => void;
   /** Clicking a linked turnout or crossover while operating. */
   onTurnout?: (j: PlanJunction) => void;
@@ -93,11 +98,292 @@ function gridSpacing(grid: number, zoom: number): number {
   return g;
 }
 
+/** How far, in pixels, a press moves before it is a drag. */
+const DRAG_PX = 4;
+/** How far the zoom buttons and keys zoom at a time. */
+export const ZOOM_STEP = 1.5;
+
+/** Safari's pinch on a trackpad, which it sends instead of a wheel. */
+interface GestureEvent extends UIEvent {
+  scale: number;
+  clientX: number;
+  clientY: number;
+}
+
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+
+/** Moving and zooming the plan on its canvas: the canvas's size, the view
+ * shown, and pointer handlers that keep the presses that move the plan
+ * and pass the others on. Scrolling moves the plan while editing (the
+ * page scrolls while operating), pinching or scrolling with ⌘ or Ctrl
+ * zooms, and a drag with the middle button or with Space held moves it,
+ * as does any drag while operating or two fingers on a touch screen. */
+function useNavigation(props: DiagramProps, svgRef: RefObject<SVGSVGElement | null>) {
+  const { fit, view, onView, editing = false } = props;
+  const [size, setSize] = useState<Vec>();
+  const [grab, setGrab] = useState(false);
+  const [panning, setPanning] = useState(false);
+  const shown = view ?? (size && size.x > 0 && size.y > 0 ? fitView(fit, size) : undefined);
+
+  const live = useRef({ view: shown, size, fit, onView, editing });
+  live.current = { view: shown, size, fit, onView, editing };
+  // Changes wait for the next frame, so a burst of wheel events draws once.
+  const pending = useRef<View | undefined>(undefined);
+  const frame = useRef(0);
+  const latest = () => pending.current ?? live.current.view;
+  const move = (next: View) => {
+    pending.current = next;
+    if (frame.current) return;
+    frame.current = requestAnimationFrame(() => {
+      frame.current = 0;
+      const v = pending.current;
+      pending.current = undefined;
+      if (!v) return;
+      live.current.view = v;
+      live.current.onView(v);
+    });
+  };
+  useEffect(() => () => cancelAnimationFrame(frame.current), []);
+
+  const touches = useRef(new Map<number, Vec>());
+  const pinch = useRef<{ view: View; mid: Vec; dist: number } | undefined>(undefined);
+  /** Two fingers are moving the plan; the rest of their touch is theirs. */
+  const gesture = useRef(false);
+  const pan = useRef<{ id: number; start: Vec; last: Vec; moved: boolean } | undefined>(undefined);
+  /** The press passed on, which its release or cancel follows. */
+  const passed = useRef<number | undefined>(undefined);
+  /** A drag moved the plan, so the click ending it does nothing. */
+  const dragged = useRef(false);
+  const over = useRef(false);
+  const space = useRef(false);
+
+  const local = (e: { clientX: number; clientY: number }): Vec => {
+    const r = svgRef.current?.getBoundingClientRect();
+    return r ? { x: e.clientX - r.left, y: e.clientY - r.top } : { x: 0, y: 0 };
+  };
+  const pointAt = (e: { clientX: number; clientY: number }): Vec => {
+    const v = latest();
+    return v && size ? toPlan(v, size, local(e)) : { x: 0, y: 0 };
+  };
+  const pair = () => {
+    const [a, b] = [...touches.current.values()];
+    return { mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, dist: Math.hypot(a.x - b.x, a.y - b.y) };
+  };
+  const startPinch = () => {
+    const v = latest();
+    pinch.current = v && touches.current.size >= 2 ? { view: v, ...pair() } : undefined;
+  };
+
+  useLayoutEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const measure = () => {
+      const r = svg.getBoundingClientRect();
+      setSize((s) => (s?.x === r.width && s?.y === r.height ? s : { x: r.width, y: r.height }));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(svg);
+    return () => observer.disconnect();
+  }, [svgRef]);
+
+  // The fitted view stays put once shown, so the plan doesn't jump as it
+  // grows.
+  useLayoutEffect(() => {
+    if (!view && shown) onView(shown);
+  });
+
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const wheel = (e: WheelEvent) => {
+      const { size, editing } = live.current;
+      const v = latest();
+      const zooming = e.ctrlKey || e.metaKey;
+      if (!v || !size || (!zooming && !editing)) return;
+      e.preventDefault();
+      const px = e.deltaMode === WheelEvent.DOM_DELTA_LINE ? 16 : e.deltaMode === WheelEvent.DOM_DELTA_PAGE ? size.y : 1;
+      if (zooming) move(zoomAt(v, size, Math.exp(-clamp(e.deltaY * px, -50, 50) / 100), local(e)));
+      else move(panBy(v, { x: -e.deltaX * px, y: -e.deltaY * px }));
+    };
+    let scaled = 1;
+    const gestureStart = (e: Event) => {
+      e.preventDefault();
+      scaled = 1;
+    };
+    const gestureChange = (e: Event) => {
+      e.preventDefault();
+      const g = e as GestureEvent;
+      const { size } = live.current;
+      const v = latest();
+      if (v && size && touches.current.size < 2) move(zoomAt(v, size, g.scale / scaled, local(g)));
+      scaled = g.scale;
+    };
+    svg.addEventListener("wheel", wheel, { passive: false });
+    svg.addEventListener("gesturestart", gestureStart);
+    svg.addEventListener("gesturechange", gestureChange);
+    return () => {
+      svg.removeEventListener("wheel", wheel);
+      svg.removeEventListener("gesturestart", gestureStart);
+      svg.removeEventListener("gesturechange", gestureChange);
+    };
+  }, [svgRef]);
+
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target?.closest?.("input, select, textarea")) return;
+      if (e.key === " ") {
+        // Held over the plan, Space is for moving it, and doesn't press
+        // the button that has the focus or scroll the page.
+        const down = e.type === "keydown";
+        if (down ? !over.current : !space.current) return;
+        e.preventDefault();
+        space.current = down;
+        setGrab(down);
+        return;
+      }
+      if (e.type !== "keydown" || e.metaKey || e.ctrlKey || e.altKey) return;
+      const { size, fit } = live.current;
+      const v = latest();
+      if (!v || !size) return;
+      if (e.key === "0") move(fitView(fit, size));
+      else if (e.key === "+" || e.key === "=") move(zoomBy(v, ZOOM_STEP));
+      else if (e.key === "-") move(zoomBy(v, 1 / ZOOM_STEP));
+    };
+    const release = () => {
+      space.current = false;
+      setGrab(false);
+    };
+    window.addEventListener("keydown", key);
+    window.addEventListener("keyup", key);
+    window.addEventListener("blur", release);
+    return () => {
+      window.removeEventListener("keydown", key);
+      window.removeEventListener("keyup", key);
+      window.removeEventListener("blur", release);
+    };
+  }, []);
+
+  const endPan = () => {
+    pan.current = undefined;
+    setPanning(false);
+  };
+
+  function onPointerDown(e: ReactPointerEvent<SVGSVGElement>) {
+    if (e.pointerType === "touch") {
+      touches.current.set(e.pointerId, local(e));
+      if (touches.current.size >= 2) {
+        // A second finger: the two move and zoom the plan, and what the
+        // first began is called off.
+        if (passed.current !== undefined) {
+          passed.current = undefined;
+          props.onPointerCancel?.();
+        }
+        endPan();
+        gesture.current = true;
+        startPinch();
+        return;
+      }
+    }
+    if (gesture.current) return;
+    dragged.current = false;
+    if (e.button === 1 || (e.button === 0 && (space.current || !editing))) {
+      pan.current = { id: e.pointerId, start: { x: e.clientX, y: e.clientY }, last: { x: e.clientX, y: e.clientY }, moved: false };
+      // Operating, the plan takes the pointer only once it moves, so a
+      // click still reaches a turnout.
+      if (editing || e.button === 1) e.currentTarget.setPointerCapture(e.pointerId);
+      return;
+    }
+    passed.current = e.pointerId;
+    props.onPointerDown?.(pointAt(e), e, targetAt(e.clientX, e.clientY));
+  }
+
+  function onPointerMove(e: ReactPointerEvent<SVGSVGElement>) {
+    over.current = true;
+    if (e.pointerType === "touch" && touches.current.has(e.pointerId)) {
+      touches.current.set(e.pointerId, local(e));
+      const p = pinch.current;
+      if (p && size) {
+        const now = pair();
+        move(pinchView(p.view, size, p.mid, now.mid, p.dist > 0 ? now.dist / p.dist : 1));
+        return;
+      }
+    }
+    if (gesture.current) return;
+    const p = pan.current;
+    if (p) {
+      if (p.id !== e.pointerId) return;
+      if (!p.moved && Math.hypot(e.clientX - p.start.x, e.clientY - p.start.y) < DRAG_PX) return;
+      if (!p.moved) {
+        p.moved = true;
+        dragged.current = true;
+        setPanning(true);
+        if (!e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.setPointerCapture(e.pointerId);
+      }
+      const v = latest();
+      if (v) move(panBy(v, { x: e.clientX - p.last.x, y: e.clientY - p.last.y }));
+      p.last = { x: e.clientX, y: e.clientY };
+      return;
+    }
+    props.onPointerMove?.(pointAt(e), e, targetAt(e.clientX, e.clientY));
+  }
+
+  function onPointerEnd(e: ReactPointerEvent<SVGSVGElement>, cancelled: boolean) {
+    if (e.pointerType === "touch") {
+      touches.current.delete(e.pointerId);
+      if (gesture.current) {
+        if (touches.current.size === 0) gesture.current = false;
+        startPinch();
+        return;
+      }
+    }
+    if (pan.current?.id === e.pointerId) {
+      endPan();
+      return;
+    }
+    if (passed.current !== e.pointerId) return;
+    passed.current = undefined;
+    if (cancelled) props.onPointerCancel?.();
+    else props.onPointerUp?.(e);
+  }
+
+  return {
+    size,
+    view: shown,
+    grab: grab || !editing,
+    panning,
+    handlers: {
+      onPointerDown,
+      onPointerMove,
+      onPointerUp: (e: ReactPointerEvent<SVGSVGElement>) => onPointerEnd(e, false),
+      onPointerCancel: (e: ReactPointerEvent<SVGSVGElement>) => onPointerEnd(e, true),
+      onPointerEnter: () => {
+        over.current = true;
+      },
+      onPointerLeave: () => {
+        over.current = false;
+        props.onPointerLeave?.();
+      },
+      // The middle button scrolls the page on its own on some systems.
+      onMouseDown: (e: ReactMouseEvent) => {
+        if (e.button === 1) e.preventDefault();
+      },
+      onClickCapture: (e: ReactMouseEvent) => {
+        if (!dragged.current) return;
+        dragged.current = false;
+        e.stopPropagation();
+      },
+    },
+  };
+}
+
 /** The track diagram: track, platforms and labels to scale, lit by the
  * layout's state. */
 export function TrackDiagram(props: DiagramProps) {
-  const { plan, index, area, zoom, editing = false, entities, activeBlock, hiddenLayers } = props;
+  const { plan, index, editing = false, entities, activeBlock, hiddenLayers } = props;
   const svgRef = useRef<SVGSVGElement>(null);
+  const nav = useNavigation(props, svgRef);
 
   // A firm press on a Mac trackpad opens Look Up, a dictionary, which
   // nobody drawing track wants. Safari lets a page cancel it; Chrome
@@ -110,6 +396,11 @@ export function TrackDiagram(props: DiagramProps) {
     return () => svg.removeEventListener("webkitmouseforcewillbegin", cancel);
   }, [editing]);
 
+  const className = ["trk-diagram", editing && "trk-diagram--editing", nav.grab && "trk-diagram--grab", nav.panning && "trk-diagram--panning"].filter(Boolean).join(" ");
+  // The canvas is measured before anything is drawn on it.
+  if (!nav.view || !nav.size) return <svg ref={svgRef} className={className} role="img" aria-label="Track diagram" />;
+  const { zoom } = nav.view;
+  const area = viewBounds(nav.view, nav.size);
   const px = (n: number) => n / zoom;
   const width = area.maxX - area.minX;
   const height = area.maxY - area.minY;
@@ -118,11 +409,6 @@ export function TrackDiagram(props: DiagramProps) {
   const tracks = plan.tracks.filter((t) => shown(t.layer));
   const junctions = plan.junctions.filter((j) => shown(j.layer));
   const pos = (id: string) => index.points.get(id);
-
-  const pointAt = (e: ReactPointerEvent<SVGSVGElement>): Vec => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    return { x: area.minX + ((e.clientX - rect.left) / rect.width) * width, y: area.minY + ((e.clientY - rect.top) / rect.height) * height };
-  };
 
   // Each block's longest track carries its name tag, or its train's.
   const longest = new Map<string, { track: PlanTrack; length: number }>();
@@ -177,16 +463,11 @@ export function TrackDiagram(props: DiagramProps) {
   return (
     <svg
       ref={svgRef}
-      className={editing ? "trk-diagram trk-diagram--editing" : "trk-diagram"}
-      width={width * zoom}
-      height={height * zoom}
+      className={className}
       viewBox={`${area.minX} ${area.minY} ${width} ${height}`}
       role="img"
       aria-label="Track diagram"
-      onPointerDown={props.onPointerDown && ((e) => props.onPointerDown?.(pointAt(e), e, targetAt(e.clientX, e.clientY)))}
-      onPointerMove={props.onPointerMove && ((e) => props.onPointerMove?.(pointAt(e), e, targetAt(e.clientX, e.clientY)))}
-      onPointerUp={props.onPointerUp}
-      onPointerLeave={props.onPointerLeave}
+      {...nav.handlers}
       // The plan is a drawing surface while editing: a right-click there
       // opens no menu.
       onContextMenu={editing ? (e) => e.preventDefault() : undefined}

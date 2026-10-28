@@ -2,7 +2,7 @@ import { type PointerEvent as ReactPointerEvent, type ReactNode, useEffect, useM
 import { ApiError, api, type Entity, type EntityKind, type PlanJunction, type TrackBackground, type TrackBlock, type TrackPlan, type TrackPlanState, type Vec } from "../api";
 import { type LampColor, Status } from "../components/Lamp";
 import { Empty, Page } from "../components/Page";
-import { TrackDiagram, blockState, trainsIn } from "../components/TrackDiagram";
+import { TrackDiagram, ZOOM_STEP, blockState, trainsIn } from "../components/TrackDiagram";
 import { useBus } from "../store";
 import {
   type Bounds,
@@ -54,6 +54,7 @@ import {
   unit,
   updateElement,
 } from "../trackgeom";
+import { MAX_ZOOM, MIN_ZOOM, type View, zoomBy } from "../trackview";
 
 type Tool = "select" | "track" | "curve" | "piece" | "platform" | "label" | "block" | "erase" | "background";
 
@@ -69,8 +70,6 @@ const TOOLS: { tool: Tool; label: string; key: string; hint: string }[] = [
   { tool: "background", label: "Background", key: "g", hint: "Drag to move the background image. Set its size and how faint it is under Background." },
 ];
 
-/** Pixels per millimeter. */
-const ZOOMS = [0.08, 0.12, 0.18, 0.25, 0.35, 0.5, 0.7, 1, 1.4, 2];
 const HISTORY = 100;
 /** How near, in pixels, the pointer must come to a track end to snap to it. */
 const SNAP_PX = 12;
@@ -101,12 +100,6 @@ function areaOf(plan: Draft, background: TrackBackground | undefined, margin: nu
   area.maxX = Math.max(area.maxX, area.minX + min.x);
   area.maxY = Math.max(area.maxY, area.minY + min.y);
   return area;
-}
-
-/** The zoom that fits an area about 1000 pixels wide. */
-function fitZoom(area: Bounds): number {
-  const fits = ZOOMS.map((z, i) => [z, i] as const).filter(([z]) => (area.maxX - area.minX) * z <= 1000);
-  return fits.length ? fits[fits.length - 1][1] : 0;
 }
 
 function entitiesOf(entities: Record<string, Entity>, kind: EntityKind): Entity[] {
@@ -163,14 +156,18 @@ export function TrackPlanPage() {
   return <Viewer state={trackPlan} entities={entities} layers={layers} onEdit={() => setSession({ base: trackPlan.revision, draft: trackPlan.plan, past: [], future: [] })} />;
 }
 
-function Zoom({ zoom, setZoom }: { zoom: number; setZoom: (z: number) => void }) {
+/** Zooming about the middle of the plan, and Fit to show all of it. */
+function Zoom({ view, setView }: { view?: View; setView: (v: View | undefined) => void }) {
   return (
     <span className="trk-zoom" role="group" aria-label="Zoom">
-      <button type="button" className="btn btn--sm btn--quiet" disabled={zoom === 0} onClick={() => setZoom(zoom - 1)} aria-label="Zoom out">
+      <button type="button" className="btn btn--sm btn--quiet" disabled={!view || view.zoom <= MIN_ZOOM} onClick={() => view && setView(zoomBy(view, 1 / ZOOM_STEP))} aria-label="Zoom out" title="Zoom out (-)">
         −
       </button>
-      <button type="button" className="btn btn--sm btn--quiet" disabled={zoom === ZOOMS.length - 1} onClick={() => setZoom(zoom + 1)} aria-label="Zoom in">
+      <button type="button" className="btn btn--sm btn--quiet" disabled={!view || view.zoom >= MAX_ZOOM} onClick={() => view && setView(zoomBy(view, ZOOM_STEP))} aria-label="Zoom in" title="Zoom in (+)">
         +
+      </button>
+      <button type="button" className="btn btn--sm btn--quiet" onClick={() => setView(undefined)} title="Show the whole plan (0)">
+        Fit
       </button>
     </span>
   );
@@ -198,7 +195,7 @@ function Viewer({ state, entities, layers, onEdit }: { state: TrackPlanState; en
   const background = plan.background?.operating ? plan.background : undefined;
   const index = useMemo(() => indexPlan(plan), [plan]);
   const area = useMemo(() => areaOf(plan, background, 60, { x: 300, y: 150 }), [plan, background]);
-  const [zoom, setZoom] = useState(() => fitZoom(area));
+  const [view, setView] = useState<View>();
   const [error, setError] = useState<string>();
   const lead = "The layout's track plan, lit by what the detectors and turnouts report.";
 
@@ -234,7 +231,7 @@ function Viewer({ state, entities, layers, onEdit }: { state: TrackPlanState; en
       lead={lead}
       actions={
         <>
-          <Zoom zoom={zoom} setZoom={setZoom} />
+          <Zoom view={view} setView={setView} />
           <button type="button" className="btn" onClick={onEdit}>
             Edit track plan
           </button>
@@ -243,10 +240,12 @@ function Viewer({ state, entities, layers, onEdit }: { state: TrackPlanState; en
     >
       {error && <p className="note note--error">{error}</p>}
       <LayerToggles plan={plan} layers={layers} />
-      <div className="panel trk-canvas">
-        <TrackDiagram plan={plan} index={index} entities={entities} area={area} zoom={ZOOMS[zoom]} hiddenLayers={layers[0]} background={background} onTurnout={toggle} />
+      {/* As tall as the plan is at the page's width, up to most of the
+          window. */}
+      <div className="panel trk-canvas" style={{ aspectRatio: `${area.maxX - area.minX} / ${area.maxY - area.minY}` }}>
+        <TrackDiagram plan={plan} index={index} entities={entities} fit={area} view={view} onView={setView} hiddenLayers={layers[0]} background={background} onTurnout={toggle} />
       </div>
-      <p className="trk-legend muted">Click a turnout or crossover to throw or close it.</p>
+      <p className="trk-legend muted">Click a turnout or crossover to throw or close it. Drag the plan to move it; pinch, or scroll with ⌘ or Ctrl held, to zoom.</p>
       <BlockTable state={state} entities={entities} />
     </Page>
   );
@@ -374,16 +373,15 @@ function Editor({
   const [conflict, setConflict] = useState<string>();
   const [saving, setSaving] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
-  const [frozenArea, setFrozenArea] = useState<Bounds>();
+  const [view, setView] = useState<View>();
   const stroke = useRef<Stroke | undefined>(undefined);
   const sessionRef = useRef(session);
   sessionRef.current = session;
 
   const index = useMemo(() => indexPlan(draft), [draft]);
-  // Room to draw past the edges of what is there already.
-  const area = frozenArea ?? areaOf(draft, draft.background, 300, { x: 1500, y: 900 });
-  const [zoom, setZoom] = useState(() => fitZoom(area));
-  const reach = SNAP_PX / ZOOMS[zoom];
+  // What Fit shows: the plan, with room to draw past its edges.
+  const area = areaOf(draft, draft.background, 300, { x: 1500, y: 900 });
+  const reach = SNAP_PX / (view?.zoom ?? 1);
   const grid = draft.grid || 33;
   const shape = PIECES.find((p) => p.id === options.piece) ?? PIECES[0];
 
@@ -493,7 +491,6 @@ function Editor({
       // Dragging what is selected moves it; a drag from anywhere else
       // draws a box, and a click without one selects what it is on.
       e.currentTarget.setPointerCapture(e.pointerId);
-      setFrozenArea(area);
       stroke.current = {
         base: draft,
         start: at,
@@ -535,7 +532,6 @@ function Editor({
       return;
     }
     e.currentTarget.setPointerCapture(e.pointerId);
-    setFrozenArea(area);
     const s: Stroke = { base: draft, start: at, end, moved: false, unassign: e.altKey, plan: draft, done: new Set(), background: draft.background };
     stroke.current = s;
     touch(s, target);
@@ -682,10 +678,20 @@ function Editor({
     setNote(`${Math.round(length)} mm platform`);
   }
 
+  /** Calls off a stroke, as when a second finger turns it into a pinch:
+   * the plan goes back to how it was before it. */
+  function onPointerCancel() {
+    const s = stroke.current;
+    stroke.current = undefined;
+    setPreview({ paths: [] });
+    setBox(undefined);
+    setNote(undefined);
+    if (s && sessionRef.current.draft !== s.base) setSession({ ...sessionRef.current, draft: s.base });
+  }
+
   function onPointerUp() {
     const s = stroke.current;
     stroke.current = undefined;
-    setFrozenArea(undefined);
     setPreview({ paths: [] });
     setBox(undefined);
     if (!s) return;
@@ -803,7 +809,7 @@ function Editor({
             Redo
           </button>
         </span>
-        <Zoom zoom={zoom} setZoom={setZoom} />
+        <Zoom view={view} setView={setView} />
       </div>
       <div className="trk-options">
         {tool === "curve" && (
@@ -870,31 +876,36 @@ function Editor({
       </p>
 
       <div className="trk-editor">
-        <div className="panel trk-canvas">
-          <TrackDiagram
-            plan={draft}
-            index={index}
-            entities={entities}
-            area={area}
-            zoom={ZOOMS[zoom]}
-            editing
-            hiddenLayers={hidden}
-            activeBlock={tool === "block" ? activeBlock : undefined}
-            selected={current}
-            box={box}
-            hover={hover}
-            marks={ends}
-            snapTo={preview.snapTo}
-            preview={preview.paths}
-            background={draft.background}
-            onPointerDown={onPointerDown}
-            onPointerMove={onPointerMove}
-            onPointerUp={onPointerUp}
-            onPointerLeave={() => {
-              setHover(undefined);
-              if (!stroke.current) setPreview({ paths: [] });
-            }}
-          />
+        <div>
+          <div className="panel trk-canvas trk-canvas--work">
+            <TrackDiagram
+              plan={draft}
+              index={index}
+              entities={entities}
+              fit={area}
+              view={view}
+              onView={setView}
+              editing
+              hiddenLayers={hidden}
+              activeBlock={tool === "block" ? activeBlock : undefined}
+              selected={current}
+              box={box}
+              hover={hover}
+              marks={ends}
+              snapTo={preview.snapTo}
+              preview={preview.paths}
+              background={draft.background}
+              onPointerDown={onPointerDown}
+              onPointerMove={onPointerMove}
+              onPointerUp={onPointerUp}
+              onPointerCancel={onPointerCancel}
+              onPointerLeave={() => {
+                setHover(undefined);
+                if (!stroke.current) setPreview({ paths: [] });
+              }}
+            />
+          </div>
+          <p className="trk-legend muted">Scroll, or drag with Space held, to move the plan; pinch, or scroll with ⌘ or Ctrl held, to zoom. 0 fits the whole plan.</p>
         </div>
         <aside className="trk-side">
           {current.length === 1 && (
@@ -926,7 +937,14 @@ function Editor({
           <Stations draft={draft} commit={commit} />
           <Layers draft={draft} commit={commit} layers={layers} onSelect={(id) => select(layerRefs(draft, id))} />
           <Problems ends={ends.length} saved={dirty ? undefined : saved} />
-          <Import draft={draft} commit={commit} onImported={select} />
+          <Import
+            draft={draft}
+            commit={commit}
+            onImported={(refs) => {
+              select(refs);
+              setView(undefined);
+            }}
+          />
           <Background draft={draft} area={area} commit={commit} onAdded={() => setTool("background")} onRemoved={() => tool === "background" && setTool("select")} />
         </aside>
       </div>
