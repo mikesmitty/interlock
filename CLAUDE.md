@@ -14,8 +14,8 @@ make build      # web interface, then Go binary -> bin/interlock
 make go         # Go binary only (embeds whatever is in web/dist)
 make web        # build the web interface into web/dist
 make test       # go test -race ./... and the web tests (node --test)
-make lint       # golangci-lint + TypeScript type check
-make fmt        # golangci-lint fmt (gofmt + goimports)
+make lint       # golangci-lint + TypeScript type check + Prettier check
+make fmt        # golangci-lint fmt (gofmt + goimports) + Prettier on web/
 make run        # run the server from source
 make dev        # Vite dev server on :5173, proxying /api to :8080
 make docs       # build the documentation site (VitePress) from docs/

@@ -8,6 +8,8 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "test": "node --test 'src/**/*.test.ts'"
   },
   "dependencies": {
@@ -21,6 +23,7 @@
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^6.0.0",
+    "prettier": "3.9.10",
     "typescript": "~7.0.0",
     "vite": "^8.0.0"
   }

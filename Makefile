@@ -27,14 +27,15 @@ test:
 	$(GO) test -race ./...
 	cd web && npm test
 
-## lint: run golangci-lint and the TypeScript type check
+## lint: run golangci-lint, the TypeScript type check and Prettier's check
 lint:
 	golangci-lint run
-	@if [ -d web/node_modules ]; then cd web && npm run typecheck; else echo "web/node_modules missing; skipping typecheck (run make web)"; fi
+	@if [ -d web/node_modules ]; then cd web && npm run typecheck && npm run format:check; else echo "web/node_modules missing; skipping typecheck and format check (run make web)"; fi
 
-## fmt: format Go and apply lint fixes
+## fmt: format Go and apply lint fixes, and format the web interface with Prettier
 fmt:
 	golangci-lint fmt
+	@if [ -d web/node_modules ]; then cd web && npm run format; else echo "web/node_modules missing; skipping Prettier (run make web)"; fi
 
 ## run: run the server from source
 run:
