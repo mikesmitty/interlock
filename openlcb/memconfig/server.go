@@ -379,9 +379,26 @@ func (s *Server) spaceInfo(number uint8) SpaceInfo {
 func (s *Server) reply(to openlcb.NodeHandle, payload []byte) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	// A node that joined the bus after the requester never heard it
+	// announce its ID, so it may know only the alias.
+	if to.ID == 0 {
+		if v, ok := s.dg.(aliasVerifier); ok {
+			id, err := v.VerifyAlias(ctx, to.Alias)
+			if err != nil {
+				s.log.Debug("memconfig reply not delivered", "to", to, "error", err)
+				return
+			}
+			to.ID = id
+		}
+	}
 	if _, err := s.dg.SendDatagram(ctx, to.ID, payload); err != nil {
 		s.log.Debug("memconfig reply not delivered", "to", to, "error", err)
 	}
+}
+
+// aliasVerifier finds the node ID behind an alias; *node.Node is one.
+type aliasVerifier interface {
+	VerifyAlias(ctx context.Context, alias openlcb.Alias) (openlcb.NodeID, error)
 }
 
 // String describes the server for logs.
