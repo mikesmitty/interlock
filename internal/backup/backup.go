@@ -54,7 +54,7 @@ const (
 	MaxArchive = 256 << 20
 )
 
-var plainFiles = []string{"interlock.yaml", "entities.yaml", "automations.yaml", "trains.yaml", "trackplan.yaml"}
+var plainFiles = []string{"interlock.yaml", "entities.yaml", "automations.yaml", "trains.yaml", "trackplan.yaml", "trackplan-grid.yaml"}
 
 // fileDirs hold files that are backed up too, with the extensions they
 // may have: the user's profiles, the roster's decoder CV values and the

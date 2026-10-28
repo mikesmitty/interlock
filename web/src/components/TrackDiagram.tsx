@@ -1,59 +1,45 @@
 import { type PointerEvent as ReactPointerEvent, useEffect, useRef } from "react";
-import { type Entity, type TrackBackground, type TrackBlock, type TrackDirection, type TrackTile, backgroundURL } from "../api";
-import { type Bounds, type Cell, classify, step, switches } from "../track";
+import { type Entity, type PlanJunction, type PlanTrack, type TrackBackground, type TrackBlock, type TrackPlan, type Vec, backgroundURL } from "../api";
+import { type Bounds, type ElementKind, type ElementRef, KINDS, type PlanIndex, add, arcInfo, corners, junctionCenter, outward, routePath, sameRef, scale, trackMiddle, trackPath, unit } from "../trackgeom";
 
 /** How a block's track is drawn: by its detector's state when operating,
  * or by whether it is the block being worked on when editing. */
 export type TrackTone = "plain" | "undetected" | "occupied" | "unknown" | "active";
 
 interface DiagramProps {
-  tiles: Iterable<TrackTile>;
-  blocks: TrackBlock[];
+  plan: TrackPlan;
+  index: PlanIndex;
   entities: Record<string, Entity>;
-  /** The cells drawn, inclusive. */
+  /** The part of the plan drawn, in millimeters. */
   area: Bounds;
-  /** Pixels per cell. */
-  cell: number;
+  /** Pixels per millimeter. */
+  zoom: number;
   editing?: boolean;
+  hiddenLayers?: ReadonlySet<string>;
   /** The block being worked on, drawn in brass while editing. */
   activeBlock?: string;
-  selected?: Cell;
-  hover?: Cell;
-  openEnds?: { x: number; y: number; dir: TrackDirection }[];
+  selected?: ElementRef;
+  hover?: ElementRef;
+  /** Points to mark in amber: track ends that need attention. */
+  marks?: Vec[];
+  /** Where a stroke would join existing track. */
+  snapTo?: Vec;
+  /** Track being drawn, as SVG path data. */
+  preview?: string[];
   /** An image drawn under everything else. */
   background?: TrackBackground;
-  /** The pointer's cell, and where in the grid it is to a fraction of a
-   * cell. */
-  onPointerDown?: (cell: Cell, e: ReactPointerEvent<SVGSVGElement>, at: { x: number; y: number }) => void;
-  onPointerMove?: (cell: Cell, e: ReactPointerEvent<SVGSVGElement>, at: { x: number; y: number }) => void;
+  /** The pointer's place on the plan, and what is drawn there. */
+  onPointerDown?: (at: Vec, e: ReactPointerEvent<SVGSVGElement>, target?: ElementRef) => void;
+  onPointerMove?: (at: Vec, e: ReactPointerEvent<SVGSVGElement>, target?: ElementRef) => void;
   onPointerUp?: (e: ReactPointerEvent<SVGSVGElement>) => void;
   onPointerLeave?: () => void;
-  /** Clicking a linked turnout while operating. */
-  onTurnout?: (tile: TrackTile) => void;
+  /** Clicking a linked turnout or crossover while operating. */
+  onTurnout?: (j: PlanJunction) => void;
 }
 
-const TRACK_WIDTH = 0.14;
-
-/** Where an end leaves the cell, relative to its top left corner. */
-function exitPoint(x: number, y: number, d: TrackDirection): [number, number] {
-  const [dx, dy] = step(d);
-  return [x + 0.5 + dx * 0.5, y + 0.5 + dy * 0.5];
-}
-
-function pathData(x: number, y: number, a: TrackDirection, b: TrackDirection): string {
-  const [ax, ay] = exitPoint(x, y, a);
-  const [bx, by] = exitPoint(x, y, b);
-  return `M${ax} ${ay}Q${x + 0.5} ${y + 0.5} ${bx} ${by}`;
-}
-
-function bumperData(x: number, y: number, d: TrackDirection): string {
-  const [ax, ay] = exitPoint(x, y, d);
-  const [dx, dy] = step(d);
-  const len = Math.hypot(dx, dy);
-  const [px, py] = [(-dy / len) * 0.22, (dx / len) * 0.22];
-  const [cx, cy] = [x + 0.5, y + 0.5];
-  return `M${ax} ${ay}L${cx} ${cy}M${cx - px} ${cy - py}L${cx + px} ${cy + py}`;
-}
+/** Line widths in pixels, whatever the zoom. */
+const TRACK = 3;
+const HIT = 14;
 
 const toneColor: Record<TrackTone, string> = {
   plain: "var(--ivory)",
@@ -73,10 +59,10 @@ export function blockState(block: TrackBlock | undefined, entities: Record<strin
   return ent.state;
 }
 
-function toneOf(tile: TrackTile, blocks: Map<string, TrackBlock>, entities: Record<string, Entity>, editing: boolean, activeBlock?: string): TrackTone {
-  if (!tile.block) return "undetected";
-  if (editing) return tile.block === activeBlock ? "active" : "plain";
-  const state = blockState(blocks.get(tile.block), entities);
+function toneOf(blockID: string | undefined, blocks: Map<string, TrackBlock>, entities: Record<string, Entity>, editing: boolean, activeBlock?: string): TrackTone {
+  if (!blockID) return "undetected";
+  if (editing) return blockID === activeBlock ? "active" : "plain";
+  const state = blockState(blocks.get(blockID), entities);
   if (state === "occupied") return "occupied";
   if (state === "clear" || state === "no detector linked") return "plain";
   return "unknown";
@@ -88,15 +74,32 @@ export function trainsIn(block: TrackBlock | undefined, entities: Record<string,
   return rep?.locomotives?.map((l) => l.name) ?? [];
 }
 
-/** The track diagram: track, platforms and labels on the grid, lit by the
+/** What is drawn at a place on the screen, from its data attributes. */
+function targetAt(x: number, y: number): ElementRef | undefined {
+  const el = document.elementFromPoint(x, y)?.closest("[data-id]");
+  const kind = el?.getAttribute("data-kind") as ElementKind | null;
+  const id = el?.getAttribute("data-id");
+  return kind && id ? { kind, id } : undefined;
+}
+
+/** The grid's spacing as drawn: the plan's, or a multiple of it when
+ * lines would crowd closer than 8 pixels. */
+function gridSpacing(grid: number, zoom: number): number {
+  if (!(grid > 0)) return 0;
+  let g = grid;
+  while (g * zoom < 8) g *= 2;
+  return g;
+}
+
+/** The track diagram: track, platforms and labels to scale, lit by the
  * layout's state. */
 export function TrackDiagram(props: DiagramProps) {
-  const { area, cell, editing = false, entities, activeBlock } = props;
+  const { plan, index, area, zoom, editing = false, entities, activeBlock, hiddenLayers } = props;
   const svgRef = useRef<SVGSVGElement>(null);
 
   // A firm press on a Mac trackpad opens Look Up, a dictionary, which
   // nobody drawing track wants. Safari lets a page cancel it; Chrome
-  // doesn't, but finds no word to look up on the grid.
+  // doesn't, but finds no word to look up on the plan.
   useEffect(() => {
     const svg = svgRef.current;
     if (!editing || !svg) return;
@@ -104,63 +107,86 @@ export function TrackDiagram(props: DiagramProps) {
     svg.addEventListener("webkitmouseforcewillbegin", cancel);
     return () => svg.removeEventListener("webkitmouseforcewillbegin", cancel);
   }, [editing]);
-  const tiles = [...props.tiles];
-  const blocks = new Map(props.blocks.map((b) => [b.id, b]));
-  const width = area.maxX - area.minX + 1;
-  const height = area.maxY - area.minY + 1;
 
-  const pointAt = (e: ReactPointerEvent<SVGSVGElement>) => {
+  const px = (n: number) => n / zoom;
+  const width = area.maxX - area.minX;
+  const height = area.maxY - area.minY;
+  const shown = (layer?: string) => !layer || !hiddenLayers?.has(layer);
+  const blocks = new Map(plan.blocks.map((b) => [b.id, b]));
+  const tracks = plan.tracks.filter((t) => shown(t.layer));
+  const junctions = plan.junctions.filter((j) => shown(j.layer));
+  const pos = (id: string) => index.points.get(id);
+
+  const pointAt = (e: ReactPointerEvent<SVGSVGElement>): Vec => {
     const rect = e.currentTarget.getBoundingClientRect();
-    return {
-      x: area.minX + ((e.clientX - rect.left) / rect.width) * width,
-      y: area.minY + ((e.clientY - rect.top) / rect.height) * height,
-    };
+    return { x: area.minX + ((e.clientX - rect.left) / rect.width) * width, y: area.minY + ((e.clientY - rect.top) / rect.height) * height };
   };
-  const cellAt = (at: { x: number; y: number }): Cell => ({ x: Math.floor(at.x), y: Math.floor(at.y) });
 
-  // Each block's middle cell carries its name tag, or its train's.
-  const members = new Map<string, TrackTile[]>();
-  for (const t of tiles) {
-    if (t.track && t.block) members.set(t.block, [...(members.get(t.block) ?? []), t]);
+  // Each block's longest track carries its name tag, or its train's.
+  const longest = new Map<string, { track: PlanTrack; length: number }>();
+  for (const t of tracks) {
+    const a = pos(t.a);
+    const b = pos(t.b);
+    if (!t.block || !a || !b) continue;
+    const length = arcInfo(a, b, t.angle).length;
+    if (length > (longest.get(t.block)?.length ?? -1)) longest.set(t.block, { track: t, length });
   }
-  const tags: { id: string; x: number; y: number; text: string; train: boolean }[] = [];
-  for (const [id, list] of members) {
-    const sorted = [...list].sort((a, b) => a.x - b.x || a.y - b.y);
-    const mid = sorted[Math.floor((sorted.length - 1) / 2)];
+  const tags: { id: string; at: Vec; text: string; train: boolean }[] = [];
+  for (const [id, { track }] of longest) {
+    const at = trackMiddle(index, track);
     const block = blocks.get(id);
-    if (editing) tags.push({ id, x: mid.x, y: mid.y, text: block?.name ?? id, train: false });
+    if (!at) continue;
+    if (editing) tags.push({ id, at, text: block?.name ?? id, train: false });
     else {
       const trains = trainsIn(block, entities);
-      if (trains.length > 0) tags.push({ id, x: mid.x, y: mid.y, text: trains.join(", "), train: true });
+      if (trains.length > 0) tags.push({ id, at, text: trains.join(", "), train: true });
     }
   }
+
+  const bumpers = plan.points.filter((p) => p.bumper && index.at.get(p.id)?.length === 1);
+
+  function pathOf(ref: ElementRef): string | undefined {
+    if (ref.kind === "track") {
+      const t = index.tracks.get(ref.id);
+      const a = t && pos(t.a);
+      const b = t && pos(t.b);
+      return a && b ? trackPath(a, b, t.angle) : undefined;
+    }
+    if (ref.kind === "junction") {
+      const j = index.junctions.get(ref.id);
+      const ends = j?.ends.map(pos);
+      if (!j || !ends || ends.some((e) => !e)) return undefined;
+      const center = junctionCenter(j, ends as Vec[]);
+      return KINDS[j.kind].routes.map((r) => routePath(j.kind, ends as Vec[], center, r)).join("");
+    }
+    if (ref.kind === "platform") {
+      const p = plan.platforms.find((x) => x.id === ref.id);
+      return p && `M${corners(p, p.length, p.width, p.angle)
+        .map((c) => `${c.x} ${c.y}`)
+        .join("L")}Z`;
+    }
+    const l = plan.labels.find((x) => x.id === ref.id);
+    return l && `M${l.x} ${l.y - px(9)}h${px(l.text.length * 7 + 4)}v${px(18)}h${-px(l.text.length * 7 + 4)}Z`;
+  }
+  const selectedPath = props.selected && pathOf(props.selected);
+  const hoverPath = props.hover && !sameRef(props.hover, props.selected) && pathOf(props.hover);
+  const grid = editing ? gridSpacing(plan.grid, zoom) : 0;
 
   return (
     <svg
       ref={svgRef}
       className={editing ? "trk-diagram trk-diagram--editing" : "trk-diagram"}
-      width={width * cell}
-      height={height * cell}
+      width={width * zoom}
+      height={height * zoom}
       viewBox={`${area.minX} ${area.minY} ${width} ${height}`}
       role="img"
       aria-label="Track diagram"
-      onPointerDown={
-        props.onPointerDown &&
-        ((e) => {
-          const at = pointAt(e);
-          props.onPointerDown?.(cellAt(at), e, at);
-        })
-      }
-      onPointerMove={
-        props.onPointerMove &&
-        ((e) => {
-          const at = pointAt(e);
-          props.onPointerMove?.(cellAt(at), e, at);
-        })
-      }
+      onPointerDown={props.onPointerDown && ((e) => props.onPointerDown?.(pointAt(e), e, targetAt(e.clientX, e.clientY)))}
+      onPointerMove={props.onPointerMove && ((e) => props.onPointerMove?.(pointAt(e), e, targetAt(e.clientX, e.clientY)))}
       onPointerUp={props.onPointerUp}
       onPointerLeave={props.onPointerLeave}
-      // The grid is a drawing surface: a right-click there opens no menu.
+      // The plan is a drawing surface while editing: a right-click there
+      // opens no menu.
       onContextMenu={editing ? (e) => e.preventDefault() : undefined}
     >
       {props.background && (
@@ -183,11 +209,11 @@ export function TrackDiagram(props: DiagramProps) {
           style={props.background.invert ? { filter: "invert(1) hue-rotate(180deg)" } : undefined}
         />
       )}
-      {editing && (
+      {grid > 0 && (
         <>
           <defs>
-            <pattern id="trk-grid" width="1" height="1" patternUnits="userSpaceOnUse">
-              <path d="M1 0H0V1" fill="none" stroke="var(--enamel-line)" strokeWidth={0.03} />
+            <pattern id="trk-grid" x={0} y={0} width={grid} height={grid} patternUnits="userSpaceOnUse">
+              <path d={`M${grid} 0H0V${grid}`} fill="none" stroke="var(--enamel-line)" strokeWidth={px(1)} />
             </pattern>
           </defs>
           <rect x={area.minX} y={area.minY} width={width} height={height} fill="url(#trk-grid)" />
@@ -195,111 +221,137 @@ export function TrackDiagram(props: DiagramProps) {
       )}
 
       <g className="trk-platforms">
-        {tiles
-          .filter((t) => t.platform?.length)
-          .map((t) => (
-            <g key={`p${t.x},${t.y}`}>
-              <circle cx={t.x + 0.5} cy={t.y + 0.5} r={0.25} stroke="none" />
-              {t.platform!.map((d) => {
-                const [ex, ey] = exitPoint(t.x, t.y, d);
-                return <line key={d} x1={t.x + 0.5} y1={t.y + 0.5} x2={ex} y2={ey} strokeWidth={0.5} />;
-              })}
-            </g>
+        {plan.platforms
+          .filter((p) => shown(p.layer))
+          .map((p) => (
+            <polygon
+              key={p.id}
+              data-kind="platform"
+              data-id={p.id}
+              points={corners(p, p.length, p.width, p.angle)
+                .map((c) => `${c.x},${c.y}`)
+                .join(" ")}
+            />
           ))}
       </g>
 
-      <g className="trk-track" fill="none" strokeWidth={TRACK_WIDTH} strokeLinecap="round">
-        {tiles
-          .filter((t) => t.track?.length)
-          .map((t) => (
-            <TrackCell key={`t${t.x},${t.y}`} tile={t} tone={toneOf(t, blocks, entities, editing, activeBlock)} entities={entities} blocks={blocks} editing={editing} />
-          ))}
+      {hoverPath && <path className="trk-halo trk-halo--hover" d={hoverPath} vectorEffect="non-scaling-stroke" />}
+      {selectedPath && <path className="trk-halo" d={selectedPath} vectorEffect="non-scaling-stroke" />}
+
+      <g className="trk-track" fill="none" strokeWidth={TRACK} strokeLinecap="round">
+        {tracks.map((t) => {
+          const a = pos(t.a);
+          const b = pos(t.b);
+          if (!a || !b) return null;
+          const block = t.block ? blocks.get(t.block) : undefined;
+          return (
+            <path key={t.id} d={trackPath(a, b, t.angle)} stroke={toneColor[toneOf(t.block, blocks, entities, editing, activeBlock)]} vectorEffect="non-scaling-stroke">
+              <title>{block ? `${block.name}: ${blockState(block, entities)}` : "Not in a block"}</title>
+            </path>
+          );
+        })}
+        {junctions.map((j) => (
+          <Junction key={j.id} j={j} index={index} tone={toneOf(j.block, blocks, entities, editing, activeBlock)} entities={entities} blocks={blocks} editing={editing} />
+        ))}
+        {bumpers.map((p) => {
+          const h = outward(index, index.at.get(p.id)![0]);
+          if (h === undefined) return null;
+          const across = scale(unit(h + 90), px(6));
+          const a = add(p, across);
+          const b = add(p, scale(across, -1));
+          return <path key={p.id} d={`M${a.x} ${a.y}L${b.x} ${b.y}`} stroke="var(--ivory-dim)" vectorEffect="non-scaling-stroke" />;
+        })}
       </g>
 
-      {tiles
-        .filter((t) => t.label)
-        .map((t) => (
-          <text key={`l${t.x},${t.y}`} className="trk-label" x={t.x + 0.1} y={t.y + 0.5} fontSize={0.45} dominantBaseline="central">
-            {t.label}
+      {plan.labels
+        .filter((l) => shown(l.layer))
+        .map((l) => (
+          <text key={l.id} className="trk-label" x={l.x} y={l.y} fontSize={px(13)} dominantBaseline="central">
+            {l.text}
           </text>
         ))}
 
       {tags.map((tag) => {
-        const w = tag.text.length * 0.2 + 0.4;
+        const w = px(tag.text.length * 6.5 + 10);
         return tag.train ? (
-          <g key={`g${tag.x},${tag.y}`} className="trk-train">
-            <rect x={tag.x + 0.5 - w / 2} y={tag.y - 0.45} width={w} height={0.5} rx={0.06} />
-            <text x={tag.x + 0.5} y={tag.y - 0.2} fontSize={0.36} textAnchor="middle" dominantBaseline="central">
+          <g key={`g${tag.id}`} className="trk-train">
+            <rect x={tag.at.x - w / 2} y={tag.at.y - px(22)} width={w} height={px(16)} rx={px(3)} />
+            <text x={tag.at.x} y={tag.at.y - px(14)} fontSize={px(11)} textAnchor="middle" dominantBaseline="central">
               {tag.text}
             </text>
           </g>
         ) : (
-          <text key={`g${tag.x},${tag.y}`} className={tag.id === activeBlock ? "trk-blockname trk-blockname--active" : "trk-blockname"} x={tag.x + 0.5} y={tag.y + 0.95} fontSize={0.3} textAnchor="middle">
+          <text key={`g${tag.id}`} className={tag.id === activeBlock ? "trk-blockname trk-blockname--active" : "trk-blockname"} x={tag.at.x} y={tag.at.y + px(14)} fontSize={px(10)} textAnchor="middle">
             {tag.text}
           </text>
         );
       })}
 
-      {editing &&
-        props.openEnds?.map((o) => {
-          const [ex, ey] = exitPoint(o.x, o.y, o.dir);
-          return <circle key={`o${o.x},${o.y},${o.dir}`} className="trk-open" cx={ex} cy={ey} r={0.13} />;
-        })}
+      {/* What the pointer picks: wide lines along the track, over
+          everything drawn but the marks. */}
+      {(editing || props.onTurnout) && (
+        <g className={editing ? "trk-hits" : "trk-hits trk-hits--switches"} fill="none" stroke="transparent" strokeWidth={HIT}>
+          {editing &&
+            tracks.map((t) => {
+              const a = pos(t.a);
+              const b = pos(t.b);
+              return a && b && <path key={t.id} data-kind="track" data-id={t.id} d={trackPath(a, b, t.angle)} vectorEffect="non-scaling-stroke" />;
+            })}
+          {junctions
+            .filter((j) => editing || (j.switch && entities[j.switch]))
+            .map((j) => {
+              const ends = j.ends.map(pos);
+              if (ends.some((e) => !e)) return null;
+              const center = junctionCenter(j, ends as Vec[]);
+              const ent = j.switch ? entities[j.switch] : undefined;
+              return (
+                <path
+                  key={j.id}
+                  data-kind="junction"
+                  data-id={j.id}
+                  d={KINDS[j.kind].routes.map((r) => routePath(j.kind, ends as Vec[], center, r)).join("")}
+                  vectorEffect="non-scaling-stroke"
+                  onClick={!editing && ent ? () => props.onTurnout?.(j) : undefined}
+                >
+                  {!editing && ent && <title>{`${ent.name}: ${ent.state}. Click to ${ent.state === "closed" ? "throw" : "close"} it.`}</title>}
+                </path>
+              );
+            })}
+          {editing &&
+            plan.labels
+              .filter((l) => shown(l.layer))
+              .map((l) => <rect key={l.id} data-kind="label" data-id={l.id} x={l.x} y={l.y - px(9)} width={px(l.text.length * 7 + 4)} height={px(18)} fill="transparent" stroke="none" />)}
+        </g>
+      )}
 
-      {!editing &&
-        props.onTurnout &&
-        tiles
-          .filter((t) => t.turnout && entities[t.turnout])
-          .map((t) => {
-            const ent = entities[t.turnout!];
-            const next = ent.state === "closed" ? "Throw" : "Close";
-            return (
-              <rect key={`s${t.x},${t.y}`} className="trk-switch" x={t.x} y={t.y} width={1} height={1} onClick={() => props.onTurnout?.(t)}>
-                <title>{`${ent.name}: ${ent.state}. Click to ${next.toLowerCase()} it.`}</title>
-              </rect>
-            );
-          })}
-
-      {props.hover && <rect className="trk-hover" x={props.hover.x + 0.04} y={props.hover.y + 0.04} width={0.92} height={0.92} />}
-      {props.selected && <rect className="trk-selected" x={props.selected.x + 0.03} y={props.selected.y + 0.03} width={0.94} height={0.94} />}
+      {props.marks?.map((m, i) => (
+        <circle key={`m${i}`} className="trk-open" cx={m.x} cy={m.y} r={px(4)} />
+      ))}
+      {props.preview?.map((d, i) => (
+        <path key={`v${i}`} className="trk-preview" d={d} vectorEffect="non-scaling-stroke" />
+      ))}
+      {props.snapTo && <circle className="trk-snap" cx={props.snapTo.x} cy={props.snapTo.y} r={px(7)} vectorEffect="non-scaling-stroke" />}
     </svg>
   );
 }
 
-function TrackCell({ tile, tone, entities, blocks, editing }: { tile: TrackTile; tone: TrackTone; entities: Record<string, Entity>; blocks: Map<string, TrackBlock>; editing: boolean }) {
-  const { x, y } = tile;
-  const shape = classify(tile.track ?? []);
+function Junction({ j, index, tone, entities, blocks, editing }: { j: PlanJunction; index: PlanIndex; tone: TrackTone; entities: Record<string, Entity>; blocks: Map<string, TrackBlock>; editing: boolean }) {
+  const ends = j.ends.map((e) => index.points.get(e));
+  if (ends.some((e) => !e)) return null;
+  const center = junctionCenter(j, ends as Vec[]);
   const color = toneColor[tone];
-  const block = tile.block ? blocks.get(tile.block) : undefined;
+  const block = j.block ? blocks.get(j.block) : undefined;
   const title = block ? `${block.name}: ${blockState(block, entities)}` : "Not in a block";
-  if (!shape) {
-    // Saved plans are checked, so this is only a cell mid-edit.
-    return (
-      <g stroke="var(--lamp-amber)">
-        {(tile.track ?? []).map((d) => {
-          const [ex, ey] = exitPoint(x, y, d);
-          return <line key={d} x1={x + 0.5} y1={y + 0.5} x2={ex} y2={ey} />;
-        })}
-      </g>
-    );
-  }
-  if (shape.piece === "bumper") {
-    return (
-      <path d={bumperData(x, y, tile.track![0])} stroke={color}>
-        <title>{title}</title>
-      </path>
-    );
-  }
   // A turnout shows the way it is set lit and the other way unlit, as on
-  // a panel; until its position is known both ways stay lit.
-  const turnout = switches(shape.piece) && tile.turnout ? entities[tile.turnout] : undefined;
-  const lined = !editing && turnout && (turnout.state === "closed" || turnout.state === "thrown") ? turnout.state : undefined;
-  const paths = [...shape.paths].sort((a, b) => Number(a.position === lined) - Number(b.position === lined));
+  // a panel; until its position is known every way stays lit.
+  const ent = j.switch ? entities[j.switch] : undefined;
+  const lined = !editing && ent && (ent.state === "closed" || ent.state === "thrown") ? ent.state : undefined;
+  const routes = [...KINDS[j.kind].routes].sort((a, b) => Number(a.position === lined) - Number(b.position === lined));
   return (
     <g>
-      <title>{turnout ? `${title}. ${turnout.name}: ${turnout.state}` : title}</title>
-      {paths.map((p) => (
-        <path key={`${p.a}${p.b}`} d={pathData(x, y, p.a, p.b)} stroke={lined && p.position !== lined ? "var(--lamp-off)" : color} />
+      <title>{ent ? `${title}. ${ent.name}: ${ent.state}` : `${title}. ${KINDS[j.kind].name}`}</title>
+      {routes.map((r) => (
+        <path key={`${r.from}-${r.to}`} d={routePath(j.kind, ends as Vec[], center, r)} stroke={lined && r.position && r.position !== lined ? "var(--lamp-off)" : color} vectorEffect="non-scaling-stroke" />
       ))}
     </g>
   );

@@ -24,7 +24,7 @@ const MaxBackgroundSize = 25 << 20
 
 // Background is an image drawn under the plan, such as a plan exported
 // from track planning software, to trace the track over. Its place and
-// size are in cells.
+// size are in millimeters.
 type Background struct {
 	// Image is the file's name in the backgrounds folder.
 	Image  string  `json:"image" yaml:"image"`
@@ -71,10 +71,10 @@ func (b *Background) validate() error {
 		return invalid("the background's rotation must be from 0 up to 360 degrees")
 	}
 	if math.Abs(b.X) > MaxCoord || math.Abs(b.Y) > MaxCoord {
-		return invalid("the background must start within the grid (%d to %d)", -MaxCoord, MaxCoord)
+		return invalid("the background must start within %d mm of the origin", MaxCoord)
 	}
 	if b.Width <= 0 || b.Height <= 0 || b.Width > 2*MaxCoord || b.Height > 2*MaxCoord {
-		return invalid("the background must be between 0 and %d cells wide and high", 2*MaxCoord)
+		return invalid("the background must be between 0 and %d mm wide and high", 2*MaxCoord)
 	}
 	if b.Opacity <= 0 || b.Opacity > 1 {
 		return invalid("the background's opacity must be above 0 and at most 1")

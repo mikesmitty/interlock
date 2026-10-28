@@ -47,7 +47,8 @@
 .trk-train rect {
   fill: var(--enamel-deep);
   stroke: var(--lamp-red);
-  stroke-width: 0.04;
+  stroke-width: 1.5px;
+  vector-effect: non-scaling-stroke;
 }
 
 .trk-train text {
@@ -89,30 +90,6 @@
 
 .trk-open {
   fill: var(--lamp-amber);
-}
-
-.trk-switch {
-  fill: transparent;
-  cursor: pointer;
-}
-
-.trk-switch:hover {
-  stroke: var(--brass);
-  stroke-width: 0.05;
-}
-
-.trk-hover {
-  fill: none;
-  stroke: var(--ivory-faint);
-  stroke-width: 0.04;
-  pointer-events: none;
-}
-
-.trk-selected {
-  fill: color-mix(in srgb, var(--brass) 12%, transparent);
-  stroke: var(--brass);
-  stroke-width: 0.06;
-  pointer-events: none;
 }
 
 .trk-legend {
@@ -248,4 +225,82 @@
   .trk-canvas {
     max-height: 60vh;
   }
+}
+
+/* The editor's marks over the track: what is selected or under the
+   pointer, track being drawn and the end it would join. */
+.trk-halo {
+  fill: none;
+  stroke: color-mix(in srgb, var(--brass) 45%, transparent);
+  stroke-width: 10px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+
+.trk-halo--hover {
+  stroke: color-mix(in srgb, var(--ivory) 18%, transparent);
+}
+
+.trk-preview {
+  fill: none;
+  stroke: var(--brass);
+  stroke-width: 3px;
+  stroke-dasharray: 6 4;
+  pointer-events: none;
+}
+
+.trk-snap {
+  fill: none;
+  stroke: var(--brass);
+  stroke-width: 2px;
+  pointer-events: none;
+}
+
+.trk-hits path {
+  pointer-events: stroke;
+}
+
+.trk-hits--switches path {
+  cursor: pointer;
+}
+
+/* The chosen tool's settings, between the toolbar and the hint. */
+.trk-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  align-items: end;
+  margin-top: 0.5rem;
+  min-height: 2.6rem;
+}
+
+.trk-option {
+  display: grid;
+  gap: 0.2rem;
+  font-family: var(--font-condensed);
+  font-size: var(--fs-sm);
+  color: var(--ivory-dim);
+}
+
+.trk-option .input--num {
+  width: 6rem;
+}
+
+.trk-layers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.25rem;
+  margin-bottom: 0.75rem;
+}
+
+.trk-layer {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 0.5rem;
+  align-items: end;
+}
+
+.trk-layer > input[type="checkbox"] {
+  margin-bottom: 0.6rem;
 }

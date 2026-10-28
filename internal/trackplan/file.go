@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/mikesmitty/interlock/internal/atomicfile"
@@ -19,12 +20,12 @@ import (
 // FileName is the track plan file inside the data directory.
 const FileName = "trackplan.yaml"
 
-const fileHeader = `# The track plan. Each tile is a cell of the grid (x rightward, y
-# downward) holding track, a platform or a label. Track lists the
-# directions it leaves the cell by (n, ne, e, se, s, sw, w, nw); the piece
-# follows from them. A background image is kept in the backgrounds folder.
-# The web interface edits this file; restart Interlock after editing it
-# yourself.
+const fileHeader = `# The track plan, in millimeters (x rightward, y downward). Tracks run
+# between points, straight or turning by an angle in degrees (positive
+# clockwise); junctions are turnouts, wyes, crossings and crossovers,
+# their ends listed in the order the documentation gives. A background
+# image is kept in the backgrounds folder. The web interface edits this
+# file; restart Interlock after editing it yourself.
 `
 
 // ErrConflict means the plan was saved by someone else since the revision
@@ -61,10 +62,20 @@ func OpenFile(path string) (*File, error) {
 	case err != nil:
 		return nil, fmt.Errorf("read %s: %w", path, err)
 	default:
-		dec := yaml.NewDecoder(bytes.NewReader(data))
-		dec.KnownFields(true)
-		if err := dec.Decode(&plan); err != nil && !errors.Is(err, io.EOF) {
+		var converted bool
+		if plan, converted, err = decode(data); err != nil {
 			return nil, fmt.Errorf("parse %s: %w", path, err)
+		}
+		if converted {
+			// The next save replaces the file, so keep the grid plan as
+			// it was.
+			old := filepath.Join(filepath.Dir(path), LegacyFileName)
+			if _, err := os.Stat(old); errors.Is(err, os.ErrNotExist) {
+				if err := atomicfile.Write(old, data, 0o644); err != nil {
+					return nil, fmt.Errorf("keep the grid plan: %w", err)
+				}
+			}
+			slog.Info("converted the track plan from the grid to millimeters", "cell_mm", LegacyCell, "kept", old)
 		}
 	}
 	plan = plan.Normalize()
@@ -147,6 +158,38 @@ func (f *File) Subscribe(fn func(State)) (unsubscribe func()) {
 		defer f.mu.Unlock()
 		delete(f.subs, id)
 	}
+}
+
+// LegacyFileName is where a plan drawn on the old grid of cells is kept
+// when it is converted.
+const LegacyFileName = "trackplan-grid.yaml"
+
+// decode reads a saved plan, converting one drawn on the old grid of
+// cells.
+func decode(data []byte) (plan Plan, converted bool, err error) {
+	var head struct {
+		Tiles yaml.Node `yaml:"tiles"`
+	}
+	if err := yaml.Unmarshal(data, &head); err != nil {
+		return Plan{}, false, err
+	}
+	strict := func(v any) error {
+		dec := yaml.NewDecoder(bytes.NewReader(data))
+		dec.KnownFields(true)
+		if err := dec.Decode(v); err != nil && !errors.Is(err, io.EOF) {
+			return err
+		}
+		return nil
+	}
+	if head.Tiles.Kind != 0 {
+		var old legacyPlan
+		if err := strict(&old); err != nil {
+			return Plan{}, false, err
+		}
+		return old.convert(LegacyCell), true, nil
+	}
+	err = strict(&plan)
+	return plan, false, err
 }
 
 func encode(plan Plan) ([]byte, error) {

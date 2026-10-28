@@ -15,8 +15,8 @@ func TestFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	empty := f.Get()
-	if empty.Revision == "" || len(empty.Plan.Tiles) != 0 || empty.Plan.Tiles == nil {
-		t.Fatalf("a new plan = %+v, want an empty one with a revision and non-nil lists", empty)
+	if empty.Revision == "" || !empty.Plan.Empty() || empty.Plan.Tracks == nil || empty.Plan.Grid != DefaultGrid {
+		t.Fatalf("a new plan = %+v, want an empty one with a revision, non-nil lists and the default grid", empty)
 	}
 
 	var heard []State
@@ -26,7 +26,6 @@ func TestFile(t *testing.T) {
 	plan := station()
 	plan.Stations = []Station{{ID: "times-sq", Name: " Times Sq "}}
 	plan.Blocks[0].Station = "times-sq"
-	plan.Tiles[3].Track = []Direction{East, West} // saved clockwise from north
 	saved, err := f.Put(plan, empty.Revision)
 	if err != nil {
 		t.Fatal(err)
@@ -48,7 +47,7 @@ func TestFile(t *testing.T) {
 		t.Errorf("a save from an old revision = %v, want ErrConflict", err)
 	}
 	bad := station()
-	bad.Tiles[0].Block = "nope"
+	bad.Tracks[0].Block = "nope"
 	var invalidErr *InvalidError
 	if _, err := f.Put(bad, saved.Revision); !errors.As(err, &invalidErr) {
 		t.Errorf("an invalid plan = %v, want an *InvalidError", err)
@@ -59,7 +58,14 @@ func TestFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(body)
-	for _, want := range []string{"# The track plan.", `- {x: 3, "y": 0, track: [e, w]}`, `- {x: 4, "y": 0, track: [e, se, w], turnout: turnout.t1}`, "station: times-sq"} {
+	for _, want := range []string{
+		"# The track plan, in millimeters",
+		`- {id: u1, x: 300, "y": 0}`,
+		`- {id: t1, a: u0, b: u1, block: a1}`,
+		`- {id: x1, kind: crossover, ends: [u1, u2, l1, l2], switch: turnout.t1}`,
+		"station: times-sq",
+		"grid: 33",
+	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("the file lacks %q:\n%s", want, text)
 		}
@@ -69,8 +75,11 @@ func TestFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := again.Get(); got.Revision != saved.Revision || len(got.Plan.Tiles) != len(plan.Tiles) {
-		t.Errorf("reopened: revision %s with %d tiles, want %s with %d", got.Revision, len(got.Plan.Tiles), saved.Revision, len(plan.Tiles))
+	if got := again.Get(); got.Revision != saved.Revision || len(got.Plan.Tracks) != len(plan.Tracks) {
+		t.Errorf("reopened: revision %s with %d tracks, want %s with %d", got.Revision, len(got.Plan.Tracks), saved.Revision, len(plan.Tracks))
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(path), LegacyFileName)); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("a plan in millimeters left a grid copy behind: %v", err)
 	}
 }
 
@@ -78,9 +87,9 @@ func TestOpenFileRejects(t *testing.T) {
 	tests := []struct {
 		name, body, want string
 	}{
-		{"unknown field", "tiles:\n  - {x: 0, \"y\": 0, track: [e], shade: red}\n", "shade"},
-		{"bad direction", "tiles:\n  - {x: 0, \"y\": 0, track: [east]}\n", "not a direction"},
-		{"bad piece", "tiles:\n  - {x: 0, \"y\": 0, track: [e, ne]}\n", "turn as sharply"},
+		{"unknown field", "tracks:\n  - {id: t1, a: p1, b: p2, shade: red}\n", "shade"},
+		{"missing point", "tracks:\n  - {id: t1, a: p1, b: p2}\n", "isn't in the plan"},
+		{"bad old grid", "tiles:\n  - {x: 0, \"y\": 0, track: [east]}\n", "not a direction"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

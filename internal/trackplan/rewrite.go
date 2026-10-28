@@ -16,13 +16,17 @@ const area = "Track plan"
 func (f *File) Rewrite(rw refs.Rewrite, apply bool) ([]refs.Change, error) {
 	st := f.Get()
 	plan := st.Plan
-	plan.Tiles = slices.Clone(plan.Tiles)
+	plan.Junctions = slices.Clone(plan.Junctions)
 	plan.Blocks = slices.Clone(plan.Blocks)
 	var changes []refs.Change
-	for i := range plan.Tiles {
-		t := &plan.Tiles[i]
-		if c, ok := rw.RenameEntity(&t.Turnout); ok {
-			changes = append(changes, c.In(area, fmt.Sprintf("Turnout at %d, %d", t.X, t.Y), "switch machine"))
+	points := make(map[string]Point, len(plan.Points))
+	for _, pt := range plan.Points {
+		points[pt.ID] = pt
+	}
+	for i := range plan.Junctions {
+		j := &plan.Junctions[i]
+		if c, ok := rw.RenameEntity(&j.Switch); ok {
+			changes = append(changes, c.In(area, j.describe(points), "switch machine"))
 		}
 	}
 	for i := range plan.Blocks {

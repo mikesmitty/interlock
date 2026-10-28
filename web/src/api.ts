@@ -253,23 +253,69 @@ export interface Profile {
   entities: { kind: EntityKind; group?: string }[];
 }
 
-// The track plan: track drawn on a grid of cells, the blocks and stations
-// it is divided into, and the topology the server works out from it.
+// The track plan: the layout's track to scale in millimeters (x
+// rightward, y downward), the blocks and stations it is divided into, and
+// the topology the server works out from it.
 
-export type TrackDirection = "n" | "ne" | "e" | "se" | "s" | "sw" | "w" | "nw";
-
-export interface TrackTile {
+export interface Vec {
   x: number;
   y: number;
-  /** The directions track leaves the cell by. */
-  track?: TrackDirection[];
-  /** The directions a platform continues into neighboring cells. */
-  platform?: TrackDirection[];
-  label?: string;
-  /** The turnout entity that sets a turnout or wye. */
-  turnout?: string;
-  /** The ID of the block the track is part of. */
+}
+
+/** Where track ends or two pieces of track meet. */
+export interface PlanPoint extends Vec {
+  id: string;
+  /** The end of a track that ends in a buffer stop. */
+  bumper?: boolean;
+}
+
+/** Plain track from point a to point b. */
+export interface PlanTrack {
+  id: string;
+  a: string;
+  b: string;
+  /** How far it turns from a to b in degrees, positive clockwise; 0 or absent for straight. */
+  angle?: number;
   block?: string;
+  layer?: string;
+}
+
+export type JunctionKind = "turnout" | "wye" | "crossing" | "crossover" | "double_crossover";
+
+/** A turnout, wye, crossing or crossover. */
+export interface PlanJunction {
+  id: string;
+  kind: JunctionKind;
+  /** turnout and wye: points, closed, thrown; the others: a1, a2, b1, b2 with a1 beside b1. */
+  ends: string[];
+  /** Where a turnout's or wye's routes part. */
+  at?: Vec;
+  /** The turnout entity that sets it. */
+  switch?: string;
+  block?: string;
+  layer?: string;
+}
+
+/** A rectangle beside or between tracks, x and y its middle. */
+export interface PlanPlatform extends Vec {
+  id: string;
+  length: number;
+  width: number;
+  /** The heading of its length in degrees, clockwise from rightward. */
+  angle?: number;
+  layer?: string;
+}
+
+export interface PlanLabel extends Vec {
+  id: string;
+  text: string;
+  layer?: string;
+}
+
+/** A part of the plan shown or hidden on its own, such as a deck. */
+export interface PlanLayer {
+  id: string;
+  name: string;
 }
 
 export interface TrackBlock {
@@ -288,7 +334,7 @@ export interface TrackStation {
   name: string;
 }
 
-/** An image drawn under the plan to trace over; place and size in cells. */
+/** An image drawn under the plan to trace over; place and size in millimeters. */
 export interface TrackBackground {
   image: string;
   x: number;
@@ -305,40 +351,55 @@ export interface TrackBackground {
 }
 
 export interface TrackPlan {
-  tiles: TrackTile[];
+  points: PlanPoint[];
+  tracks: PlanTrack[];
+  junctions: PlanJunction[];
+  platforms: PlanPlatform[];
+  labels: PlanLabel[];
+  layers: PlanLayer[];
   blocks: TrackBlock[];
   stations: TrackStation[];
+  /** The editor's snap spacing in millimeters. */
+  grid: number;
   background?: TrackBackground;
 }
 
 export const backgroundURL = (image: string) => `/api/v1/trackplan/backgrounds/${encodeURIComponent(image)}`;
 
+/** One end of a block: the point where track leaves it, and which way. */
 export interface TrackPort {
   block: string;
-  x: number;
-  y: number;
-  dir: TrackDirection;
+  point: string;
+  /** Degrees clockwise from rightward. */
+  heading: number;
 }
 
 export interface TrackLink {
   from: TrackPort;
   to: TrackPort;
-  turnouts?: { x: number; y: number; turnout?: string; position: "closed" | "thrown" }[];
-  cells: number;
+  turnouts?: { junction: string; switch?: string; position: "closed" | "thrown" }[];
+  /** Millimeters of track outside any block between them. */
+  length: number;
 }
 
 export interface TrackProblem {
-  kind: "open_end" | "misaligned" | "block_empty" | "block_split";
-  cell?: { x: number; y: number };
-  dir?: TrackDirection;
+  kind: "open_end" | "kink" | "block_empty" | "block_split";
+  point?: string;
   block?: string;
   message: string;
 }
 
 export interface TrackTopology {
   problems: TrackProblem[];
-  blocks: { id: string; cells: number; ends: TrackPort[] }[];
+  /** length: millimeters of track, turnouts taken the closed way. */
+  blocks: { id: string; length: number; ends: TrackPort[] }[];
   links: TrackLink[];
+}
+
+/** Track read from another program's file, to add to the plan. */
+export interface TrackImport {
+  plan: TrackPlan;
+  notes?: string[];
 }
 
 export interface TrackPlanState {
@@ -843,9 +904,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return data as T;
 }
 
-/** Sends a file as a multipart form; the server answers with JSON. */
-async function upload<T>(path: string, field: string, file: File): Promise<T> {
+/** Sends a file as a multipart form, with any other fields; the server answers with JSON. */
+async function upload<T>(path: string, field: string, file: File, fields: Record<string, string> = {}): Promise<T> {
   const form = new FormData();
+  for (const [k, v] of Object.entries(fields)) form.append(k, v);
   form.append(field, file, file.name);
   return sendForm<T>(path, form);
 }
@@ -969,6 +1031,7 @@ export const api = {
   saveTrackPlan: (plan: TrackPlan, revision: string) =>
     request<TrackPlanState>("/api/v1/trackplan", { method: "PUT", body: JSON.stringify({ plan, revision }) }),
   uploadBackground: (file: File) => upload<{ image: string }>("/api/v1/trackplan/backgrounds", "file", file),
+  importTrackPlan: (file: File, scale: number) => upload<TrackImport>("/api/v1/trackplan/import", "file", file, { scale: String(scale) }),
   eventNames: (node?: string) =>
     request<{ events: EventName[] }>(
       node ? `/api/v1/event-names?node=${encodeURIComponent(node)}` : "/api/v1/event-names",

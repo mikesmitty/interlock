@@ -208,6 +208,7 @@ func New(deps Deps) *API {
 	}
 	a.mux.HandleFunc("GET /api/v1/trackplan", a.getTrackPlan)
 	a.mux.HandleFunc("PUT /api/v1/trackplan", a.putTrackPlan)
+	a.mux.HandleFunc("POST /api/v1/trackplan/import", a.importTrackPlan)
 	a.mux.HandleFunc("POST /api/v1/trackplan/backgrounds", a.uploadBackground)
 	a.mux.HandleFunc("GET /api/v1/trackplan/backgrounds/{name}", a.getBackground)
 	a.mux.HandleFunc("POST /api/v1/restart", a.restart)

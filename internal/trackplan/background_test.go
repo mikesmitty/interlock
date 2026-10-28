@@ -117,7 +117,7 @@ func TestValidateBackground(t *testing.T) {
 		{"turned", func(b *Background) { b.Rotation = 92.5 }, ""},
 		{"turned backward", func(b *Background) { b.Rotation = -90 }, "rotation"},
 		{"turned all the way", func(b *Background) { b.Rotation = 360 }, "rotation"},
-		{"far away", func(b *Background) { b.Y = MaxCoord + 1 }, "within the grid"},
+		{"far away", func(b *Background) { b.Y = MaxCoord + 1 }, "within"},
 		{"invisible", func(b *Background) { b.Opacity = 0 }, "opacity"},
 		{"too opaque", func(b *Background) { b.Opacity = 1.5 }, "opacity"},
 	}
@@ -125,7 +125,7 @@ func TestValidateBackground(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			b := good
 			tt.change(&b)
-			err := Plan{Background: &b}.Validate()
+			err := Plan{Grid: DefaultGrid, Background: &b}.Validate()
 			switch {
 			case tt.want == "" && err != nil:
 				t.Errorf("Validate: %v", err)

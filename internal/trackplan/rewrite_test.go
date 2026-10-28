@@ -14,7 +14,7 @@ func TestRewrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	plan := station()
-	plan.Tiles[4].Turnout = "turnout.0aff9024a634.servo_1"
+	plan.Junctions[0].Switch = "turnout.0aff9024a634.servo_1"
 	plan.Blocks[0].Occupancy = "block.0aff9024a634.track_1"
 	plan.Blocks[0].Reporter = "reporter.0aff9024a634.track_1"
 	plan.Blocks[1].Occupancy = "block.0a737c38ad26.track_1"
@@ -38,7 +38,7 @@ func TestRewrite(t *testing.T) {
 		got = append(got, c.Item+": "+c.Field+" → "+c.To)
 	}
 	want := []string{
-		"Turnout at 4, 0: switch machine → turnout.050101012200.servo_1",
+		"Crossover at 300, 0 mm: switch machine → turnout.050101012200.servo_1",
 		"Block A1: detector → block.050101012200.track_1",
 		"Block A1: reporter → reporter.050101012200.track_1",
 	}
@@ -53,10 +53,10 @@ func TestRewrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	after := f.Get().Plan
-	if after.Tiles[4].Turnout != "turnout.050101012200.servo_1" || after.Blocks[0].Reporter != "reporter.050101012200.track_1" || after.Blocks[1].Occupancy != "block.0a737c38ad26.track_1" {
-		t.Errorf("saved plan: turnout %q, A1 reporter %q, A2 detector %q", after.Tiles[4].Turnout, after.Blocks[0].Reporter, after.Blocks[1].Occupancy)
+	if after.Junctions[0].Switch != "turnout.050101012200.servo_1" || after.Blocks[0].Reporter != "reporter.050101012200.track_1" || after.Blocks[1].Occupancy != "block.0a737c38ad26.track_1" {
+		t.Errorf("saved plan: switch %q, A1 reporter %q, A2 detector %q", after.Junctions[0].Switch, after.Blocks[0].Reporter, after.Blocks[1].Occupancy)
 	}
-	if saved.Plan.Tiles[4].Turnout != "turnout.0aff9024a634.servo_1" {
+	if saved.Plan.Junctions[0].Switch != "turnout.0aff9024a634.servo_1" {
 		t.Error("rewriting changed the plan held by an earlier state")
 	}
 }

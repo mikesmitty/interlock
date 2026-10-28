@@ -246,39 +246,56 @@ the WebSocket stream and the automation engine both subscribe to it.
 
 ### Track plan
 
-The track diagram is the layout's model as well as its picture: the
-scheduling work in Phase 8 routes over it. It is drawn on a grid. Each
-cell holds track, a piece of platform or a label. A cell's track is the
-list of directions it leaves the cell by: the middles of the four sides
-and the four corners. The piece follows from that list, so the file
-needs no piece names or rotations. One direction is the end of a
-track. Two are a straight or a 45 or 90 degree curve. Three are a
-turnout (a straight with a 45 degree branch) or a wye. Four are two
-straights crossing. Anything else is refused. Track joins a neighboring
-cell when both lead into each other.
+The track plan is the layout's model as well as its picture: the
+scheduling work in Phase 8 routes over it and stops trains by it. It is
+drawn to scale in millimeters, so lengths along the track come from the
+drawing. A schematic grid was tried first and dropped: at Kato Unitrack
+N spacing (33 mm between tracks) an R216 curve spans seven cells, and
+45 degree steps can't draw it or keep concentric tracks apart.
 
-Blocks are named stretches of track. Track cells name their block, and
-the block links its block entity (occupied or clear) and its reporter
-entity (which locomotives). It also carries its length in millimeters,
-since the drawing is schematic, and its station, if it is a platform
-track. Turnout cells link their turnout entity: closed is the straight
-way, thrown the branch.
+Track runs between points. Plain track joins two points, straight or
+turning by an angle; its radius follows from the angle and the distance
+between its points. A point joins at most two pieces end to end, so
+connectivity is explicit rather than found by matching positions. Where
+track branches or crosses there is a junction: a turnout or wye (points,
+closed and thrown ends, and where the routes part), a crossing, or a
+crossover between two tracks side by side, single or double. Each kind
+has fixed routes between its ends and the positions they need. Turnouts
+and crossovers link their turnout entity.
 
-The topology is worked out on every save. It finds track that leads
-nowhere. It finds each block's ends, the places where track leaves the
-block. For each pair of block ends joined by track outside any block, it
-finds the link between them and the turnout positions it needs. A way
-that would need one turnout in two positions is no link. The browser
-applies the same piece rules while drawing, so the editor shows turnouts
-and crossings forming as track is dragged across a line.
+Blocks are named sets of track and junctions. The block links its block
+entity (occupied or clear) and its reporter entity (which locomotives),
+optionally a measured length that overrides the drawn one, and its
+station, if it is a platform track. Platforms are rectangles and labels
+are text; layers divide a plan shown a part at a time, such as the decks
+of a layout on two levels.
+
+The topology is worked out on every save. It finds track ends without a
+buffer stop and joints where track changes direction. It finds each
+block's ends, the points where track leaves the block, and the block's
+length along its track. For each pair of block ends joined by track
+outside any block, it finds the link between them, its length and the
+positions it needs. A way that would need one junction in two positions
+is no link. The browser computes the same geometry (web/src/trackgeom.ts)
+to draw, snap and place track.
 
 Saves name the revision they were based on, so two editors can't
 silently overwrite each other.
 
-A plan from track planning software can be traced. Its exported image
+A layout planned in RailModeller Pro comes in through its JMRI Layout
+Editor export: track segments (straight, or arcs drawn clockwise from
+their first end unless flipped), end bumpers, turnouts, wyes, crossovers
+and level crossings, a centimeter to the panel unit. Ends that lie on
+the same spot without being connected are joined. The import changes
+nothing on the server; the editor adds what it returns to the plan. The
+editor offers Kato's turnouts and crossovers to place at a track end,
+joining ends already there, for what the export leaves out.
+
+A plan from other planning software can be traced. Its exported image
 is stored in `<data>/backgrounds/` under a name made from its contents.
-The plan places it in cells, turned about its center by any angle, with
-an opacity and an option to swap light and dark. Saving deletes the images the plan doesn't name.
+The plan places it in millimeters, turned about its center by any angle,
+with an opacity and an option to swap light and dark. Saving deletes the
+images the plan doesn't name.
 
 ### Automations
 
@@ -309,7 +326,7 @@ document shape. Scripting beyond that (Lua) is a later option.
 **Decision:** declarative configuration lives in a config directory as YAML
 files edited by both the UI and the user, so it diffs and backs up well:
 `interlock.yaml` (server, node ID, links), `automations.yaml`, `entities.yaml`
-(manual entities and overrides), `trackplan.yaml` (the track diagram),
+(manual entities and overrides), `trackplan.yaml` (the track plan),
 `profiles/*.yaml` (user profiles).
 Runtime data lives in a sqlite database in the same directory: node cache
 (SNIP, PIP, CDI XML, event tables), event log, entity history, automation
@@ -518,8 +535,8 @@ schedule and stop at stations precisely, on a layout modeled on the NYC
 subway with Metro-North traffic to come. It builds up in layers, each
 useful on its own:
 
-1. **Track plan.** The diagram and its topology (above), drawn first so
-   that drawing the layout shapes the model the rest uses.
+1. **Track plan.** The plan to scale and its topology (above), drawn
+   first so that drawing the layout shapes the model the rest uses.
 2. **Train tracking.** Which train is in which block, which end leads,
    and where its tail is.
 3. **Interlocking.** Routes that set and lock their turnouts and are
@@ -770,6 +787,16 @@ since its result could change the model.
   reporter, stations, undo, and a guarded save. A background image
   exported from planning software can be put under the grid to trace
   over. Verified against the simulator.
+- Track plan to scale (2026-10-27): the grid of cells replaced by
+  track in millimeters between points, with straights, curves of any
+  radius and junctions (turnouts, wyes, crossings, single and double
+  crossovers); lengths measured along the track for blocks and links;
+  layers; import of RailModeller Pro's JMRI export; drawing tools that
+  carry track on from its ends, curve it at a chosen radius and place
+  Kato's turnouts and crossovers. Grid plans are converted at 33 mm a
+  cell and kept as `trackplan-grid.yaml`. Verified with the user's
+  RailModeller export (149 pieces of track and 6 turnouts, no kinks)
+  and the editor in the browser.
 - Replacing a node (2026-10-27): `internal/replace` moves what names
   one node over to another, for a failed board swapped for a new one or
   a board given a new node ID: the track plan's links, automations (their

@@ -94,17 +94,21 @@ applied at the next start; the replaced files go to `before-restore-*/`.
   button), the manager that builds entities from profiles over the event
   table, follows Event Reports and Identified replies, sends commands,
   and keeps overrides and hand-built entities in `<data>/entities.yaml`.
-- `internal/trackplan` — the track plan in `<data>/trackplan.yaml`: tiles
-  on a grid holding track (the directions it leaves the cell by; the
-  piece follows from them), platform or a label; blocks linked to their
-  block and reporter entities, with lengths and stations. `Topology`
-  works out open ends, each block's ends and the links between block
-  ends with the turnout positions on the way, which is what scheduling
-  will route over. Saves name the revision they were based on. A
-  background image to trace over is kept in `<data>/backgrounds/` under
-  a name made from its contents; saves delete the ones not named. The
-  browser applies the same piece rules in `web/src/track.ts`; keep them
-  in step.
+- `internal/trackplan` — the track plan in `<data>/trackplan.yaml`, to
+  scale in millimeters: points, track between two of them (straight or
+  turning by an angle), junctions (turnout, wye, crossing, crossover,
+  double crossover; their ends in a fixed order and fixed routes),
+  platforms, labels, layers, blocks linked to their block and reporter
+  entities, stations. `Topology` works out open ends, kinks, each
+  block's ends and length, and the links between block ends with their
+  length and the junction positions on the way, which is what
+  scheduling will route over. `ImportJMRI` reads a JMRI Layout Editor
+  panel as RailModeller Pro exports one. Plans on the old grid of cells
+  (`piece.go`, `legacy.go`) are converted on open. Saves name the
+  revision they were based on. A background image to trace over is kept
+  in `<data>/backgrounds/` under a name made from its contents; saves
+  delete the ones not named. The browser computes the same geometry in
+  `web/src/trackgeom.ts`; keep them in step.
 - `internal/replace` — moves what names one node over to another, for a
   replaced board or a new node ID: entity IDs (`entity.MoveID`), events
   matched by their place in the two boards' configuration (same model

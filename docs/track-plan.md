@@ -1,112 +1,109 @@
 # The track plan
 
-The Track page shows the layout's track as a diagram, lit by what the
-layout reports, like a panel in an interlocking tower. Blocks a train is
-in light red, with the locomotive's name from RailCom beside them, and
-each turnout shows the way it is set. Click a turnout to throw or close
-it. Below the diagram, a table lists every block with its state in
+The Track page shows the layout's track to scale, lit by what the layout
+reports, like a panel in an interlocking tower. Blocks a train is in
+light red, with the locomotive's name from RailCom beside them, and each
+turnout and crossover shows the way it is set. Click one to throw or
+close it. Below the plan, a table lists every block with its state in
 words, the train in it and its length.
 
 The plan is also the model of the layout that later work builds on:
 which blocks connect to which, through which turnouts, how long each
 block is and which blocks are a station's platform tracks. Interlock
-works this out from the drawing every time the plan is saved.
+works this out from the plan every time it is saved, measuring along
+the track.
+
+## The plan
+
+The plan is drawn in millimeters on the layout, so curves have their
+real radius and parallel tracks their real spacing. Track runs between
+points:
+
+- **Straights and curves** each join two points. A curve turns by an
+  angle, which with the distance between its ends gives its radius.
+- **Junctions** are where track branches or crosses: turnouts, wyes,
+  crossings, and crossovers between two tracks side by side, single or
+  double. A turnout's closed route is the straight way, thrown the
+  branch.
+- A point joins at most two pieces of track end to end. Track that ends
+  without a buffer stop is marked in amber while editing.
+
+## Bringing in a plan from RailModeller Pro
+
+A layout planned in RailModeller Pro comes in as planned:
+
+1. In RailModeller Pro, export the layout for JMRI's PanelPro. With its
+   default settings a centimeter on the layout is one unit of the
+   exported panel. Only the layers you can see are exported.
+2. On the Track page, choose **Edit track plan**, then under **Import**
+   choose the exported file. **Millimeters to a panel unit** is 10 for
+   RailModeller's default; change it if you changed RailModeller's
+   setting.
+3. The track is added where it lies in the export, as one step you can
+   undo. Imports add to what is there, so a layout on two decks comes in
+   a deck at a time, each onto a layer of the plan (see **Layers**
+   below).
+
+RailModeller's export leaves out its crossovers and diamond crossings;
+the gaps they leave are marked in amber. Put crossovers back with the
+Turnout tool, below. The import's notes say what else, if anything, it
+left out.
 
 ## Drawing
 
-Choose **Edit track plan**. The diagram becomes a grid and the tools
-appear above it. Nothing reaches the layout until you save, and **Undo**
-(⌘Z or Ctrl+Z) and **Redo** step back and forth through your changes.
+Choose **Edit track plan**. The plan gets a grid and the tools appear
+above it. Nothing reaches the layout until you save, and **Undo** (⌘Z or
+Ctrl+Z) and **Redo** step back and forth through your changes.
 
-- **Track** (T): drag from cell to cell to lay track. Track runs through
-  the middle of a cell's sides or through its corners, so it goes
-  straight, diagonal, or bends by 45 or 90 degrees. Drag off the middle
-  of a line to make a turnout there; drag straight across a line to make
-  a crossing. A line ends where you stop dragging, as the end of a track.
-  Hold Shift to keep the line straight, along the nearest of the eight
-  directions from where you pressed it; let go of Shift to bend the line,
-  and press it again for the next straight.
-- **Platform** (P): drag to draw a platform beside the track. Shift
-  keeps it straight here too.
-- **Label** (L): click an empty cell to write a station name or a note
-  there; change the text on the right.
+- **Straight** (T): drag from the end of a track to carry it on
+  straight, or from anywhere to lay a straight between two grid points.
+  Let go on another track end to join the two.
+- **Curve** (C): drag from the end of a track to curve it, at the radius
+  chosen above the plan (Kato's R216 to R718, or any radius in
+  millimeters), in steps of 45°, 15°, 7.5° or 1°. It bends the way you
+  drag. Let go on another track end to join the two with the one curve
+  that fits.
+- **Turnout** (W): click the end of a track to put a piece there: a #4
+  or #6 turnout to the left or right, a wye, or a single or double
+  crossover to the track on one side. The piece carries on from the end
+  you click, and its other ends join any track already in place there,
+  so a crossover put on the end of one of two parallel tracks joins
+  both.
+- **Platform** (P): drag along where a platform goes, from one end to
+  the other; set its width above the plan.
+- **Label** (L): click to write a label there; change the text on the
+  right.
 - **Block** (B): drag over track to put it in the block chosen under
   Blocks. Hold Option or Alt while dragging to take track out of its
   block.
-- **Erase** (E): drag over cells to clear them. Track that led into a
-  cleared cell stops at its edge.
-- **Select** (V): click a cell to see what it holds. For a turnout you
-  can choose its switch machine; for track, its block. Delete or
-  Backspace clears the selected cell.
+- **Erase** (E): click or drag over track, platforms and labels to
+  remove them.
+- **Select** (V): click track, a platform or a label to see what it is
+  and change it: a curve's radius and length, a turnout's switch
+  machine, a buffer stop at a track end. Delete or Backspace removes
+  it.
 
-Track that leads into a cell with no track is marked with an amber dot,
-and the **To fix** panel counts these places. It also lists blocks with
-no track drawn in them and blocks drawn in pieces that don't join.
+**Grid in mm**, shown with the Straight, Platform and Label tools, is the
+spacing they snap to. It starts at 33, the distance between the tracks
+of Kato Unitrack N double track.
+
+The **To fix** panel counts the track ends that lead nowhere, and once
+the plan is saved it lists joints where track changes direction (a
+kink), blocks with no track and blocks in pieces that don't join.
 
 If someone else saves the plan while you are editing, saving tells you,
 and you can save yours over theirs or load theirs instead. An edit in
 progress is kept while you look at another page, but not when the
 browser reloads.
 
-### Curves
+## Layers
 
-The plan is a schematic, like the panel in a signal tower: track runs in
-eight directions, so a curve is drawn as a diagonal run between two
-straights. A cell where the track bends by 45 degrees is a curve, and
-one where it bends by 90 degrees a sharp curve; it can't bend more
-sharply than that in one cell.
-
-For a quarter turn from east to south, draw east, then a few cells
-diagonally southeast, then south. The more diagonal cells, the wider the
-sweep. A return loop carries on round the same way, southwest and then
-west. Drag freehand across the corners of the cells: a cell joins the
-line only once the pointer comes near its middle, so cutting across a
-corner goes diagonally rather than stepping through the cell beside it.
-Or hold Shift for each straight and diagonal run in turn.
-
-When tracing a background, line the straights up with the image and
-let the curves fall where the diagonals put them. The drawing doesn't
-need the curve's real radius, since a block's length comes from its
-**Length in mm**.
-
-### Fixing a line that strayed
-
-While you are still dragging, go back over the track you just drew and
-it comes up again; then carry on the way you meant. Doubling back from
-a cell that strayed off the line, as when you slip a row and come
-straight back, leaves that cell out without your having to retrace.
-
-Undo takes back the whole drag. To fix part of a line once you've let
-go, erase just the cells that went wrong, then draw across the gap.
-Erasing cuts the track either side short at the gap, so the new track
-joins it as plain track, not as turnouts. When the track either side is
-in the same block, the new track is put in that block too.
-
-## Tracing a plan from planning software
-
-To draw the layout from a plan made in track planning software, export
-the plan as an image and put it under the grid. PNG, JPEG, WebP, GIF and
-SVG images up to 25 MB work.
-
-1. Under **Background** in the editor, choose **Choose an image**. The
-   image goes under the grid, at the top left of what is drawn so far.
-   The **Background** tool (G) is selected.
-2. Drag the image with the Background tool to line it up with the grid.
-   If the plan is drawn at an angle, or with another side up, turn it:
-   **Rotation** takes any angle clockwise, to a tenth of a degree, and
-   the ↺ and ↻ buttons turn it a quarter turn at a time. It turns about
-   its center.
-3. Set its **Width in cells** so that a known length on the plan, such
-   as the distance between two parallel tracks, comes out as whole
-   cells. Its height follows.
-4. Set its **Opacity** low enough that your own track stands out. On the
-   dark theme, a plan drawn dark on white is easier to trace with **Swap
-   light and dark** on.
-5. Draw the track over it.
-
-The image is saved with the plan. It shows only while editing, unless
-**Show it while operating too** is on. **Remove it** takes it away
-again; saving then deletes the image from the server.
+Layers divide a plan you want to see a part at a time, such as the
+decks of a layout on two levels. Add them under **Layers**. New track,
+platforms and labels go on the layer chosen above the plan, and an
+element's layer can be changed when it is selected. The boxes beside
+each layer show and hide it, on that browser only; while operating, the
+same boxes appear above the plan. Deleting a layer keeps what is on it.
 
 ## Blocks
 
@@ -116,47 +113,91 @@ Interlock names the block after it and links the reporter on the same
 track, which names the locomotives RailCom sees there. Then paint the
 block's track with the Block tool.
 
-For each block you can also set:
-
-- its **length** in millimeters, measured on the layout. The diagram is
-  a schematic, so lengths come from here, not from the drawing.
-- its **station**, which makes the block one of that station's platform
-  tracks. Add stations under **Stations**.
+A block's length is measured along its track, taking turnouts in it the
+closed way. If it differs on the layout, enter the **Measured length**
+and that is used instead. A block can also be one of a **station**'s
+platform tracks; add stations under **Stations**.
 
 Once the plan is saved, a block's panel lists where each of its ends
 leads: the next block, and the turnout positions on the way.
 
+## Tracing a plan from an image
+
+To draw from a plan that can't be imported, export it as an image and
+put it under the plan. PNG, JPEG, WebP, GIF and SVG images up to 25 MB
+work.
+
+1. Under **Background** in the editor, choose **Choose an image**. The
+   image goes under the plan and the **Background** tool (G) is
+   selected.
+2. Drag the image with the Background tool to line it up. If it is drawn
+   at an angle, or with another side up, turn it: **Rotation** takes any
+   angle clockwise, and the ↺ and ↻ buttons turn it a quarter turn at a
+   time.
+3. Set its **Width in mm** so that a known length on it, such as a
+   straight piece of track, comes out right.
+4. Set its **Opacity** low enough that your own track stands out. On the
+   dark theme, a plan drawn dark on white is easier to trace with **Swap
+   light and dark** on.
+
+The image is saved with the plan. It shows only while editing, unless
+**Show it while operating too** is on. **Remove it** takes it away
+again; saving then deletes the image from the server.
+
 ## The file
 
 The plan is `trackplan.yaml` in the data directory, with the background
-image in its `backgrounds` folder; backups include both. Each tile is one cell, with x growing rightward and y downward:
+image in its `backgrounds` folder; backups include both. Positions are in
+millimeters, x rightward and y downward. Here a #4 turnout's branch
+curves back alongside the line it left, 33 mm over:
 
 ```yaml
-tiles:
-  - {x: 5, "y": 2, track: [e, w], block: track_1}
-  - {x: 6, "y": 2, track: [e, ne, w], turnout: turnout.0aff9024a634.servo_1}
-  - {x: 8, "y": 3, platform: [e, w]}
-  - {x: 8, "y": 4, label: Times Sq–42 St}
+points:
+  - {id: p1, x: 0, "y": 0, bumper: true}
+  - {id: p2, x: 248, "y": 0}
+  - {id: p3, x: 374, "y": 0}
+  - {id: p4, x: 372.49, "y": 16.39}
+  - {id: p5, x: 496.98, "y": 32.8}
+tracks:
+  - {id: t1, a: p1, b: p2, block: track_1}
+  - {id: t2, a: p4, b: p5, angle: -15}
+junctions:
+  - {id: j1, kind: turnout, ends: [p2, p3, p4], at: {x: 311.32, "y": 0}, switch: turnout.0aff9024a634.servo_1}
+platforms:
+  - {id: f1, x: 124, "y": -36, length: 250, width: 39}
+labels:
+  - {id: l1, x: 0, "y": -80, text: Times Sq–42 St}
 blocks:
   - id: track_1
     name: Track 1
     occupancy: block.0aff9024a634.track_1
     reporter: reporter.0aff9024a634.track_1
-    length_mm: 610
     station: times_sq
 stations:
   - id: times_sq
     name: Times Sq–42 St
+grid: 33
 ```
 
-`track` lists the directions the track leaves the cell by: `n`, `ne`,
-`e`, `se`, `s`, `sw`, `w` and `nw`. The piece follows from them. One
-direction is the end of a track. Two opposite ones are a straight, and
-two 135 or 90 degrees apart are a curve. Three are a turnout: a straight
-with a branch 45 degrees off it, or a wye. Four are a crossing of two
-straights. For a turnout, closed is the straight way and thrown the
-branch. For a wye, closed is the left leg as seen from the points and
-thrown the right.
+A track's `angle` is how far it turns going from `a` to `b`, in
+degrees: positive clockwise on the plan, negative counterclockwise,
+absent for straight track. A junction lists its `ends` in the order its
+kind gives:
+
+| kind | ends |
+| --- | --- |
+| `turnout` | the points, the straight way (closed), the branch (thrown) |
+| `wye` | the points, the left leg (closed), the right leg (thrown) |
+| `crossing` | one track's two ends, then the other's |
+| `crossover` | track a's two ends, then track b's, a's first end beside b's first; thrown, it leads from a's first end to b's second |
+| `double_crossover` | as `crossover`; thrown, it also leads from b's first end to a's second |
+
+A turnout's or wye's `at` is where its routes part, where the lines along
+its ends meet.
+
+Plans drawn before Interlock drew to scale were a grid of cells. Such a
+plan is converted when Interlock starts, a cell to 33 mm, and the plan
+as it was is kept beside it as `trackplan-grid.yaml`.
 
 Interlock checks the file when it starts and won't start with a plan it
 can't read. Restart Interlock after editing the file yourself.

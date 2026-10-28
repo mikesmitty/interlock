@@ -1,14 +1,8 @@
-// Package trackplan is the track diagram: track drawn on a grid of cells,
-// the blocks and stations it is divided into, and the topology worked out
-// from the drawing (where each block ends and which blocks connect through
-// which turnouts). The diagram is schematic, so lengths are properties of
-// the blocks, not of the drawing.
-//
-// A cell's track is the list of directions it leaves the cell by, through
-// the middle of a side or through a corner. The piece follows from that
-// list: one way out is the end of a track, two make a straight or a curve,
-// three a turnout and four a crossing. The browser draws with the same
-// rules (web/src/track.ts); keep the two in step.
+// The grid of cells that plans were drawn on before they were to scale:
+// a cell's track is the list of directions it leaves the cell by, through
+// the middle of a side or through a corner, and the piece follows from
+// that list. OpenFile reads such plans and converts them (legacy.go).
+
 package trackplan
 
 import (
@@ -131,15 +125,6 @@ const (
 func (p Piece) Switches() bool {
 	return p == TurnoutLeft || p == TurnoutRight || p == Wye
 }
-
-// Position is a turnout's setting.
-type Position string
-
-// The positions a path can need.
-const (
-	Closed Position = "closed"
-	Thrown Position = "thrown"
-)
 
 // Path is a way through a piece between two of its ends, and the turnout
 // position it needs, if any.

@@ -1,32 +1,72 @@
-import { type PointerEvent as ReactPointerEvent, type ReactNode, useEffect, useRef, useState } from "react";
-import { ApiError, api, type Entity, type EntityKind, type TrackBackground, type TrackBlock, type TrackPlan, type TrackPlanState, type TrackStation, type TrackTile } from "../api";
+import { type PointerEvent as ReactPointerEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { ApiError, api, type Entity, type EntityKind, type PlanJunction, type TrackBackground, type TrackBlock, type TrackPlan, type TrackPlanState, type Vec } from "../api";
 import { type LampColor, Status } from "../components/Lamp";
 import { Empty, Page } from "../components/Page";
 import { TrackDiagram, blockState, trainsIn } from "../components/TrackDiagram";
 import { useBus } from "../store";
-import { type Bounds, type Cell, DIRECTION_NAMES, PIECE_LABELS, backgroundBounds, bounds, cellKey, cellNear, classify, drawStroke, erase, extendStroke, indexTiles, lineCells, makeID, normalizeDegrees, openEnds, straightTo, switches, type Tiles } from "../track";
+import {
+  type Bounds,
+  type ElementRef,
+  type End,
+  KATO_RADII,
+  KINDS,
+  addJunction,
+  addTrack,
+  arcFrom,
+  arcInfo,
+  backgroundBounds,
+  corners,
+  dist,
+  endNear,
+  freeEnds,
+  headingOf,
+  idMaker,
+  indexPlan,
+  junctionCenter,
+  makeID,
+  mergeTrack,
+  normalizeDegrees,
+  openEnds,
+  pieceShapes,
+  placePiece,
+  planBounds,
+  removeElements,
+  round,
+  routePath,
+  sameRef,
+  setBlock,
+  snap,
+  straightFrom,
+  sub,
+  tangentAngle,
+  trackPath,
+  turnDiff,
+  union,
+  unit,
+  updateElement,
+} from "../trackgeom";
 
-type Tool = "select" | "track" | "platform" | "label" | "block" | "erase" | "background";
+type Tool = "select" | "track" | "curve" | "piece" | "platform" | "label" | "block" | "erase" | "background";
 
 const TOOLS: { tool: Tool; label: string; key: string; hint: string }[] = [
-  { tool: "select", label: "Select", key: "v", hint: "Click a cell to see and change what it holds." },
-  { tool: "track", label: "Track", key: "t", hint: "Drag to lay track; Shift keeps it straight, and going back over it takes it up. Branch off a line for a turnout, or cross one for a crossing." },
-  { tool: "platform", label: "Platform", key: "p", hint: "Drag to draw a platform beside the track; hold Shift to keep it straight." },
-  { tool: "label", label: "Label", key: "l", hint: "Click an empty cell to write a label there." },
+  { tool: "select", label: "Select", key: "v", hint: "Click track, a platform or a label to see and change it. Delete or Backspace removes it." },
+  { tool: "track", label: "Straight", key: "t", hint: "Drag from the end of a track to carry it on straight, or from anywhere to lay a straight between grid points. Let go on another end to join it." },
+  { tool: "curve", label: "Curve", key: "c", hint: "Drag from the end of a track to curve it at the radius below, a step at a time. Let go on another end to join it with the curve that fits." },
+  { tool: "piece", label: "Turnout", key: "w", hint: "Click the end of a track to put the piece chosen below there. Its other ends join any track already in place." },
+  { tool: "platform", label: "Platform", key: "p", hint: "Drag along where a platform goes, from one end to the other." },
+  { tool: "label", label: "Label", key: "l", hint: "Click to write a label there; change the text on the right." },
   { tool: "block", label: "Block", key: "b", hint: "Drag over track to put it in the block chosen under Blocks. Hold Option or Alt to take track out of its block." },
-  { tool: "erase", label: "Erase", key: "e", hint: "Drag over cells to clear them. Track either side stops short of them, so drawing across the gap joins it up again." },
+  { tool: "erase", label: "Erase", key: "e", hint: "Click or drag over track, platforms and labels to remove them." },
   { tool: "background", label: "Background", key: "g", hint: "Drag to move the background image. Set its size and how faint it is under Background." },
 ];
 
-const ZOOMS = [20, 28, 36, 44];
+/** Pixels per millimeter. */
+const ZOOMS = [0.08, 0.12, 0.18, 0.25, 0.35, 0.5, 0.7, 1, 1.4, 2];
 const HISTORY = 100;
+/** How near, in pixels, the pointer must come to a track end to snap to it. */
+const SNAP_PX = 12;
 
-interface Draft {
-  tiles: Tiles;
-  blocks: TrackBlock[];
-  stations: TrackStation[];
-  background?: TrackBackground;
-}
+type Draft = TrackPlan;
 
 interface Session {
   /** The revision the edit started from. */
@@ -42,22 +82,22 @@ interface Session {
 /** An edit in progress, kept while another page is open. */
 let keptSession: Session | undefined;
 
-const draftOf = (plan: TrackPlan): Draft => ({ tiles: indexTiles(plan.tiles), blocks: plan.blocks, stations: plan.stations, background: plan.background });
-const planOf = (d: Draft): TrackPlan => ({ tiles: [...d.tiles.values()], blocks: d.blocks, stations: d.stations, background: d.background });
-
-function union(a?: Bounds, b?: Bounds): Bounds | undefined {
-  if (!a || !b) return a ?? b;
-  return { minX: Math.min(a.minX, b.minX), minY: Math.min(a.minY, b.minY), maxX: Math.max(a.maxX, b.maxX), maxY: Math.max(a.maxY, b.maxY) };
-}
-
-const round = (n: number, places: number) => Math.round(n * 10 ** places) / 10 ** places;
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
-function pad(b: Bounds | undefined, margin: number, minWidth: number, minHeight: number): Bounds {
+/** The part of the plan to draw: everything on it with a margin around,
+ * at least min millimeters across. */
+function areaOf(plan: Draft, background: TrackBackground | undefined, margin: number, min: Vec): Bounds {
+  const b = union(planBounds(plan), backgroundBounds(background));
   const area = b ? { minX: b.minX - margin, minY: b.minY - margin, maxX: b.maxX + margin, maxY: b.maxY + margin } : { minX: 0, minY: 0, maxX: 0, maxY: 0 };
-  area.maxX = Math.max(area.maxX, area.minX + minWidth - 1);
-  area.maxY = Math.max(area.maxY, area.minY + minHeight - 1);
+  area.maxX = Math.max(area.maxX, area.minX + min.x);
+  area.maxY = Math.max(area.maxY, area.minY + min.y);
   return area;
+}
+
+/** The zoom that fits an area about 1000 pixels wide. */
+function fitZoom(area: Bounds): number {
+  const fits = ZOOMS.map((z, i) => [z, i] as const).filter(([z]) => (area.maxX - area.minX) * z <= 1000);
+  return fits.length ? fits[fits.length - 1][1] : 0;
 }
 
 function entitiesOf(entities: Record<string, Entity>, kind: EntityKind): Entity[] {
@@ -66,9 +106,39 @@ function entitiesOf(entities: Record<string, Entity>, kind: EntityKind): Entity[
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+const COMPASS = ["east", "southeast", "south", "southwest", "west", "northwest", "north", "northeast"];
+/** A heading as the nearest compass word. */
+const compass = (heading: number) => COMPASS[Math.round(normalizeDegrees(heading) / 45) % 8];
+
+const HIDDEN_KEY = "interlock.trackplan.hiddenLayers";
+
+/** The layers hidden on this browser. */
+function useHiddenLayers(): [ReadonlySet<string>, (id: string, hidden: boolean) => void] {
+  const [hidden, setHidden] = useState<ReadonlySet<string>>(() => {
+    try {
+      return new Set(JSON.parse(localStorage.getItem(HIDDEN_KEY) ?? "[]") as string[]);
+    } catch {
+      return new Set();
+    }
+  });
+  const set = (id: string, hide: boolean) => {
+    const next = new Set(hidden);
+    if (hide) next.add(id);
+    else next.delete(id);
+    setHidden(next);
+    try {
+      localStorage.setItem(HIDDEN_KEY, JSON.stringify([...next]));
+    } catch {
+      // Kept for this visit only.
+    }
+  };
+  return [hidden, set];
+}
+
 export function TrackPlanPage() {
   const { trackPlan, entities, loaded } = useBus();
   const [session, setSession] = useState<Session | undefined>(keptSession);
+  const layers = useHiddenLayers();
   useEffect(() => {
     keptSession = session;
   }, [session]);
@@ -80,8 +150,8 @@ export function TrackPlanPage() {
       </Page>
     );
   }
-  if (session) return <Editor saved={trackPlan} session={session} setSession={setSession} entities={entities} />;
-  return <Viewer state={trackPlan} entities={entities} onEdit={() => setSession({ base: trackPlan.revision, draft: draftOf(trackPlan.plan), past: [], future: [] })} />;
+  if (session) return <Editor saved={trackPlan} session={session} setSession={setSession} entities={entities} layers={layers} />;
+  return <Viewer state={trackPlan} entities={entities} layers={layers} onEdit={() => setSession({ base: trackPlan.revision, draft: trackPlan.plan, past: [], future: [] })} />;
 }
 
 function Zoom({ zoom, setZoom }: { zoom: number; setZoom: (z: number) => void }) {
@@ -97,23 +167,40 @@ function Zoom({ zoom, setZoom }: { zoom: number; setZoom: (z: number) => void })
   );
 }
 
+/** Checkboxes that show and hide the plan's layers on this browser. */
+function LayerToggles({ plan, layers: [hidden, setHidden] }: { plan: TrackPlan; layers: ReturnType<typeof useHiddenLayers> }) {
+  if (plan.layers.length === 0) return null;
+  return (
+    <div className="trk-layers" role="group" aria-label="Layers shown">
+      {plan.layers.map((l) => (
+        <label key={l.id} className="check">
+          <input type="checkbox" checked={!hidden.has(l.id)} onChange={(e) => setHidden(l.id, !e.target.checked)} />
+          {l.name}
+        </label>
+      ))}
+    </div>
+  );
+}
+
 // Operating: the plan lit by the layout, turnouts set by a click.
 
-function Viewer({ state, entities, onEdit }: { state: TrackPlanState; entities: Record<string, Entity>; onEdit: () => void }) {
+function Viewer({ state, entities, layers, onEdit }: { state: TrackPlanState; entities: Record<string, Entity>; layers: ReturnType<typeof useHiddenLayers>; onEdit: () => void }) {
   const { plan } = state;
   const background = plan.background?.operating ? plan.background : undefined;
-  const [zoom, setZoom] = useState(1);
+  const index = useMemo(() => indexPlan(plan), [plan]);
+  const area = useMemo(() => areaOf(plan, background, 60, { x: 300, y: 150 }), [plan, background]);
+  const [zoom, setZoom] = useState(() => fitZoom(area));
   const [error, setError] = useState<string>();
   const lead = "The layout's track plan, lit by what the detectors and turnouts report.";
 
-  if (plan.tiles.length === 0) {
+  if (plan.tracks.length === 0 && plan.junctions.length === 0) {
     return (
       <Page title="Track" lead={lead}>
         <Empty title="No track plan yet">
-          <p>Draw the layout's track on a grid, divide it into blocks and link the blocks to their detectors and the turnouts to their switch machines.</p>
+          <p>Bring in the layout's track from RailModeller Pro, or draw it to scale; then divide it into blocks and link the blocks to their detectors and the turnouts to their switch machines.</p>
           <p>
             <button type="button" className="btn btn--primary" onClick={onEdit}>
-              Draw the track plan
+              Make the track plan
             </button>
           </p>
         </Empty>
@@ -121,8 +208,8 @@ function Viewer({ state, entities, onEdit }: { state: TrackPlanState; entities: 
     );
   }
 
-  async function toggle(tile: TrackTile) {
-    const ent = tile.turnout ? entities[tile.turnout] : undefined;
+  async function toggle(j: PlanJunction) {
+    const ent = j.switch ? entities[j.switch] : undefined;
     if (!ent) return;
     setError(undefined);
     try {
@@ -146,19 +233,12 @@ function Viewer({ state, entities, onEdit }: { state: TrackPlanState; entities: 
       }
     >
       {error && <p className="note note--error">{error}</p>}
+      <LayerToggles plan={plan} layers={layers} />
       <div className="panel trk-canvas">
-        <TrackDiagram
-          tiles={plan.tiles}
-          blocks={plan.blocks}
-          entities={entities}
-          area={pad(union(bounds(plan.tiles), backgroundBounds(background)), 1, 1, 1)}
-          cell={ZOOMS[zoom]}
-          background={background}
-          onTurnout={toggle}
-        />
+        <TrackDiagram plan={plan} index={index} entities={entities} area={area} zoom={ZOOMS[zoom]} hiddenLayers={layers[0]} background={background} onTurnout={toggle} />
       </div>
-      <p className="trk-legend muted">Click a turnout to throw or close it.</p>
-      <BlockTable plan={plan} entities={entities} />
+      <p className="trk-legend muted">Click a turnout or crossover to throw or close it.</p>
+      <BlockTable state={state} entities={entities} />
     </Page>
   );
 }
@@ -175,7 +255,15 @@ const stateColor = (state: string): LampColor => {
   return "amber";
 };
 
-function BlockTable({ plan, entities }: { plan: TrackPlan; entities: Record<string, Entity> }) {
+/** A block's length: as measured when that was given, else as drawn. */
+function lengthOf(b: TrackBlock, topology?: TrackPlanState["topology"]): ReactNode {
+  if (b.length_mm) return `${b.length_mm} mm`;
+  const drawn = topology?.blocks.find((x) => x.id === b.id)?.length;
+  return drawn ? `${Math.round(drawn)} mm drawn` : <span className="faint">no track</span>;
+}
+
+function BlockTable({ state, entities }: { state: TrackPlanState; entities: Record<string, Entity> }) {
+  const { plan, topology } = state;
   if (plan.blocks.length === 0) return null;
   const stations = new Map(plan.stations.map((s) => [s.id, s.name]));
   return (
@@ -193,7 +281,7 @@ function BlockTable({ plan, entities }: { plan: TrackPlan; entities: Record<stri
           </thead>
           <tbody>
             {plan.blocks.map((b) => {
-              const state = blockState(b, entities);
+              const st = blockState(b, entities);
               return (
                 <tr key={b.id}>
                   <td>
@@ -201,10 +289,10 @@ function BlockTable({ plan, entities }: { plan: TrackPlan; entities: Record<stri
                     {b.station && <div className="cell-sub">{stations.get(b.station)}</div>}
                   </td>
                   <td>
-                    <Status color={stateColor(state)}>{state}</Status>
+                    <Status color={stateColor(st)}>{st}</Status>
                   </td>
                   <td>{trainsIn(b, entities).join(", ") || <span className="faint">none reported</span>}</td>
-                  <td className="num">{b.length_mm ? `${b.length_mm} mm` : <span className="faint">not set</span>}</td>
+                  <td className="num">{lengthOf(b, topology)}</td>
                 </tr>
               );
             })}
@@ -219,27 +307,51 @@ function BlockTable({ plan, entities }: { plan: TrackPlan; entities: Record<stri
 
 interface Stroke {
   base: Draft;
-  cells: Cell[];
-  /** The stroke as it was when Shift went down; a straight line goes on
-   * from its end while Shift is held. */
-  straight?: Cell[];
-  tiles: Tiles;
-  background?: TrackBackground;
-  /** Where a background move started, to a fraction of a cell. */
-  from: { x: number; y: number };
+  /** Where the pointer went down. */
+  start: Vec;
+  /** The track end it went down on, for the track tools. */
+  end?: End;
   moved: boolean;
   unassign: boolean;
-  error?: string;
+  /** For the block and erase tools: the plan as changed so far. */
+  plan: Draft;
+  done: Set<string>;
+  background?: TrackBackground;
+  /** For the drawing tools: what letting go adds. */
+  result?: Draft;
 }
 
-function Editor({ saved, session, setSession, entities }: { saved: TrackPlanState; session: Session; setSession: (s: Session | undefined) => void; entities: Record<string, Entity> }) {
+interface Options {
+  radius: number;
+  step: number;
+  piece: string;
+  crossLength: number;
+  platformWidth: number;
+}
+
+function Editor({
+  saved,
+  session,
+  setSession,
+  entities,
+  layers,
+}: {
+  saved: TrackPlanState;
+  session: Session;
+  setSession: (s: Session | undefined) => void;
+  entities: Record<string, Entity>;
+  layers: ReturnType<typeof useHiddenLayers>;
+}) {
   const { draft } = session;
   const dirty = session.past.length > 0;
-  const [tool, setTool] = useState<Tool>("track");
-  const [zoom, setZoom] = useState(1);
-  const [selected, setSelected] = useState<Cell>();
-  const [hover, setHover] = useState<Cell>();
+  const [hidden] = layers;
+  const [tool, setTool] = useState<Tool>(draft.tracks.length ? "select" : "track");
+  const [selected, setSelected] = useState<ElementRef>();
+  const [hover, setHover] = useState<ElementRef>();
   const [activeBlock, setActiveBlock] = useState<string | undefined>(draft.blocks[0]?.id);
+  const [activeLayer, setActiveLayer] = useState<string>();
+  const [options, setOptions] = useState<Options>({ radius: 216, step: 15, piece: "t4r", crossLength: 310, platformWidth: 39 });
+  const [preview, setPreview] = useState<{ paths: string[]; snapTo?: Vec }>({ paths: [] });
   const [note, setNote] = useState<string>();
   const [error, setError] = useState<string>();
   const [conflict, setConflict] = useState<string>();
@@ -250,7 +362,15 @@ function Editor({ saved, session, setSession, entities }: { saved: TrackPlanStat
   const sessionRef = useRef(session);
   sessionRef.current = session;
 
-  const area = frozenArea ?? pad(union(bounds(draft.tiles.values()), backgroundBounds(draft.background)), 6, 40, 24);
+  const index = useMemo(() => indexPlan(draft), [draft]);
+  // Room to draw past the edges of what is there already.
+  const area = frozenArea ?? areaOf(draft, draft.background, 300, { x: 1500, y: 900 });
+  const [zoom, setZoom] = useState(() => fitZoom(area));
+  const reach = SNAP_PX / ZOOMS[zoom];
+  const grid = draft.grid || 33;
+  const shapes = pieceShapes(grid, options.crossLength);
+  const shape = shapes.find((p) => p.id === options.piece) ?? shapes[0];
+
   const update = (change: (s: Session) => Session) => setSession(change(sessionRef.current));
   /** Changes the plan as one step to undo; a change in the same run as
    * the one before joins its step. */
@@ -259,12 +379,12 @@ function Editor({ saved, session, setSession, entities }: { saved: TrackPlanStat
   const undo = () => update((s) => (s.past.length ? { ...s, draft: s.past[s.past.length - 1], past: s.past.slice(0, -1), future: [s.draft, ...s.future], run: undefined } : s));
   const redo = () => update((s) => (s.future.length ? { ...s, draft: s.future[0], past: [...s.past, s.draft], future: s.future.slice(1), run: undefined } : s));
   const tools = TOOLS.filter((t) => t.tool !== "background" || draft.background);
-  const selectedTile = selected ? draft.tiles.get(cellKey(selected.x, selected.y)) : undefined;
+  const onLayer = activeLayer && draft.layers.some((l) => l.id === activeLayer) ? activeLayer : undefined;
 
   // Someone else saved while nothing here was changed: follow along.
   useEffect(() => {
     if (!dirty && saved.revision !== session.base) {
-      setSession({ base: saved.revision, draft: draftOf(saved.plan), past: [], future: [] });
+      setSession({ base: saved.revision, draft: saved.plan, past: [], future: [] });
     }
   }, [dirty, saved, session.base, setSession]);
 
@@ -275,10 +395,22 @@ function Editor({ saved, session, setSession, entities }: { saved: TrackPlanStat
     return () => window.removeEventListener("beforeunload", warn);
   }, [dirty]);
 
+  // An element undo took away is no longer selected.
+  const selectedExists =
+    selected &&
+    (selected.kind === "track"
+      ? index.tracks.has(selected.id)
+      : selected.kind === "junction"
+        ? index.junctions.has(selected.id)
+        : selected.kind === "platform"
+          ? draft.platforms.some((p) => p.id === selected.id)
+          : draft.labels.some((l) => l.id === selected.id));
+  const current = selectedExists ? selected : undefined;
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
-      if (target?.closest("input, select, textarea")) return;
+      if (target?.closest?.("input, select, textarea")) return;
       const mod = e.metaKey || e.ctrlKey;
       if (mod && e.key.toLowerCase() === "z") {
         e.preventDefault();
@@ -287,9 +419,9 @@ function Editor({ saved, session, setSession, entities }: { saved: TrackPlanStat
       } else if (mod && e.key.toLowerCase() === "y") {
         e.preventDefault();
         redo();
-      } else if ((e.key === "Delete" || e.key === "Backspace") && selected && selectedTile) {
+      } else if ((e.key === "Delete" || e.key === "Backspace") && current) {
         e.preventDefault();
-        commit({ ...sessionRef.current.draft, tiles: erase(sessionRef.current.draft.tiles, selected) });
+        commit(removeElements(sessionRef.current.draft, [current]));
         setSelected(undefined);
       } else if (e.key === "Escape") {
         setSelected(undefined);
@@ -302,105 +434,205 @@ function Editor({ saved, session, setSession, entities }: { saved: TrackPlanStat
     return () => window.removeEventListener("keydown", onKey);
   });
 
-  function setTiles(s: Stroke, tiles: Tiles) {
-    s.tiles = tiles;
-    setSession({ ...sessionRef.current, draft: { ...s.base, tiles, background: s.background } });
+  function show(s: Stroke, plan: Draft) {
+    s.plan = plan;
+    setSession({ ...sessionRef.current, draft: { ...plan, background: s.background ?? plan.background } });
   }
 
-  function paint(s: Stroke, cells: Cell[]) {
-    if (!activeBlock && !s.unassign) {
-      setNote("Add a block under Blocks first, then paint track into it.");
-      return;
+  /** Paints or erases what the pointer is over, once per stroke. */
+  function touch(s: Stroke, target?: ElementRef) {
+    if (!target || s.done.has(`${target.kind}:${target.id}`)) return;
+    s.done.add(`${target.kind}:${target.id}`);
+    if (tool === "erase") {
+      show(s, removeElements(s.plan, [target]));
+    } else if (tool === "block" && (target.kind === "track" || target.kind === "junction")) {
+      if (!activeBlock && !s.unassign) {
+        setNote("Add a block under Blocks first, then paint track into it.");
+        return;
+      }
+      show(s, setBlock(s.plan, [target], s.unassign ? undefined : activeBlock));
     }
-    let tiles = s.tiles;
-    for (const c of cells) {
-      const key = cellKey(c.x, c.y);
-      const t = tiles.get(key);
-      if (!t?.track || t.block === (s.unassign ? undefined : activeBlock)) continue;
-      if (tiles === s.tiles) tiles = new Map(tiles);
-      const changed = { ...t };
-      if (s.unassign) delete changed.block;
-      else changed.block = activeBlock;
-      tiles.set(key, changed);
-    }
-    if (tiles !== s.tiles) setTiles(s, tiles);
   }
 
-  function onPointerDown(cell: Cell, e: ReactPointerEvent<SVGSVGElement>, at: { x: number; y: number }) {
+  /** Where the piece tool would put its piece, at the end under the pointer. */
+  function placeAt(end: End) {
+    return placePiece(shape, end.point, end.heading);
+  }
+
+  function onPointerDown(at: Vec, e: ReactPointerEvent<SVGSVGElement>, target?: ElementRef) {
     if (e.button !== 0) return;
     setNote(undefined);
-    const key = cellKey(cell.x, cell.y);
     if (tool === "select") {
-      setSelected(draft.tiles.has(key) ? cell : undefined);
+      setSelected(target);
       return;
     }
     if (tool === "label") {
-      if (!draft.tiles.has(key)) commit({ ...draft, tiles: new Map(draft.tiles).set(key, { x: cell.x, y: cell.y, label: "Label" }) });
-      setSelected(cell);
+      const p = snap(at, grid);
+      const id = idMaker(draft)("l");
+      commit({ ...draft, labels: [...draft.labels, { id, x: p.x, y: p.y, text: "Label", ...(onLayer ? { layer: onLayer } : {}) }] });
+      setSelected({ kind: "label", id });
+      return;
+    }
+    if (tool === "piece") {
+      const end = endNear(index, at, reach);
+      if (!end) {
+        setNote("Click the end of a track: the piece goes on from there.");
+        return;
+      }
+      const placed = placeAt(end);
+      commit(addJunction(draft, index, shape.kind, [end.point.id, ...placed.ends.slice(1)], placed.at, onLayer));
+      setPreview({ paths: [] });
+      return;
+    }
+    const end = tool === "track" || tool === "curve" ? endNear(index, at, reach) : undefined;
+    if (tool === "curve" && !end) {
+      setNote("Start a curve at the end of a track, so it carries on from it.");
       return;
     }
     e.currentTarget.setPointerCapture(e.pointerId);
     setFrozenArea(area);
-    const s: Stroke = { base: draft, cells: [cell], tiles: draft.tiles, background: draft.background, from: at, moved: false, unassign: e.altKey };
+    const s: Stroke = { base: draft, start: at, end, moved: false, unassign: e.altKey, plan: draft, done: new Set(), background: draft.background };
     stroke.current = s;
-    if (tool === "erase") setTiles(s, erase(s.tiles, cell));
-    if (tool === "block") paint(s, [cell]);
+    touch(s, target);
   }
 
-  function onPointerMove(cell: Cell, e: ReactPointerEvent<SVGSVGElement>, at: { x: number; y: number }) {
-    if (!hover || hover.x !== cell.x || hover.y !== cell.y) setHover(cell);
+  function onPointerMove(at: Vec, _e: ReactPointerEvent<SVGSVGElement>, target?: ElementRef) {
     const s = stroke.current;
-    if (!s) return;
-    if (tool === "background" && s.base.background) {
-      const bg = s.base.background;
-      s.background = { ...bg, x: round(bg.x + at.x - s.from.x, 2), y: round(bg.y + at.y - s.from.y, 2) };
-      s.moved = true;
-      setTiles(s, s.tiles);
-      return;
-    }
-    const last = s.cells[s.cells.length - 1];
-    if (last.x === cell.x && last.y === cell.y) return;
-    s.moved = true;
-    if (tool === "track" || tool === "platform") {
-      if (e.shiftKey) {
-        s.straight ??= s.cells;
-        const from = s.straight[s.straight.length - 1];
-        s.cells = extendStroke(s.base.tiles, s.straight, lineCells(from, straightTo(from, cell)).slice(1), tool);
-      } else {
-        const near = cellNear(at);
-        if (!near || (near.x === last.x && near.y === last.y)) return;
-        s.straight = undefined;
-        s.cells = extendStroke(s.base.tiles, s.cells, lineCells(last, near).slice(1), tool);
+    if (!s) {
+      if (tool === "select" || tool === "erase" || tool === "block") {
+        if (!sameRef(hover, target)) setHover(target);
+        return;
       }
-      const result = drawStroke(s.base.tiles, s.cells, tool);
-      s.error = result.error;
-      setTiles(s, result.tiles);
+      // Show where the track tools would start, and the piece where it
+      // would go.
+      const end = tool === "track" || tool === "curve" || tool === "piece" ? endNear(index, at, reach) : undefined;
+      if (tool === "piece" && end) {
+        const placed = placeAt(end);
+        const center = junctionCenter({ at: placed.at }, placed.ends);
+        setPreview({ paths: KINDS[shape.kind].routes.map((r) => routePath(shape.kind, placed.ends, center, r)), snapTo: end.point });
+      } else if (end?.point !== preview.snapTo || preview.paths.length) {
+        setPreview({ paths: [], snapTo: end?.point });
+      }
       return;
     }
-    const added = lineCells(last, cell).slice(1);
-    s.cells.push(...added);
-    if (tool === "erase") {
-      let tiles = s.tiles;
-      for (const c of added) tiles = erase(tiles, c);
-      setTiles(s, tiles);
-    } else if (tool === "block") {
-      paint(s, added);
+    s.moved = true;
+    switch (tool) {
+      case "background": {
+        const bg = s.base.background;
+        if (!bg) return;
+        s.background = { ...bg, x: round(bg.x + at.x - s.start.x, 1), y: round(bg.y + at.y - s.start.y, 1) };
+        show(s, s.plan);
+        return;
+      }
+      case "erase":
+      case "block":
+        touch(s, target);
+        return;
+      case "track":
+        return drawStraight(s, at);
+      case "curve":
+        return drawCurve(s, at);
+      case "platform":
+        return drawPlatform(s, at);
     }
+  }
+
+  function drawStraight(s: Stroke, at: Vec) {
+    const join = endNear(index, at, reach, s.end?.point.id);
+    let a: string | Vec;
+    let from: Vec;
+    let b: string | Vec;
+    let to: Vec;
+    if (s.end) {
+      a = s.end.point.id;
+      from = s.end.point;
+      if (join) {
+        b = join.point.id;
+        to = join.point;
+      } else {
+        const along = (at.x - from.x) * unit(s.end.heading).x + (at.y - from.y) * unit(s.end.heading).y;
+        to = straightFrom(from, s.end.heading, Math.round(along));
+        b = to;
+      }
+    } else {
+      from = snap(s.start, grid);
+      a = from;
+      to = join ? join.point : snap(at, grid);
+      b = join ? join.point.id : to;
+    }
+    if (dist(from, to) < 1) {
+      s.result = undefined;
+      setPreview({ paths: [] });
+      return;
+    }
+    s.result = addTrack(s.base, index, a, b, 0, onLayer);
+    setPreview({ paths: [trackPath(from, to)], snapTo: join?.point });
+    setNote(`${Math.round(dist(from, to))} mm straight`);
+  }
+
+  function drawCurve(s: Stroke, at: Vec) {
+    const end = s.end!;
+    const p = end.point;
+    const join = endNear(index, at, reach, p.id);
+    let angle: number;
+    let to: Vec;
+    if (join) {
+      angle = round(tangentAngle(p, end.heading, join.point), 3);
+      to = join.point;
+    } else {
+      const ahead = unit(end.heading);
+      const off = sub(at, p);
+      const side = ahead.x * off.y - ahead.y * off.x >= 0 ? 1 : -1;
+      const center = { x: p.x + unit(end.heading + side * 90).x * options.radius, y: p.y + unit(end.heading + side * 90).y * options.radius };
+      let sweep = turnDiff(headingOf(sub(at, center)), headingOf(sub(p, center)));
+      if (side * sweep < 0) sweep = 0;
+      angle = Math.round(sweep / options.step) * options.step;
+      to = arcFrom(p, end.heading, options.radius, angle);
+    }
+    if (!angle || Math.abs(angle) >= 360 || dist(p, to) < 1) {
+      s.result = join && Math.abs(angle) < 1e-3 ? addTrack(s.base, index, p.id, join.point.id, 0, onLayer) : undefined;
+      setPreview({ paths: s.result && join ? [trackPath(p, join.point)] : [], snapTo: join?.point });
+      return;
+    }
+    s.result = addTrack(s.base, index, p.id, join ? join.point.id : to, angle, onLayer);
+    setPreview({ paths: [trackPath(p, to, angle)], snapTo: join?.point });
+    const info = arcInfo(p, to, angle);
+    setNote(`${Math.abs(angle)}° ${angle > 0 ? "right" : "left"} at ${Math.round(info.radius)} mm radius, ${Math.round(info.length)} mm long`);
+  }
+
+  function drawPlatform(s: Stroke, at: Vec) {
+    const a = snap(s.start, grid);
+    const b = snap(at, grid);
+    const length = dist(a, b);
+    if (length < 1) {
+      s.result = undefined;
+      setPreview({ paths: [] });
+      return;
+    }
+    const platform = {
+      id: idMaker(s.base)("f"),
+      x: round((a.x + b.x) / 2, 2),
+      y: round((a.y + b.y) / 2, 2),
+      length: round(length, 2),
+      width: options.platformWidth,
+      ...(headingOf(sub(b, a)) ? { angle: round(headingOf(sub(b, a)), 2) } : {}),
+      ...(onLayer ? { layer: onLayer } : {}),
+    };
+    s.result = { ...s.base, platforms: [...s.base.platforms, platform] };
+    const c = corners(platform, platform.length, platform.width, platform.angle);
+    setPreview({ paths: [`M${c.map((v) => `${v.x} ${v.y}`).join("L")}Z`] });
+    setNote(`${Math.round(length)} mm platform`);
   }
 
   function onPointerUp() {
     const s = stroke.current;
     stroke.current = undefined;
     setFrozenArea(undefined);
+    setPreview({ paths: [] });
     if (!s) return;
-    if (!s.moved && (tool === "track" || tool === "platform" || tool === "background")) {
-      const key = cellKey(s.cells[0].x, s.cells[0].y);
-      setSelected(draft.tiles.has(key) ? s.cells[0] : undefined);
-      return;
-    }
-    if (s.error) setNote(s.error);
-    if (s.tiles !== s.base.tiles || s.background !== s.base.background) {
-      setSession({ ...sessionRef.current, draft: { ...s.base, tiles: s.tiles, background: s.background }, past: [...sessionRef.current.past, s.base].slice(-HISTORY), future: [], run: undefined });
+    const plan = s.result ?? (s.plan !== s.base || s.background !== s.base.background ? { ...s.plan, background: s.background } : undefined);
+    if (plan) {
+      setSession({ ...sessionRef.current, draft: plan, past: [...sessionRef.current.past, s.base].slice(-HISTORY), future: [], run: undefined });
     }
   }
 
@@ -409,8 +641,8 @@ function Editor({ saved, session, setSession, entities }: { saved: TrackPlanStat
     setError(undefined);
     setConflict(undefined);
     try {
-      const st = await api.saveTrackPlan(planOf(draft), revision);
-      setSession({ base: st.revision, draft: draftOf(st.plan), past: [], future: [] });
+      const st = await api.saveTrackPlan(draft, revision);
+      setSession({ base: st.revision, draft: st.plan, past: [], future: [] });
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) setConflict(typeof err.body?.revision === "string" ? err.body.revision : "");
       else setError(message(err));
@@ -423,14 +655,15 @@ function Editor({ saved, session, setSession, entities }: { saved: TrackPlanStat
     setConflict(undefined);
     try {
       const st = await api.trackPlan();
-      setSession({ base: st.revision, draft: draftOf(st.plan), past: [], future: [] });
+      setSession({ base: st.revision, draft: st.plan, past: [], future: [] });
     } catch (err) {
       setError(message(err));
     }
   }
 
-  const ends = openEnds(draft.tiles);
+  const ends = openEnds(index);
   const hint = TOOLS.find((t) => t.tool === tool)?.hint;
+  const set = (change: Partial<Options>) => setOptions({ ...options, ...change });
 
   return (
     <Page
@@ -500,6 +733,67 @@ function Editor({ saved, session, setSession, entities }: { saved: TrackPlanStat
         </span>
         <Zoom zoom={zoom} setZoom={setZoom} />
       </div>
+      <div className="trk-options">
+        {tool === "curve" && (
+          <>
+            <label className="trk-option">
+              <span>Radius</span>
+              <select className="input input--select" value={options.radius} onChange={(e) => set({ radius: Number(e.target.value) })}>
+                {[...new Set([...KATO_RADII, options.radius])]
+                  .sort((a, b) => a - b)
+                  .map((r) => (
+                    <option key={r} value={r}>
+                      R{r}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <NumberOption label="or mm" value={options.radius} min={50} onChange={(radius) => set({ radius })} />
+            <label className="trk-option">
+              <span>Steps of</span>
+              <select className="input input--select" value={options.step} onChange={(e) => set({ step: Number(e.target.value) })}>
+                {[45, 15, 7.5, 1].map((d) => (
+                  <option key={d} value={d}>
+                    {d}°
+                  </option>
+                ))}
+              </select>
+            </label>
+          </>
+        )}
+        {tool === "piece" && (
+          <>
+            <label className="trk-option">
+              <span>Piece</span>
+              <select className="input input--select" value={shape.id} onChange={(e) => set({ piece: e.target.value })}>
+                {shapes.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {shape.kind.includes("crossover") && <NumberOption label="Length in mm" value={options.crossLength} min={50} onChange={(crossLength) => set({ crossLength })} />}
+          </>
+        )}
+        {tool === "platform" && <NumberOption label="Width in mm" value={options.platformWidth} min={1} onChange={(platformWidth) => set({ platformWidth })} />}
+        {(tool === "track" || tool === "platform" || tool === "label") && (
+          <NumberOption label="Grid in mm" value={grid} min={1} onChange={(g) => commit({ ...draft, grid: g }, "grid")} />
+        )}
+        {draft.layers.length > 0 && tool !== "select" && tool !== "erase" && tool !== "block" && tool !== "background" && (
+          <label className="trk-option">
+            <span>On layer</span>
+            <select className="input input--select" value={onLayer ?? ""} onChange={(e) => setActiveLayer(e.target.value || undefined)}>
+              <option value="">None</option>
+              {draft.layers.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+      </div>
       <p className="trk-hint muted" aria-live="polite">
         {note ?? hint}
       </p>
@@ -507,55 +801,84 @@ function Editor({ saved, session, setSession, entities }: { saved: TrackPlanStat
       <div className="trk-editor">
         <div className="panel trk-canvas">
           <TrackDiagram
-            tiles={draft.tiles.values()}
-            blocks={draft.blocks}
+            plan={draft}
+            index={index}
             entities={entities}
             area={area}
-            cell={ZOOMS[zoom]}
+            zoom={ZOOMS[zoom]}
             editing
-            activeBlock={activeBlock}
-            selected={selected}
+            hiddenLayers={hidden}
+            activeBlock={tool === "block" ? activeBlock : undefined}
+            selected={current}
             hover={hover}
-            openEnds={ends}
+            marks={ends}
+            snapTo={preview.snapTo}
+            preview={preview.paths}
             background={draft.background}
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}
-            onPointerLeave={() => setHover(undefined)}
+            onPointerLeave={() => {
+              setHover(undefined);
+              if (!stroke.current) setPreview({ paths: [] });
+            }}
           />
         </div>
         <aside className="trk-side">
-          {selected && selectedTile && (
-            <TileDetails
-              tile={selectedTile}
+          {current && (
+            <ElementDetails
+              item={current}
               draft={draft}
+              index={index}
               entities={entities}
-              onChange={(t) => commit({ ...draft, tiles: new Map(draft.tiles).set(cellKey(t.x, t.y), t) })}
+              commit={commit}
               onRemove={() => {
-                commit({ ...draft, tiles: erase(draft.tiles, selected) });
+                commit(removeElements(draft, [current]));
                 setSelected(undefined);
               }}
             />
           )}
           <Blocks draft={draft} entities={entities} active={activeBlock} setActive={setActiveBlock} commit={commit} topology={dirty ? undefined : saved.topology} />
           <Stations draft={draft} commit={commit} />
-          <Background
-            draft={draft}
-            area={area}
-            commit={commit}
-            onAdded={() => setTool("background")}
-            onRemoved={() => tool === "background" && setTool("select")}
-          />
+          <Layers draft={draft} commit={commit} layers={layers} />
           <Problems ends={ends.length} saved={dirty ? undefined : saved} />
+          <Import draft={draft} commit={commit} />
+          <Background draft={draft} area={area} commit={commit} onAdded={() => setTool("background")} onRemoved={() => tool === "background" && setTool("select")} />
         </aside>
       </div>
     </Page>
   );
 }
 
+function NumberOption({ label, value, min, onChange }: { label: string; value: number; min: number; onChange: (v: number) => void }) {
+  const [text, setText] = useState(String(value));
+  useEffect(() => setText(String(value)), [value]);
+  const done = () => {
+    const v = Number(text);
+    if (Number.isFinite(v) && v >= min && v !== value) onChange(v);
+    else setText(String(value));
+  };
+  return (
+    <label className="trk-option">
+      <span>{label}</span>
+      <input
+        className="input input--num"
+        type="number"
+        min={min}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={done}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+        }}
+      />
+    </label>
+  );
+}
+
 /** A text field that changes the plan when it loses focus or on Enter,
  * so typing makes one step to undo, not one per letter. */
-function CommitInput({ value, onCommit, label, type = "text" }: { value: string; onCommit: (v: string) => void; label: string; type?: "text" | "number" }) {
+function CommitInput({ value, onCommit, label, type = "text", placeholder }: { value: string; onCommit: (v: string) => void; label: string; type?: "text" | "number"; placeholder?: string }) {
   const [text, setText] = useState(value);
   useEffect(() => setText(value), [value]);
   return (
@@ -566,6 +889,7 @@ function CommitInput({ value, onCommit, label, type = "text" }: { value: string;
         type={type}
         min={type === "number" ? 0 : undefined}
         value={text}
+        placeholder={placeholder}
         onChange={(e) => setText(e.target.value)}
         onBlur={() => text !== value && onCommit(text)}
         onKeyDown={(e) => {
@@ -603,62 +927,117 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-function TileDetails({ tile, draft, entities, onChange, onRemove }: { tile: TrackTile; draft: Draft; entities: Record<string, Entity>; onChange: (t: TrackTile) => void; onRemove: () => void }) {
-  const shape = tile.track ? classify(tile.track) : undefined;
-  const what = shape ? PIECE_LABELS[shape.piece] : tile.platform ? "Platform" : "Label";
+function Choice({ label, value, none, options, onChange }: { label: string; value?: string; none: string; options: { id: string; name: string }[]; onChange: (v: string | undefined) => void }) {
   return (
-    <Section title={what}>
-      <p className="trk-sub muted">
-        Cell {tile.x}, {tile.y}
-        {tile.track && ` · track leaves ${tile.track.map((d) => DIRECTION_NAMES[d]).join(", ")}`}
-      </p>
-      {shape && switches(shape.piece) && (
-        <EntitySelect
-          label="Switch machine"
-          kind="turnout"
-          value={tile.turnout}
-          entities={entities}
-          onChange={(id) => {
-            const t = { ...tile };
-            if (id) t.turnout = id;
-            else delete t.turnout;
-            onChange(t);
-          }}
-        />
-      )}
-      {shape?.closed && shape.thrown && (
+    <label className="trk-field">
+      <span>{label}</span>
+      <select className="input input--select" value={value ?? ""} onChange={(e) => onChange(e.target.value || undefined)}>
+        <option value="">{none}</option>
+        {options.map((o) => (
+          <option key={o.id} value={o.id}>
+            {o.name}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function ElementDetails({
+  item,
+  draft,
+  index,
+  entities,
+  commit,
+  onRemove,
+}: {
+  item: ElementRef;
+  draft: Draft;
+  index: ReturnType<typeof indexPlan>;
+  entities: Record<string, Entity>;
+  commit: (d: Draft) => void;
+  onRemove: () => void;
+}) {
+  const change = (fields: Record<string, unknown>) => commit(updateElement(draft, item, fields));
+  const layer = (value?: string) =>
+    draft.layers.length > 0 && <Choice label="Layer" value={value} none="Not on a layer" options={draft.layers} onChange={(v) => change({ layer: v })} />;
+  const block = (value?: string) => <Choice label="Block" value={value} none="Not in a block" options={draft.blocks} onChange={(v) => change({ block: v })} />;
+  const remove = (
+    <p>
+      <button type="button" className="btn btn--sm btn--quiet" onClick={onRemove}>
+        Remove it
+      </button>
+    </p>
+  );
+  /** Buffer stop checkboxes for the element's ends that lead nowhere. */
+  const bumpers = (points: string[]) =>
+    points
+      .filter((id) => index.at.get(id)?.length === 1)
+      .map((id) => {
+        const p = index.points.get(id)!;
+        return (
+          <label key={id} className="check">
+            <input type="checkbox" checked={p.bumper ?? false} onChange={(e) => commit({ ...draft, points: draft.points.map((q) => (q.id === id ? { ...q, bumper: e.target.checked || undefined } : q)) })} />
+            Buffer stop at {Math.round(p.x)}, {Math.round(p.y)}
+          </label>
+        );
+      });
+
+  if (item.kind === "track") {
+    const t = index.tracks.get(item.id)!;
+    const info = arcInfo(index.points.get(t.a)!, index.points.get(t.b)!, t.angle);
+    return (
+      <Section title={t.angle ? "Curve" : "Straight"}>
         <p className="trk-sub muted">
-          Closed leads {DIRECTION_NAMES[shape.closed]}, thrown leads {DIRECTION_NAMES[shape.thrown]}.
+          {Math.round(info.length)} mm long
+          {t.angle ? `, turning ${Math.abs(t.angle)}° ${t.angle > 0 ? "right" : "left"} at ${Math.round(info.radius)} mm radius` : ""}
         </p>
-      )}
-      {tile.track && (
-        <label className="trk-field">
-          <span>Block</span>
-          <select
-            className="input input--select"
-            value={tile.block ?? ""}
-            onChange={(e) => {
-              const t = { ...tile };
-              if (e.target.value) t.block = e.target.value;
-              else delete t.block;
-              onChange(t);
-            }}
-          >
-            <option value="">Not in a block</option>
-            {draft.blocks.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.name}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
-      {tile.label !== undefined && <CommitInput label="Text" value={tile.label} onCommit={(v) => v.trim() && onChange({ ...tile, label: v.trim() })} />}
-      <p>
-        <button type="button" className="btn btn--sm btn--quiet" onClick={onRemove}>
-          Clear the cell
-        </button>
-      </p>
+        {block(t.block)}
+        {layer(t.layer)}
+        {bumpers([t.a, t.b])}
+        {remove}
+      </Section>
+    );
+  }
+  if (item.kind === "junction") {
+    const j = index.junctions.get(item.id)!;
+    const kind = KINDS[j.kind];
+    return (
+      <Section title={kind.name}>
+        {kind.switches && <EntitySelect label="Switch machine" kind="turnout" value={j.switch} entities={entities} onChange={(id) => change({ switch: id })} />}
+        {(j.kind === "turnout" || j.kind === "wye") && <p className="trk-sub muted">Closed is the {j.kind === "turnout" ? "straight way" : "left leg seen from the points"}, thrown the {j.kind === "turnout" ? "branch" : "right"}.</p>}
+        {j.kind === "crossover" && (
+          <p>
+            <button type="button" className="btn btn--sm btn--quiet" onClick={() => change({ ends: [j.ends[2], j.ends[3], j.ends[0], j.ends[1]] })}>
+              Cross the other way
+            </button>
+          </p>
+        )}
+        {block(j.block)}
+        {layer(j.layer)}
+        {bumpers(j.ends)}
+        {remove}
+      </Section>
+    );
+  }
+  if (item.kind === "platform") {
+    const p = draft.platforms.find((x) => x.id === item.id)!;
+    const num = (v: string) => Math.max(1, Math.round(Number(v) || 0));
+    return (
+      <Section title="Platform">
+        <CommitInput label="Length in mm" type="number" value={String(p.length)} onCommit={(v) => change({ length: num(v) })} />
+        <CommitInput label="Width in mm" type="number" value={String(p.width)} onCommit={(v) => change({ width: num(v) })} />
+        {layer(p.layer)}
+        {remove}
+      </Section>
+    );
+  }
+  const l = draft.labels.find((x) => x.id === item.id)!;
+  return (
+    <Section title="Label">
+      <CommitInput label="Text" value={l.text} onCommit={(v) => v.trim() && change({ text: v.trim() })} />
+      {layer(l.layer)}
+      {remove}
     </Section>
   );
 }
@@ -708,15 +1087,9 @@ function Blocks({
   }
 
   function remove(id: string) {
-    const tiles = new Map(draft.tiles);
-    for (const [key, t] of tiles) {
-      if (t.block !== id) continue;
-      const copy = { ...t };
-      delete copy.block;
-      tiles.set(key, copy);
-    }
+    const members: ElementRef[] = [...draft.tracks.filter((t) => t.block === id).map((t) => ({ kind: "track" as const, id: t.id })), ...draft.junctions.filter((j) => j.block === id).map((j) => ({ kind: "junction" as const, id: j.id }))];
     const blocks = draft.blocks.filter((b) => b.id !== id);
-    commit({ ...draft, tiles, blocks });
+    commit({ ...setBlock(draft, members, undefined), blocks });
     setActive(blocks[0]?.id);
   }
 
@@ -726,6 +1099,7 @@ function Blocks({
     else copy[key] = value;
     change(copy);
   };
+  const drawn = block && topology?.blocks.find((b) => b.id === block.id)?.length;
 
   return (
     <Section title="Blocks">
@@ -756,7 +1130,13 @@ function Blocks({
             }}
           />
           <EntitySelect label="Reporter" kind="reporter" value={block.reporter} entities={entities} onChange={(id) => set(block, "reporter", id)} />
-          <CommitInput label="Length in mm" type="number" value={block.length_mm ? String(block.length_mm) : ""} onCommit={(v) => set(block, "length_mm", Math.max(0, Math.round(Number(v) || 0)))} />
+          <CommitInput
+            label="Measured length in mm"
+            type="number"
+            placeholder={drawn ? `${Math.round(drawn)} as drawn` : undefined}
+            value={block.length_mm ? String(block.length_mm) : ""}
+            onCommit={(v) => set(block, "length_mm", Math.max(0, Math.round(Number(v) || 0)))}
+          />
           <label className="trk-field">
             <span>Station</span>
             <select className="input input--select" value={block.station ?? ""} onChange={(e) => set(block, "station", e.target.value)}>
@@ -811,6 +1191,7 @@ function Blocks({
 function Connections({ block, draft, entities, topology }: { block: TrackBlock; draft: Draft; entities: Record<string, Entity>; topology?: TrackPlanState["topology"] }) {
   if (!topology) return <p className="trk-sub muted">Save to see where this block connects.</p>;
   const names = new Map(draft.blocks.map((b) => [b.id, b.name]));
+  const kinds = new Map(draft.junctions.map((j) => [j.id, KINDS[j.kind].name]));
   const links = topology.links.filter((l) => l.from.block === block.id || l.to.block === block.id);
   if (links.length === 0) return <p className="trk-sub muted">Not connected to another block yet.</p>;
   return (
@@ -819,10 +1200,10 @@ function Connections({ block, draft, entities, topology }: { block: TrackBlock; 
       <ul>
         {links.map((l) => {
           const [here, there] = l.from.block === block.id ? [l.from, l.to] : [l.to, l.from];
-          const via = (l.turnouts ?? []).map((t) => `${(t.turnout && entities[t.turnout]?.name) || `turnout at ${t.x}, ${t.y}`} ${t.position}`).join(", ");
+          const via = (l.turnouts ?? []).map((t) => `${(t.switch && entities[t.switch]?.name) || `${kinds.get(t.junction) ?? "Junction"} ${t.junction}`} ${t.position}`).join(", ");
           return (
-            <li key={`${l.from.x},${l.from.y},${l.from.dir}>${l.to.x},${l.to.y},${l.to.dir}:${via}`}>
-              {names.get(there.block) ?? there.block} from the {DIRECTION_NAMES[here.dir]} end
+            <li key={`${l.from.point}>${l.to.point}:${via}`}>
+              {names.get(there.block) ?? there.block} from its {compass(here.heading)} end
               {via && <span className="muted"> · {via}</span>}
             </li>
           );
@@ -883,6 +1264,131 @@ function Stations({ draft, commit }: { draft: Draft; commit: (d: Draft) => void 
   );
 }
 
+function Layers({ draft, commit, layers: [hidden, setHidden] }: { draft: Draft; commit: (d: Draft) => void; layers: ReturnType<typeof useHiddenLayers> }) {
+  const [name, setName] = useState("");
+  function add() {
+    const layerName = name.trim();
+    if (!layerName) return;
+    const id = makeID(layerName, new Set(draft.layers.map((l) => l.id)), "layer");
+    commit({ ...draft, layers: [...draft.layers, { id, name: layerName }] });
+    setName("");
+  }
+  function remove(id: string) {
+    const off = <T extends { layer?: string }>(x: T): T => {
+      if (x.layer !== id) return x;
+      const copy = { ...x };
+      delete copy.layer;
+      return copy;
+    };
+    commit({
+      ...draft,
+      layers: draft.layers.filter((l) => l.id !== id),
+      tracks: draft.tracks.map(off),
+      junctions: draft.junctions.map(off),
+      platforms: draft.platforms.map(off),
+      labels: draft.labels.map(off),
+    });
+  }
+  return (
+    <Section title="Layers">
+      {draft.layers.length === 0 && <p className="trk-sub muted">Layers divide a plan you want to see a part at a time, such as the decks of a layout on two levels.</p>}
+      {draft.layers.map((l) => (
+        <div key={l.id} className="trk-layer">
+          <input type="checkbox" aria-label={`Show ${l.name}`} checked={!hidden.has(l.id)} onChange={(e) => setHidden(l.id, !e.target.checked)} />
+          <CommitInput label="Name" value={l.name} onCommit={(v) => v.trim() && commit({ ...draft, layers: draft.layers.map((x) => (x.id === l.id ? { ...x, name: v.trim() } : x)) })} />
+          <button type="button" className="btn btn--sm btn--quiet" onClick={() => remove(l.id)}>
+            Delete
+          </button>
+        </div>
+      ))}
+      {draft.layers.length > 0 && <p className="trk-sub muted">The boxes show and hide a layer on this browser only. Deleting a layer keeps what is on it.</p>}
+      <form
+        className="trk-add"
+        onSubmit={(e) => {
+          e.preventDefault();
+          add();
+        }}
+      >
+        <label className="trk-field">
+          <span>New layer</span>
+          <input className="input" value={name} placeholder="Upper deck" onChange={(e) => setName(e.target.value)} />
+        </label>
+        <button type="submit" className="btn btn--sm" disabled={!name.trim()}>
+          Add layer
+        </button>
+      </form>
+    </Section>
+  );
+}
+
+function Import({ draft, commit }: { draft: Draft; commit: (d: Draft) => void }) {
+  const [scale, setScale] = useState(10);
+  const [layer, setLayer] = useState<string>();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  const [result, setResult] = useState<{ summary: string; notes: string[] }>();
+
+  async function choose(file: File | undefined) {
+    if (!file) return;
+    setBusy(true);
+    setError(undefined);
+    setResult(undefined);
+    try {
+      const imp = await api.importTrackPlan(file, scale);
+      const on = layer && draft.layers.some((l) => l.id === layer) ? layer : undefined;
+      commit(mergeTrack(draft, imp.plan, on));
+      const free = freeEnds(indexPlan(imp.plan)).filter((p) => !p.bumper).length;
+      setResult({
+        summary: `Added ${imp.plan.tracks.length} pieces of track and ${imp.plan.junctions.length} turnouts and crossings${free ? `, with ${free} track ends that lead nowhere yet` : ""}.`,
+        notes: imp.notes ?? [],
+      });
+    } catch (err) {
+      setError(message(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Section title="Import">
+      <p className="trk-sub muted">Bring in track from RailModeller Pro: export the layout for JMRI's PanelPro there, then choose the file here. The track is added to the plan where it lies in the export.</p>
+      <label className="trk-field">
+        <span>Millimeters to a panel unit</span>
+        <input className="input input--num" type="number" min={0.01} step="any" value={scale} onChange={(e) => setScale(Number(e.target.value) || 10)} />
+      </label>
+      {draft.layers.length > 0 && <Choice label="Put it on" value={layer} none="No layer" options={draft.layers} onChange={setLayer} />}
+      <p className="trk-note__actions">
+        <label className={busy ? "btn btn--sm trk-file is-busy" : "btn btn--sm trk-file"}>
+          {busy ? "Reading" : "Choose a panel file"}
+          <input
+            type="file"
+            className="sr-only"
+            accept=".xml,application/xml,text/xml"
+            disabled={busy}
+            onChange={(e) => {
+              void choose(e.target.files?.[0]);
+              e.target.value = "";
+            }}
+          />
+        </label>
+      </p>
+      {error && <p className="note note--error">{error}</p>}
+      {result && (
+        <div className="trk-sub">
+          <p>{result.summary}</p>
+          {result.notes.length > 0 && (
+            <ul className="trk-problems">
+              {result.notes.map((n) => (
+                <li key={n}>{n}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </Section>
+  );
+}
+
 /** The size an image is drawn at, as its height over its width. SVGs
  * without a size of their own count as square. */
 function aspectOf(file: File): Promise<number> {
@@ -915,11 +1421,11 @@ function Background({ draft, area, commit, onAdded, onRemoved }: { draft: Draft;
       const [aspect, { image }] = await Promise.all([aspectOf(file), api.uploadBackground(file)]);
       if (bg) {
         // A new image keeps the old one's place and width.
-        commit({ ...draft, background: { ...bg, image, height: round(bg.width * aspect, 3) } });
+        commit({ ...draft, background: { ...bg, image, height: round(bg.width * aspect, 1) } });
       } else {
-        const placed = bounds(draft.tiles.values());
-        const width = placed ? Math.max(placed.maxX - placed.minX + 1, 20) : area.maxX - area.minX + 1;
-        commit({ ...draft, background: { image, x: placed?.minX ?? area.minX, y: placed?.minY ?? area.minY, width, height: round(width * aspect, 3), opacity: 0.4 } });
+        const placed = planBounds(draft);
+        const width = placed ? Math.max(placed.maxX - placed.minX, 600) : area.maxX - area.minX;
+        commit({ ...draft, background: { image, x: placed?.minX ?? area.minX, y: placed?.minY ?? area.minY, width, height: round(width * aspect, 1), opacity: 0.4 } });
         onAdded();
       }
     } catch (err) {
@@ -947,20 +1453,20 @@ function Background({ draft, area, commit, onAdded, onRemoved }: { draft: Draft;
 
   return (
     <Section title="Background">
-      {!bg && <p className="trk-sub muted">Put a plan from your track planning software under the grid to draw over it: export it as an image (PNG, JPEG, WebP, GIF or SVG) and choose it here.</p>}
+      {!bg && <p className="trk-sub muted">Put a plan from your track planning software under the track to draw over it: export it as an image (PNG, JPEG, WebP, GIF or SVG) and choose it here.</p>}
       {bg && (
         <>
           <label className="trk-field">
-            <span>Width in cells</span>
+            <span>Width in mm</span>
             <input
               className="input input--num"
               type="number"
-              min={0.1}
-              step={0.1}
+              min={1}
+              step={1}
               value={bg.width}
               onChange={(e) => {
                 const width = Number(e.target.value);
-                if (width > 0) set({ width: round(width, 2), height: round((bg.height / bg.width) * width, 3) }, "background-width");
+                if (width > 0) set({ width: round(width, 1), height: round((bg.height / bg.width) * width, 1) }, "background-width");
               }}
             />
           </label>
@@ -999,7 +1505,7 @@ function Background({ draft, area, commit, onAdded, onRemoved }: { draft: Draft;
             <input type="checkbox" checked={bg.operating ?? false} onChange={(e) => set({ operating: e.target.checked || undefined })} />
             Show it while operating too
           </label>
-          <p className="trk-sub muted">Move it with the Background tool. Match a known length on the plan, such as the distance between two parallel tracks, to whole cells.</p>
+          <p className="trk-sub muted">Move it with the Background tool. Set its width so that a known length on it, such as a straight piece of track, matches the plan.</p>
         </>
       )}
       {error && <p className="note note--error">{error}</p>}
@@ -1023,14 +1529,14 @@ function Background({ draft, area, commit, onAdded, onRemoved }: { draft: Draft;
 }
 
 function Problems({ ends, saved }: { ends: number; saved?: TrackPlanState }) {
-  const problems = (saved?.topology.problems ?? []).filter((p) => p.kind === "block_empty" || p.kind === "block_split");
+  const problems = (saved?.topology.problems ?? []).filter((p) => p.kind !== "open_end");
   if (ends === 0 && problems.length === 0) return null;
   return (
     <Section title="To fix">
       <ul className="trk-problems">
-        {ends > 0 && <li>{ends === 1 ? "One track end leads" : `${ends} track ends lead`} into a cell with no track; they're marked in amber.</li>}
+        {ends > 0 && <li>{ends === 1 ? "One track end leads" : `${ends} track ends lead`} nowhere and have no buffer stop; they're marked in amber.</li>}
         {problems.map((p) => (
-          <li key={`${p.kind}${p.block}`}>{p.message}</li>
+          <li key={`${p.kind}${p.block ?? ""}${p.point ?? ""}`}>{p.message}</li>
         ))}
       </ul>
     </Section>

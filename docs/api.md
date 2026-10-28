@@ -231,9 +231,16 @@ See [The fast clock](./clock.md).
 ```
 GET    /api/v1/trackplan                     {plan, revision, topology}
 PUT    /api/v1/trackplan                     {plan, revision} -> {plan, revision, topology}
+POST   /api/v1/trackplan/import              multipart form, fields "file" and "scale": a JMRI panel's track -> {plan, notes}
 POST   /api/v1/trackplan/backgrounds         multipart form, field "file": store an image -> {image}
 GET    /api/v1/trackplan/backgrounds/{image} a stored image
 ```
+
+An import changes nothing on the server. It reads the track out of a JMRI
+Layout Editor panel file, as RailModeller Pro exports a layout for JMRI,
+at `scale` millimeters to the panel's unit (10 when not given), and
+returns it as a plan of points, tracks and junctions, with `notes` on
+what it left out. The editor adds it to the plan under new IDs.
 
 A stored image becomes the plan's background when a plan whose
 `background.image` names it is saved; each save deletes the stored images
@@ -241,10 +248,11 @@ the saved plan doesn't name.
 
 A save names the revision it was based on; when the plan was saved since,
 it gets 409 with the current `revision` in the body. The topology lists
-`problems` (track leading nowhere, empty or split blocks), each block's
-`ends` (a cell of the block and the direction track leaves it by) and the
-`links` between block ends with the turnout positions on the way. See
-[The track plan](./track-plan.md).
+`problems` (track ends without a buffer stop, kinks, empty or split
+blocks), each block's `length` in millimeters and its `ends` (the point
+where track leaves it and the heading it leaves by), and the `links`
+between block ends with their length and the junction positions on the
+way. See [The track plan](./track-plan.md).
 
 ## Monitor
 

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"github.com/mikesmitty/interlock/internal/trackplan"
 )
@@ -24,6 +25,7 @@ type TrackPlan interface {
 //
 //	GET  /api/v1/trackplan                     the plan, its revision and its topology
 //	PUT  /api/v1/trackplan                     {plan, revision} -> the saved state
+//	POST /api/v1/trackplan/import              multipart "file", "scale": a JMRI panel's track -> {plan, notes}
 //	POST /api/v1/trackplan/backgrounds         multipart field "file": store an image -> {image}
 //	GET  /api/v1/trackplan/backgrounds/{name}  a stored image
 //
@@ -31,7 +33,10 @@ type TrackPlan interface {
 // was saved by someone else since. Saves arrive as "trackplan"
 // server-sent events. A stored image becomes the plan's background when a
 // plan naming it is saved; saving deletes the images the plan doesn't
-// name.
+// name. An import changes nothing on the server: it reads the track
+// out of a JMRI Layout Editor panel file, as RailModeller Pro exports one,
+// scale millimeters to the panel's unit (10 when not given), for the
+// editor to add to the plan.
 
 // maxTrackPlan bounds a saved plan's JSON.
 const maxTrackPlan = 8 << 20
@@ -79,6 +84,42 @@ func (a *API) putTrackPlan(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 	default:
 		writeJSON(w, http.StatusOK, st)
+	}
+}
+
+func (a *API) importTrackPlan(w http.ResponseWriter, r *http.Request) {
+	if !a.trackPlanReady(w) {
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, trackplan.MaxImportSize+1<<20)
+	if err := r.ParseMultipartForm(8 << 20); err != nil {
+		writeError(w, http.StatusBadRequest, "send the panel file as a multipart form field named file: "+err.Error())
+		return
+	}
+	scale := float64(trackplan.DefaultJMRIScale)
+	if s := r.FormValue("scale"); s != "" {
+		v, err := strconv.ParseFloat(s, 64)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "the scale must be a number of millimeters")
+			return
+		}
+		scale = v
+	}
+	f, _, err := r.FormFile("file")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "the form needs a file field holding the panel file")
+		return
+	}
+	defer f.Close()
+	imp, err := trackplan.ImportJMRI(f, scale)
+	var invalid *trackplan.InvalidError
+	switch {
+	case errors.As(err, &invalid):
+		writeError(w, http.StatusBadRequest, invalid.Reason)
+	case err != nil:
+		writeError(w, http.StatusInternalServerError, err.Error())
+	default:
+		writeJSON(w, http.StatusOK, imp)
 	}
 }
 
