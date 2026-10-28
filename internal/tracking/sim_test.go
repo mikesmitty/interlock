@@ -113,6 +113,8 @@ func (b *bench) SetTrack(n openlcb.NodeID, track int, loco *sim.Locomotive) {
 	if loco != nil {
 		e.Locomotives = []entity.Locomotive{{Address: loco.Address, Facing: loco.Facing}}
 	}
+	// As Run does: the trains move on to the report first.
+	b.l.tick(b.now)
 	b.l.entity(e)
 }
 
@@ -377,7 +379,10 @@ func TestTrackingKeepsPlacesOverARestart(t *testing.T) {
 	again.setRoster(b.roster())
 	again.restore(st)
 	before, after := b.tracked(101), again.trains[formationKey("local-1")]
-	if after == nil || after.block != before.block || after.top != before.top || fmt.Sprint(after.stretch) != fmt.Sprint(before.stretch) {
+	if len(before.speeds) == 0 {
+		t.Fatal("no speeds measured to keep")
+	}
+	if after == nil || after.block != before.block || after.top != before.top || fmt.Sprint(after.stretch) != fmt.Sprint(before.stretch) || fmt.Sprint(after.speeds) != fmt.Sprint(before.speeds) {
 		t.Fatalf("restored %+v\nwant %+v", after, before)
 	}
 	// The reporter says it is still there: it stays placed.
@@ -389,5 +394,65 @@ func TestTrackingKeepsPlacesOverARestart(t *testing.T) {
 	}
 	if !after.seen || after.stretch == nil {
 		t.Errorf("seen %v, placed %v after the restart", after.seen, after.stretch != nil)
+	}
+}
+
+func TestTrackingMeasuresTheSpeedAtEachStepHeld(t *testing.T) {
+	for _, known := range []bool{true, false} {
+		t.Run(fmt.Sprintf("momentum known %v", known), func(t *testing.T) {
+			b := newBench(t, known)
+			d := sim.NewDecoder(1, false)
+			truth := func(step float64) float64 { return 160 * train.SpeedCurve(step, d.CVs[2], d.CVs[6], d.CVs[5]) }
+			for _, step := range []float32{80, 30} {
+				b.drive(101, step, false)
+				for start := b.now; ; {
+					b.run(time.Second, nil)
+					if i := slices.IndexFunc(b.tracked(101).speeds, func(p SpeedPoint) bool { return p.Step == int(step) }); i >= 0 && b.tracked(101).speeds[i].Runs >= 2 {
+						break
+					}
+					if b.now.Sub(start) > 5*time.Minute {
+						t.Fatalf("step %v never measured: %+v", step, b.tracked(101).speeds)
+					}
+				}
+			}
+			tr := b.tracked(101)
+			for _, p := range tr.speeds {
+				want := truth(float64(p.Step))
+				t.Logf("step %d: %.1f mm/s over %d runs; really %.1f", p.Step, p.Speed, p.Runs, want)
+				if math.Abs(p.Speed-want) > 0.03*want {
+					t.Errorf("step %d measured at %.1f mm/s; want about %.1f", p.Step, p.Speed, want)
+				}
+			}
+			if len(tr.speeds) != 2 {
+				t.Errorf("speeds measured at %+v; want steps 30 and 80 only", tr.speeds)
+			}
+			// Between and beyond the steps measured.
+			m := b.l.motion(tr)
+			if got, want := m.Speed(55), (tr.speeds[0].Speed+tr.speeds[1].Speed)/2; math.Abs(got-want) > 0.01 {
+				t.Errorf("speed at 55 = %.1f; want halfway, %.1f", got, want)
+			}
+			if got, want := m.Speed(126), truth(126); math.Abs(got-want) > 0.03*want {
+				t.Errorf("speed at 126 = %.1f; want about %.1f", got, want)
+			}
+		})
+	}
+}
+
+func TestTrackingPublishesATrainComingToAStand(t *testing.T) {
+	b := newBench(t, true)
+	b.drive(101, 60, false)
+	b.run(10*time.Second, nil)
+	b.drive(101, 0, false)
+	// The tick it comes to a stand in, it doesn't move, but its speed
+	// changes to 0 and has to be published.
+	for b.tracked(101).step != 0 {
+		clear(b.l.changed)
+		b.run(20*time.Millisecond, nil)
+		if b.now.After(time.Unix(1100, 0)) {
+			t.Fatal("never stopped")
+		}
+	}
+	if !b.l.changed[formationKey("local-1")] {
+		t.Error("not published as it came to a stand")
 	}
 }

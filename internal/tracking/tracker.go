@@ -64,10 +64,24 @@ type Train struct {
 	// leading, or reverse.
 	Direction string `json:"direction"`
 	// Speed is how fast it goes by the estimate, in millimeters a
-	// second, and TopSpeed how fast it was measured to go at full speed;
-	// both 0 until measured.
+	// second, and TopSpeed how fast it was measured to go at full speed
+	// on its decoder's speed curve; both 0 until measured.
 	Speed    float64 `json:"speed"`
 	TopSpeed float64 `json:"top_speed,omitempty"`
+	// Speeds are the speeds measured at the steps it held over a whole
+	// run from one block into the next.
+	Speeds []SpeedPoint `json:"speeds,omitempty"`
+	// Step is the speed step its decoder has reached by the estimate,
+	// negative in reverse, in the train's terms; Motion is how it moves
+	// at each step.
+	Step   float64 `json:"-"`
+	Motion Motion  `json:"-"`
+	// Backward is whether the locomotive of the decoder it is followed
+	// by faces the train's rear, so that its decoder's forward runs the
+	// train in reverse.
+	Backward bool `json:"-"`
+	// Addresses are the decoders of the train's locomotives.
+	Addresses []detector.Address `json:"-"`
 	// Length is the train's length from the roster.
 	Length float64 `json:"length,omitempty"`
 	// Momentum is whether its decoder's momentum (CVs 3 and 4) is on
@@ -257,6 +271,32 @@ func (tk *Tracker) Forget(ctx context.Context, id string) error {
 	}
 }
 
+// Estimate returns a train as tracking estimates it this moment, by its
+// ID, moved on to now rather than as last published.
+func (tk *Tracker) Estimate(ctx context.Context, id string) (Train, error) {
+	done := make(chan *Train, 1)
+	tk.push(func(l *layout) {
+		l.tick(time.Now())
+		for _, t := range l.trains {
+			if t.known() && l.unitFor(t).id == id {
+				v := l.view(t)
+				done <- &v
+				return
+			}
+		}
+		done <- nil
+	})
+	select {
+	case v := <-done:
+		if v == nil {
+			return Train{}, ErrNotTracked
+		}
+		return *v, nil
+	case <-ctx.Done():
+		return Train{}, ctx.Err()
+	}
+}
+
 // List returns the tracked trains by name.
 func (tk *Tracker) List() []Train {
 	tk.mu.RLock()
@@ -347,6 +387,9 @@ func (tk *Tracker) Run(ctx context.Context) error {
 			tk.save(context.WithoutCancel(ctx), l)
 			return nil
 		case fn := <-tk.inbox:
+			// The trains move on to now first, so what came is taken
+			// where they are as it comes.
+			l.tick(time.Now())
 			fn(l)
 			publish(true)
 		case now := <-ticker.C:
@@ -416,15 +459,16 @@ type savedTrain struct {
 	Heading float64           `json:"heading,omitempty"`
 	Top     float64           `json:"top,omitempty"`
 	Samples int               `json:"samples,omitempty"`
+	Speeds  []SpeedPoint      `json:"speeds,omitempty"`
 }
 
 func (l *layout) state() saved {
 	st := saved{Trains: []savedTrain{}}
 	for _, t := range l.trains {
-		if t.block == "" && t.top == 0 {
+		if t.block == "" && t.top == 0 && len(t.speeds) == 0 {
 			continue
 		}
-		st.Trains = append(st.Trains, savedTrain{Address: t.addr, Block: t.block, Stretch: t.stretch, At: t.at, Length: t.length, Heading: t.heading, Top: t.top, Samples: t.samples})
+		st.Trains = append(st.Trains, savedTrain{Address: t.addr, Block: t.block, Stretch: t.stretch, At: t.at, Length: t.length, Heading: t.heading, Top: t.top, Samples: t.samples, Speeds: t.speeds})
 	}
 	slices.SortFunc(st.Trains, func(a, b savedTrain) int {
 		return cmp.Or(cmp.Compare(a.Address.Type, b.Address.Type), cmp.Compare(a.Address.Number, b.Address.Number))
@@ -441,6 +485,7 @@ func (l *layout) restore(st saved) {
 		t := l.get(s.Address)
 		l.follow(t, s.Address)
 		t.block, t.heading, t.top, t.samples = s.Block, s.Heading, s.Top, s.Samples
+		t.speeds = slices.DeleteFunc(slices.Clone(s.Speeds), func(p SpeedPoint) bool { return p.Step < 1 || p.Step > train.MaxSpeed || p.Speed <= 0 })
 		if s.Stretch.Valid(l.net) {
 			t.stretch, t.at, t.length = s.Stretch, s.At, s.Length
 			if s.Length == 0 {

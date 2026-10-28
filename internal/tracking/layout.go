@@ -34,6 +34,25 @@ const inside = 0.5
 // millimeters.
 const lineStep = 20
 
+// entryLag is how long after a decoder crosses into a block its entry is
+// reported: two matching RailCom readings, a few DCC packets, then the
+// event over the bus. The decoder is put that much running further in.
+const entryLag = 30 * time.Millisecond
+
+// settle is how long a train must have held a step before a run counts
+// as a measure of the speed at it: a moment for the timing when its
+// momentum is on record, longer when it isn't, since the train may still
+// be gathering speed.
+const (
+	settleKnown   = 500 * time.Millisecond
+	settleUnknown = 3 * time.Second
+)
+
+// outlier is how far a run may differ from the speed measured at its step
+// before it is taken for a run that went wrong, such as one held up by
+// another train, once the step has two runs.
+const outlier = 0.5
+
 // rosterInfo is what the roster says about the locomotives at an
 // address: the decoder that moves them and the train they run in.
 type rosterInfo struct {
@@ -55,6 +74,7 @@ type unit struct {
 	name      string
 	formation string
 	roster    []string
+	addresses []detector.Address
 	length    float64
 }
 
@@ -111,7 +131,18 @@ type tracked struct {
 	// 0 until measured.
 	top     float64
 	samples int
-	updated time.Time
+	// speeds are the speeds measured at the steps held over a whole run,
+	// by step.
+	speeds []SpeedPoint
+	// steady is the step the decoder has held since steadySince, 0 while
+	// it changes or stands; anchoredAt is when the entry it was last put
+	// in place by came, and anchorStep the step it had held long enough
+	// by then to measure, else 0.
+	steady      float64
+	steadySince time.Time
+	anchoredAt  time.Time
+	anchorStep  float64
+	updated     time.Time
 }
 
 // layout is what tracking knows. One goroutine owns it.
@@ -379,6 +410,9 @@ func (l *layout) rebuild() {
 			if e, ok := l.entries[v.Locomotive]; ok {
 				length = e.Length
 				u.roster = append(u.roster, e.ID)
+				if a := addressOf(e.Address, e.Long); !slices.Contains(u.addresses, a) {
+					u.addresses = append(u.addresses, a)
+				}
 				// An address shared by locomotives in two trains runs in
 				// the first.
 				if info := roster[addressOf(e.Address, e.Long)]; info.unit == "" {
@@ -403,7 +437,7 @@ func (l *layout) rebuild() {
 		length := l.entries[info.ids[0]].Length
 		key := addressKey(addr)
 		info.unit, info.at = key, length/2
-		units[key] = &unit{id: idOf(addr), name: strings.Join(names, " / "), roster: slices.Clone(info.ids), length: length}
+		units[key] = &unit{id: idOf(addr), name: strings.Join(names, " / "), roster: slices.Clone(info.ids), addresses: []detector.Address{addr}, length: length}
 	}
 	l.roster, l.units = roster, units
 	l.settle()
@@ -547,7 +581,14 @@ func (l *layout) unitFor(t *tracked) unit {
 	if u := l.units[t.key]; u != nil {
 		return *u
 	}
-	return unit{id: idOf(t.addr)}
+	return unit{id: idOf(t.addr), addresses: []detector.Address{t.addr}}
+}
+
+// motion is how the train moves at the steps it is set to, as far as
+// tracking knows.
+func (l *layout) motion(t *tracked) Motion {
+	c := l.info(t).cvs
+	return Motion{Start: c.start, Mid: c.mid, High: c.high, Accel: c.accel, Decel: c.decel, Top: t.top, Speeds: t.speeds}
 }
 
 // info is what the roster says about the decoder a train is followed
@@ -716,20 +757,22 @@ func (l *layout) exit(addr detector.Address, block string) {
 func (l *layout) carry(t *tracked, prev, block string) bool {
 	leg, at := l.decoder(t)
 	// The decoder goes just inside the block, so it isn't left on the
-	// joint with the track outside.
+	// joint with the track outside, and on by as far as it ran while the
+	// entry was on its way.
+	lag := l.motion(t).Speed(t.step) * entryLag.Seconds()
 	var delta float64
 	var set map[string]trackplan.Position
 	if l.net.Block(leg) == block {
 		// Held where the block begins, waiting to be seen there.
-		delta = max(inside-at, 0)
+		delta = max(inside-at, 0) + sign(t.step)*lag
 	} else {
 		ahead, okAhead := l.search(leg, at, l.into(block, prev))
 		behind, okBehind := l.search(leg.Reversed(), l.net.Length(leg)-at, l.into(block, prev))
 		switch way := t.going(); {
 		case okAhead && (!okBehind || way > 0 || (way == 0 && ahead.dist <= behind.dist)):
-			delta, set = ahead.dist+inside, ahead.set
+			delta, set = ahead.dist+inside+lag, ahead.set
 		case okBehind:
-			delta, set = -behind.dist-inside, behind.set
+			delta, set = -behind.dist-inside-lag, behind.set
 		default:
 			return false
 		}
@@ -742,6 +785,11 @@ func (l *layout) carry(t *tracked, prev, block string) bool {
 		run := math.Abs(t.moved + moved)
 		if sign(t.moved+moved) == t.ran || t.ran == 0 {
 			l.learn(t, run/t.unit)
+			if t.anchorStep != 0 && t.steady == t.anchorStep && !t.steadySince.After(t.anchoredAt) {
+				if secs := l.now.Sub(t.anchoredAt).Seconds(); secs > 0 {
+					l.learnStep(t, t.anchorStep, run/secs)
+				}
+			}
 		}
 	}
 	l.anchor(t)
@@ -761,8 +809,41 @@ func (l *layout) learn(t *tracked, top float64) {
 	t.samples++
 }
 
+// learnStep takes a measure of the speed at a step held over a whole
+// run.
+func (l *layout) learnStep(t *tracked, step, speed float64) {
+	if speed <= 0 || math.IsInf(speed, 0) || math.IsNaN(speed) {
+		return
+	}
+	s := int(math.Round(math.Abs(step)))
+	i, found := slices.BinarySearchFunc(t.speeds, s, func(p SpeedPoint, s int) int { return p.Step - s })
+	if !found {
+		t.speeds = slices.Insert(slices.Clone(t.speeds), i, SpeedPoint{Step: s, Speed: speed, Runs: 1})
+		return
+	}
+	speeds := slices.Clone(t.speeds)
+	p := &speeds[i]
+	if p.Runs >= 2 && math.Abs(speed-p.Speed) > outlier*p.Speed {
+		return
+	}
+	// An average of the first few runs, then a moving one.
+	p.Speed += (speed - p.Speed) * max(1/float64(p.Runs+1), learnRate)
+	p.Runs++
+	t.speeds = speeds
+}
+
+// anchor starts a new run from the entry that put the train in place
+// now.
 func (l *layout) anchor(t *tracked) {
 	t.anchored, t.moved, t.unit, t.ran, t.turned = true, 0, 0, 0, false
+	t.anchoredAt, t.anchorStep = l.now, 0
+	settle := settleUnknown
+	if l.info(t).cvs.known {
+		settle = settleKnown
+	}
+	if t.steady != 0 && l.now.Sub(t.steadySince) >= settle {
+		t.anchorStep = t.steady
+	}
 }
 
 // placeFrom puts a train whose place isn't known at where the track from
@@ -782,7 +863,8 @@ func (l *layout) placeFrom(t *tracked, prev, block string) bool {
 	if !ok {
 		return false
 	}
-	leg, at := best.leg, min(inside, l.net.Length(best.leg))
+	lag := l.motion(t).Speed(t.step) * entryLag.Seconds()
+	leg, at := best.leg, min(inside+lag, l.net.Length(best.leg))
 	if t.going() < 0 {
 		// Running in reverse: the front is behind the decoder.
 		leg, at = leg.Reversed(), l.net.Length(leg)-at
@@ -851,10 +933,22 @@ func (l *layout) tick(now time.Time) {
 	}
 	for _, t := range l.trains {
 		info := l.info(t)
+		m := l.motion(t)
+		before := t.step
 		if l.powerOff || l.estop || t.estop {
 			t.step = 0
 		} else {
-			t.step = train.Momentum(t.step, t.target, dt, info.cvs.accel, info.cvs.decel)
+			t.step = m.Next(t.step, t.target, dt)
+		}
+		if t.step != before {
+			// Its speed is published as it changes, down to a stand.
+			l.changed[t.key] = true
+		}
+		switch {
+		case t.step == 0 || t.step != t.target:
+			t.steady = 0
+		case t.steady != t.step:
+			t.steady, t.steadySince = t.step, now
 		}
 		way := sign(t.step)
 		if way == 0 {
@@ -869,10 +963,11 @@ func (l *layout) tick(now time.Time) {
 			}
 			t.ran = way
 		}
-		if t.stretch == nil || t.top == 0 || curve == 0 {
+		v := m.Speed(t.step)
+		if t.stretch == nil || v == 0 {
 			continue
 		}
-		d := min(t.top*curve*dt, l.room(t, way))
+		d := min(v*dt, l.room(t, way))
 		if d <= 0 {
 			continue
 		}
@@ -887,7 +982,7 @@ func (l *layout) tick(now time.Time) {
 
 // view is how a train is shown.
 func (l *layout) view(t *tracked) Train {
-	info, u := l.info(t), l.unitFor(t)
+	info, u, m := l.info(t), l.unitFor(t), l.motion(t)
 	v := Train{
 		ID:        u.id,
 		Name:      u.name,
@@ -902,17 +997,21 @@ func (l *layout) view(t *tracked) Train {
 		TopSpeed:  math.Round(t.top*10) / 10,
 		Length:    u.length,
 		Momentum:  info.cvs.known,
+		Speeds:    slices.Clone(t.speeds),
+		Step:      t.step,
+		Motion:    m,
+		Backward:  t.backward,
+		Addresses: slices.Clone(u.addresses),
 		Updated:   t.updated,
 	}
+	v.Motion.Speeds = v.Speeds
 	if v.Name == "" {
 		v.Name = "locomotive " + t.addr.String()
 	}
 	if t.going() < 0 {
 		v.Direction = train.Reverse
 	}
-	if t.top > 0 {
-		v.Speed = math.Round(t.top*train.SpeedCurve(math.Abs(t.step), info.cvs.start, info.cvs.mid, info.cvs.high)*10) / 10
-	}
+	v.Speed = math.Round(m.Speed(t.step)*10) / 10
 	if t.stretch == nil {
 		if t.block != "" {
 			v.Blocks = []string{t.block}
