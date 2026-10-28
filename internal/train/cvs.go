@@ -77,7 +77,8 @@ type CVValues struct {
 // written to it since it began, which can be trusted to hold those
 // values more than ones saved earlier. Work on the programming track
 // begins with a check that the decoder there is this one (Check says how
-// it went); writes on the main begin a session unchecked. It ends after
+// it went). On the main the address picks the decoder, so reads and
+// writes there begin a session unchecked. It ends after
 // SessionIdle without work, when a decoder is identified on the
 // programming track (the locomotive there may have been swapped), when
 // another decoder is checked there, when it is ended by hand, or when

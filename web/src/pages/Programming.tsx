@@ -104,9 +104,9 @@ export function Programming() {
               {history.map((op) => (
                 <tr key={op.id}>
                   <td className="dim">{clockTime(op.finished)}</td>
-                  <td>{op.kind === "read" ? "Read" : op.kind === "write" ? "Write" : `Write on the main to ${op.train_name || op.train}`}</td>
+                  <td>{opLabel(op)}</td>
                   <td className="num">{op.cv}</td>
-                  <td className="num">{op.ok ? op.value : op.kind === "read" ? "" : op.value}</td>
+                  <td className="num">{op.ok ? op.value : op.kind === "read" || op.kind === "pom_read" ? "" : op.value}</td>
                   <td>{op.ok ? <Status color="green">Done</Status> : <Status color="red">{op.error ?? "Failed"}</Status>}</td>
                 </tr>
               ))}
@@ -224,27 +224,41 @@ function ServiceMode({ track, onOp, onTrack }: { track?: ProgrammingTrack; onOp:
   );
 }
 
+function opLabel(op: CVOp): string {
+  switch (op.kind) {
+    case "read":
+      return "Read";
+    case "write":
+      return "Write";
+    case "pom":
+      return `Write on the main to ${op.train_name || op.train}`;
+    case "pom_read":
+      return `Read on the main from ${op.train_name || op.train}`;
+  }
+}
+
 function OnTheMain({ roster, onOp }: { roster: { id: string; name: string; address: number; long: boolean }[]; onOp: (op: CVOp) => void }) {
-  // Locomotives are named by address here: that is what a write on the main reaches.
+  // Locomotives are named by address here: that is what work on the main reaches.
   const [train, setTrain] = useState("");
   const [cv, setCV] = useState("3");
   const [value, setValue] = useState<number>();
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<string>();
   const [result, setResult] = useState<CVOp>();
   const id = train || (roster[0] ? addressID(roster[0]) : "");
 
-  async function write(e: FormEvent) {
-    e.preventDefault();
-    setBusy(true);
+  async function run(kind: "pom" | "pom_read", e?: FormEvent) {
+    e?.preventDefault();
+    setBusy(kind);
     setResult(undefined);
     try {
-      const op = await api.writePOM(id, Number(cv), value ?? 0);
+      const op = kind === "pom_read" ? await api.readPOM(id, Number(cv)) : await api.writePOM(id, Number(cv), value ?? 0);
       setResult(op);
       onOp(op);
+      if (op.ok && kind === "pom_read") setValue(op.value);
     } catch (err) {
       setResult({
         id: 0,
-        kind: "pom",
+        kind,
         cv: Number(cv),
         value: value ?? 0,
         ok: false,
@@ -253,15 +267,15 @@ function OnTheMain({ roster, onOp }: { roster: { id: string; name: string; addre
         finished: "",
       });
     } finally {
-      setBusy(false);
+      setBusy(undefined);
     }
   }
 
   return (
-    <form className="panel prog-panel" onSubmit={(e) => void write(e)}>
+    <form className="panel prog-panel" onSubmit={(e) => void run("pom_read", e)}>
       <h2>On the main</h2>
       <p className="thr-note" style={{ marginBottom: "0.75rem" }}>
-        Writes a CV to one locomotive wherever it is on the layout. Reading on the main needs RailCom, which is not here yet.
+        Reads or writes a CV of one locomotive wherever it is on the layout. Reading needs RailCom: a detector at the command station and RailCom on in the decoder.
       </p>
       <div className="prog-form">
         <label className="auto-field">
@@ -276,13 +290,22 @@ function OnTheMain({ roster, onOp }: { roster: { id: string; name: string; addre
           </datalist>
         </label>
         <CVField value={cv} onChange={setCV} />
-        <button className="btn btn--primary" type="submit" disabled={busy || !cv || !id || value === undefined}>
-          {busy ? "Writing…" : "Write"}
+        <button className="btn btn--primary" type="submit" disabled={!!busy || !cv || !id}>
+          {busy === "pom_read" ? "Reading…" : "Read"}
+        </button>
+        <button className="btn" type="button" onClick={() => void run("pom")} disabled={!!busy || !cv || !id || value === undefined}>
+          {busy === "pom" ? "Writing…" : "Write"}
         </button>
       </div>
       <ValueField value={value} onChange={setValue} />
       {result && (
-        <p className={result.ok ? "note" : "note note--error"}>{result.ok ? `CV ${result.cv} of ${result.train_name || result.train} is now ${result.value}.` : result.error}</p>
+        <p className={result.ok ? "note" : "note note--error"}>
+          {result.ok
+            ? result.kind === "pom_read"
+              ? `CV ${result.cv} of ${result.train_name || result.train} is ${result.value}.`
+              : `CV ${result.cv} of ${result.train_name || result.train} is now ${result.value}.`
+            : result.error}
+        </p>
       )}
     </form>
   );

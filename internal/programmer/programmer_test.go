@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -22,23 +23,28 @@ const (
 	stationID = openlcb.NodeID(0x0A0000000077)
 )
 
-func TestProgrammer(t *testing.T) {
+// bench joins a programmer to a simulated command station with a
+// long-address decoder 1234 on its programming track.
+func bench(t *testing.T, opts sim.StationOptions) (context.Context, *programmer.Programmer, *sim.Station) {
+	t.Helper()
 	logger := slog.New(slog.DiscardHandler)
 	var mu sync.Mutex
 	var local *node.Node
 	var station *sim.Station
 	local = node.New(node.Config{ID: localID, Logger: logger, CIDWait: 10 * time.Millisecond, ReplyTimeout: time.Second,
 		Send: func(f can.Frame) { mu.Lock(); defer mu.Unlock(); station.HandleFrame(f) }})
+	opts.Decoders = []*sim.Decoder{sim.NewDecoder(1234, true)}
+	opts.ProgrammingTrack = 1234
+	opts.ServiceModeDelay = 10 * time.Millisecond
 	var err error
 	station, err = sim.NewStation(node.Config{ID: stationID, Logger: logger, CIDWait: 10 * time.Millisecond, ReplyTimeout: time.Second,
 		SNIP: openlcb.SNIP{UserName: "Bench"},
-		Send: func(f can.Frame) { mu.Lock(); defer mu.Unlock(); local.HandleFrame(f) }},
-		sim.StationOptions{Decoders: []*sim.Decoder{sim.NewDecoder(1234, true)}, ProgrammingTrack: 1234, ServiceModeDelay: 10 * time.Millisecond})
+		Send: func(f can.Frame) { mu.Lock(); defer mu.Unlock(); local.HandleFrame(f) }}, opts)
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
+	t.Cleanup(cancel)
 	go func() { _ = local.Run(ctx) }()
 	go func() { _ = station.Run(ctx) }()
 	deadline := time.Now().Add(2 * time.Second)
@@ -51,6 +57,11 @@ func TestProgrammer(t *testing.T) {
 	mem := memconfig.NewClient(local, memconfig.WithLogger(logger))
 	trains := train.New(train.Options{Bus: local, Logger: logger, SearchWindow: 150 * time.Millisecond, Functions: 2})
 	p := programmer.New(programmer.Options{Bus: local, Memory: mem, Trains: trains, Logger: logger, SearchWindow: 150 * time.Millisecond, History: 3})
+	return ctx, p, station
+}
+
+func TestProgrammer(t *testing.T) {
+	ctx, p, station := bench(t, sim.StationOptions{})
 	var finished []programmer.Op
 	p.Subscribe(func(op programmer.Op) { finished = append(finished, op) })
 
@@ -81,6 +92,9 @@ func TestProgrammer(t *testing.T) {
 	if got := station.DecoderState(1234, true).CVs[5]; got != 200 {
 		t.Errorf("CV 5 after POM = %d", got)
 	}
+	if op, err = p.ReadPOM(ctx, "1234", 5); err != nil || !op.OK || op.Value != 200 || op.Kind != "pom_read" || op.Train != "1234" {
+		t.Fatalf("ReadPOM = %+v, %v", op, err)
+	}
 
 	// An empty programming track, in plain words.
 	station.SetProgrammingTrack(0)
@@ -91,17 +105,11 @@ func TestProgrammer(t *testing.T) {
 	if h := p.History(); len(h) != 3 || h[0].CV != 1 || h[0].OK {
 		t.Errorf("History = %+v", h)
 	}
-	if len(finished) != 5 {
+	if len(finished) != 6 {
 		t.Errorf("subscriber saw %d operations", len(finished))
 	}
 
-	// Without a command station there is no track.
-	np := programmer.New(programmer.Options{Bus: local, Memory: mem, SearchWindow: 50 * time.Millisecond})
-	station.SetProgrammingTrack(1234)
-	// Make the station stop answering by looking for a different event: the
-	// quickest way is a programmer whose search nobody answers, so point it
-	// at a bus with no station by asking before the station exists is not
-	// possible here; instead check Explain directly.
+	// Other errors in plain words.
 	if msg := programmer.Explain(programmer.ErrNoTrack); msg == "" {
 		t.Error("Explain(ErrNoTrack) is empty")
 	}
@@ -111,5 +119,17 @@ func TestProgrammer(t *testing.T) {
 	if msg := programmer.Explain(errors.New("plain")); msg != "plain" {
 		t.Errorf("Explain(plain) = %q", msg)
 	}
-	_ = np
+}
+
+// A command station without RailCom cannot read on the main, and says so
+// in words that point at RailCom rather than the programming track.
+func TestReadOnMainWithoutRailCom(t *testing.T) {
+	ctx, p, _ := bench(t, sim.StationOptions{NoRailCom: true})
+	op, err := p.ReadPOM(ctx, "1234", 1)
+	if err == nil || op.OK || !strings.Contains(op.Error, "cannot read on the main") || !programmer.CannotReadOnMain(err) {
+		t.Fatalf("ReadPOM = %+v, %v", op, err)
+	}
+	if op, err := p.WritePOM(ctx, "1234", 3, 4); err != nil || !op.OK {
+		t.Errorf("WritePOM = %+v, %v", op, err)
+	}
 }

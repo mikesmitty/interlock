@@ -154,8 +154,9 @@ func TestStationTrains(t *testing.T) {
 	if got := station.DecoderState(1234, true).CVs[3]; got != 7 {
 		t.Errorf("CV 3 after POM = %d", got)
 	}
-	if _, err := client.Read(ctx, want, traction.SpaceCV, 2, 1); err == nil {
-		t.Error("POM read should fail without RailCom")
+	// A read there is a POM read, answered over RailCom.
+	if got, err := client.Read(ctx, want, traction.SpaceCV, 2, 1); err != nil || len(got) != 1 || got[0] != 7 {
+		t.Errorf("POM read = %v, %v", got, err)
 	}
 }
 

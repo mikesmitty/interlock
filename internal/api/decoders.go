@@ -36,11 +36,12 @@ type Decoders interface {
 //
 // decoder-cv reads or writes one CV by the name a definition uses for it
 // ("29", "16.0.259", "T2CV.1.05"), on the programming track or, with a
-// train, on the main. The browser walks a pane's CVs one request at a
-// time, so it can show progress and stop. With a roster locomotive and
-// one of its decoders, each value read or written is saved for it; on
-// the programming track that needs the decoder's session to have begun
-// with a check (409 until then).
+// train, on the main, where reads come back over RailCom. The browser
+// walks a pane's CVs one request at a time, so it can show progress and
+// stop. With a roster locomotive and one of its decoders, each value read
+// or written is saved for it; on the programming track that needs the
+// decoder's session to have begun with a check (409 until then). On the
+// main the address picks the decoder, so there is no check.
 //
 // identify also reads the address the decoder answers to and lists the
 // roster decoders it could be. When the first of them checks out, its
@@ -166,6 +167,9 @@ type decoderCVResponse struct {
 	Value int    `json:"value"`
 	OK    bool   `json:"ok"`
 	Error string `json:"error,omitempty"`
+	// CannotRead is set when a read on the main failed because the
+	// command station cannot read there at all.
+	CannotRead bool `json:"cannot_read,omitempty"`
 }
 
 func (a *API) decoderCV(w http.ResponseWriter, r *http.Request) {
@@ -225,9 +229,6 @@ func (a *API) decoderCV(w http.ResponseWriter, r *http.Request) {
 	case !body.Write && cv.WriteOnly:
 		writeError(w, http.StatusBadRequest, "CV "+body.CV+" cannot be read back")
 		return
-	case !body.Write && body.Train != "":
-		writeError(w, http.StatusBadRequest, "Reading on the main needs RailCom, which is not available yet")
-		return
 	}
 	access, err := d.Programming.Resolve(body.CV)
 	if err != nil {
@@ -250,6 +251,7 @@ func (a *API) decoderCV(w http.ResponseWriter, r *http.Request) {
 	resp.OK = err == nil
 	if err != nil {
 		resp.Error = programmer.Explain(err)
+		resp.CannotRead = !body.Write && programmer.CannotReadOnMain(err)
 	}
 	if resp.OK && body.Decoder != "" {
 		if err := a.deps.Trains.Programmed(body.Locomotive, body.Decoder, body.CV, resp.Value, body.Write); err != nil {
@@ -502,17 +504,18 @@ func (b serviceBus) WriteCV(ctx context.Context, cv, value int) error {
 	return err
 }
 
-// pomBus reaches a decoder on the main through its train's node; writes
-// only.
+// pomBus reaches a decoder on the main through its train's node, waiting
+// delay after each write as the definition asks.
 type pomBus struct {
 	p     Programmer
 	train string
 	delay time.Duration
 }
 
-var errReadOnMain = errors.New("reading on the main needs RailCom, which is not available yet")
-
-func (b pomBus) ReadCV(context.Context, int) (int, error) { return 0, errReadOnMain }
+func (b pomBus) ReadCV(ctx context.Context, cv int) (int, error) {
+	op, err := b.p.ReadPOM(ctx, b.train, cv)
+	return op.Value, err
+}
 
 func (b pomBus) WriteCV(ctx context.Context, cv, value int) error {
 	if _, err := b.p.WritePOM(ctx, b.train, cv, value); err != nil {

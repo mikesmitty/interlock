@@ -92,7 +92,8 @@ ESU function map's rows and the CVs tab carry the same lamps.
 For a decoder in the roster, a session is a spell of work on it, shown
 above the tabs with an **End session** button. On the programming track
 it begins with a check that the decoder there is the one you opened;
-on the main, where the address picks the decoder, with the first write.
+on the main, where the address picks the decoder, with the first read or
+write.
 Its values keep their green lamps when the page is reloaded or opened on
 another device. A session ends:
 
@@ -177,8 +178,14 @@ says how; Interlock writes the index once for a run of CVs behind the
 same index rather than before every one.
 
 To program on the main, choose the locomotive under **Program**. Writes
-go out as programming-on-the-main packets; reading on the main needs
-RailCom, which is not available yet.
+go out as programming-on-the-main packets. Reads come back over RailCom,
+so they need a command station that hears RailCom (`simple-dcc` with
+its RailCom detector, for one) and RailCom turned on in the decoder (CV
+29). They take about a twentieth of a second each, where the
+programming track takes a couple of seconds. A command station without
+RailCom says it cannot read on the main; writes there still work, and a
+change to part of a CV is written with the page's values for its other
+bits.
 
 ## ESU function mapping
 

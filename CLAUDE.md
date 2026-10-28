@@ -188,7 +188,8 @@ applied at the next start; the replaced files go to `before-restore-*/`.
 - `internal/jmri` — reads JMRI roster files (roster.xml, the locomotive
   files, zips of them) into imports for the roster.
 - `internal/programmer` — CV reads and writes: service mode through space
-  0xF8 of the programming track's node, POM through a train node's.
+  0xF8 of the programming track's node, POM through a train node's (reads
+  answered over RailCom, so only by a command station that hears it).
 - `internal/decoder` — JMRI's DCC decoder definitions (GPL-2.0-only, so
   fetched, never bundled): sources (GitHub file by file, the repository
   archive, a folder or zip), the index, Identify and matching, the

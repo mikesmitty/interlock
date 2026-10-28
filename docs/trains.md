@@ -220,9 +220,12 @@ takes a few seconds for a read. The DCC error codes come back in plain
 words: no decoder answered, the decoder did not confirm, short circuit,
 no programming track.
 
-Programming on the main writes a CV through space 0xF8 of the train's
-node, which the command station turns into a POM packet for that address.
-Reading on the main needs RailCom and waits for the firmware.
+Programming on the main reads and writes a CV through space 0xF8 of the
+train's node, which the command station turns into a POM packet for that
+address. A read waits for the decoder's answer over RailCom, so it needs
+a command station that hears RailCom and RailCom on in the decoder; one
+that cannot read on the main answers "not implemented", and Interlock
+says so.
 
 [Decoder settings](./decoders.md) covers changing settings by name from
 the decoder's definition rather than by CV number.

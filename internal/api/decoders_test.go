@@ -60,7 +60,18 @@ func (p *cvProgrammer) Write(_ context.Context, cv, value int) (programmer.Op, e
 
 func (p *cvProgrammer) WritePOM(_ context.Context, train string, cv, value int) (programmer.Op, error) {
 	p.log = append(p.log, fmt.Sprintf("POM %s W%d=%d", train, cv, value))
+	p.cvs[cv] = value
 	return programmer.Op{CV: cv, Value: value, OK: true}, nil
+}
+
+// ReadPOM reads the same decoder, as though it had moved to the main.
+func (p *cvProgrammer) ReadPOM(_ context.Context, train string, cv int) (programmer.Op, error) {
+	p.log = append(p.log, fmt.Sprintf("POM %s R%d", train, cv))
+	v, ok := p.cvs[cv]
+	if !ok {
+		return programmer.Op{CV: cv}, &openlcb.Error{Code: programmer.CodeNoLocomotive}
+	}
+	return programmer.Op{CV: cv, Value: v, OK: true}, nil
 }
 
 func newDecoderAPI(t *testing.T) (*testAPI, *fakeDecoders, *cvProgrammer) {
@@ -174,10 +185,23 @@ func TestDecoderCVEndpoint(t *testing.T) {
 	if code, body := call(`{` + def + `"cv":"29","write":true,"value":5,"train":"3"}`); code != http.StatusOK || body["ok"] != true {
 		t.Fatalf("write on the main: %d %v", code, body)
 	}
+	if code, body := call(`{` + def + `"cv":"29","train":"3"}`); code != http.StatusOK || body["ok"] != true || body["value"] != float64(5) {
+		t.Fatalf("read on the main: %d %v", code, body)
+	}
+	// An indexed read on the main writes the index there, apart from the
+	// programming track's.
+	if code, body := call(`{` + def + `"cv":"16.0.259","train":"3"}`); code != http.StatusOK || body["value"] != float64(40) {
+		t.Fatalf("indexed read on the main: %d %v", code, body)
+	}
 	// The second indexed read reuses the index the first one wrote.
-	if got := strings.Join(prog.log, " "); got != "W31=16 W32=0 R259 R260 W29=38 POM 3 W29=5" {
+	if got := strings.Join(prog.log, " "); got != "W31=16 W32=0 R259 R260 W29=38 POM 3 W29=5 POM 3 R29 POM 3 W31=16 POM 3 W32=0 POM 3 R259" {
 		t.Errorf("operations: %s", got)
 	}
+	delete(prog.cvs, 8)
+	if code, body := call(`{` + def + `"cv":"8","train":"3"}`); code != http.StatusOK || body["ok"] != false || body["error"] == "" {
+		t.Errorf("failed read on the main: %d %v", code, body)
+	}
+	prog.cvs[8] = 151
 
 	delete(prog.cvs, 29)
 	if code, body := call(`{` + def + `"cv":"29"}`); code != http.StatusOK || body["ok"] != false || !strings.Contains(body["error"].(string), "No decoder answered") {
@@ -191,7 +215,6 @@ func TestDecoderCVEndpoint(t *testing.T) {
 		{"read-only", `{` + def + `"cv":"8","write":true,"value":8}`, http.StatusBadRequest},
 		{"write-only", `{` + def + `"cv":"64"}`, http.StatusBadRequest},
 		{"info-only", `{` + def + `"cv":"99"}`, http.StatusBadRequest},
-		{"read on the main", `{` + def + `"cv":"29","train":"3"}`, http.StatusBadRequest},
 		{"not in the definition", `{` + def + `"cv":"300"}`, http.StatusBadRequest},
 		{"write without a value", `{` + def + `"cv":"29","write":true}`, http.StatusBadRequest},
 		{"unknown decoder", `{"file":"Nope.xml","model":"X","cv":"29"}`, http.StatusNotFound},

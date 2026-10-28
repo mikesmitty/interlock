@@ -373,7 +373,7 @@ export function DecoderSettings() {
       changeTable(applyUpdates(tableRef.current, [u], "edited"));
     },
     setBits: (updates: CVUpdate[]) => changeTable(applyUpdates(tableRef.current, updates, "edited")),
-    readCVs: onMain || !programmable ? undefined : (list: string[]) => void run("read", list.filter(readable), readCV),
+    readCVs: !programmable ? undefined : (list: string[]) => void run("read", list.filter(readable), readCV),
     functionLabels: entry ? (entry.installed === decoderID ? entry.functions : rosterDecoder?.functions) : undefined,
   };
 
@@ -516,11 +516,12 @@ export function DecoderSettings() {
     let value = cell.value;
     const info = cvInfo.get(cv);
     // A change to part of a CV keeps the decoder's other bits: unless this
-    // session read or wrote the CV, it is read first.
-    if (!confirmed(cell) && cell.state === "edited" && cell.edited !== fullBits(cv) && !info?.write_only && !onMain) {
+    // session read or wrote the CV, it is read first. A command station
+    // that cannot read on the main writes it as the page has it.
+    if (!confirmed(cell) && cell.state === "edited" && cell.edited !== fullBits(cv) && !info?.write_only) {
       const r = await cvCall(cv);
-      if (!r.ok) return `Could not read it first: ${r.error ?? "failed"}`;
-      value = merge(cell, r.value);
+      if (r.ok) value = merge(cell, r.value);
+      else if (!(onMain && r.cannot_read)) return `Could not read it first: ${r.error ?? "failed"}`;
     }
     const w = await cvCall(cv, value);
     if (!w.ok) return w.error ?? "Failed";
@@ -619,7 +620,6 @@ export function DecoderSettings() {
             )}
           </select>
         </label>
-        {onMain && <span className="dim">Writes only: reading on the main needs RailCom.</span>}
         {session && (
           <span className="dec-session">
             {session.check === "accepted" ? (
@@ -672,7 +672,7 @@ export function DecoderSettings() {
       {pane && (
         <div role="tabpanel" className="panel cfg-panel dec-panel">
           <div className="dec-toolbar">
-            <button className="btn" disabled={busy || onMain || !programmable || toRead.length === 0} onClick={() => void run("read", toRead, readCV)}>
+            <button className="btn" disabled={busy || !programmable || toRead.length === 0} onClick={() => void run("read", toRead, readCV)}>
               Read page
             </button>
             <button className="btn btn--primary" disabled={busy || !programmable || changed.length === 0} onClick={() => void run("write", changed, writeCV)}>

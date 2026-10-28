@@ -110,18 +110,22 @@ type StationOptions struct {
 	// ServiceModeDelay is how long a CV read or write takes; 300 ms when
 	// zero, as a real decoder's acknowledgment pulses take.
 	ServiceModeDelay time.Duration
+	// NoRailCom makes reads on the main fail as not implemented, as they
+	// do on a station without a RailCom detector or with the cutout off.
+	NoRailCom bool
 }
 
 // Station adds a simple-dcc command station's behavior to a simulated
 // node built from its CDI: it answers Train Search events by pointing at
 // the matching train nodes, creating them on demand as the firmware does;
-// each train node speaks Train Control and takes POM writes in space 0xF8;
-// the station owns a programming track whose CV reads and writes go
-// through space 0xF8 with a delayed reply and the DCC error codes; and the
-// well-known emergency events cut and restore track power, which is off
-// until the first Clear Emergency Off. Like the firmware, it says whether
-// power is on in its Consumer Identified replies for Emergency Off and
-// Clear Emergency Off, and announces them once it is on the bus.
+// each train node speaks Train Control and takes POM reads and writes in
+// space 0xF8, the reads answered as over RailCom; the station owns a
+// programming track whose CV reads and writes go through space 0xF8 with
+// a delayed reply and the DCC error codes; and the well-known emergency
+// events cut and restore track power, which is off until the first Clear
+// Emergency Off. Like the firmware, it says whether power is on in its
+// Consumer Identified replies for Emergency Off and Clear Emergency Off,
+// and announces them once it is on the bus.
 type Station struct {
 	*Node
 	log *slog.Logger
@@ -133,8 +137,10 @@ type Station struct {
 	trains   map[openlcb.NodeID]*Train
 	prog     *Decoder
 	delay    time.Duration
-	power    bool
-	work     chan func()
+	// noRailCom is set before the station runs and never changes.
+	noRailCom bool
+	power     bool
+	work      chan func()
 }
 
 // NewStation builds a command station. cfg.Send must be set; cfg.ID
@@ -151,14 +157,15 @@ func NewStation(cfg node.Config, opts StationOptions) (*Station, error) {
 		return nil, err
 	}
 	s := &Station{
-		Node:     n,
-		log:      cfg.Logger,
-		cfg:      cfg,
-		ctx:      context.Background(),
-		decoders: make(map[uint16]*Decoder),
-		trains:   make(map[openlcb.NodeID]*Train),
-		delay:    opts.ServiceModeDelay,
-		work:     make(chan func(), 256),
+		Node:      n,
+		log:       cfg.Logger,
+		cfg:       cfg,
+		ctx:       context.Background(),
+		decoders:  make(map[uint16]*Decoder),
+		trains:    make(map[openlcb.NodeID]*Train),
+		delay:     opts.ServiceModeDelay,
+		noRailCom: opts.NoRailCom,
+		work:      make(chan func(), 256),
 	}
 	if s.delay == 0 {
 		s.delay = 300 * time.Millisecond

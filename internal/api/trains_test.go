@@ -103,6 +103,15 @@ func (p *fakeProgrammer) WritePOM(_ context.Context, id string, cv, value int) (
 	return op, nil
 }
 
+func (p *fakeProgrammer) ReadPOM(_ context.Context, id string, cv int) (programmer.Op, error) {
+	if id == "nope" {
+		return programmer.Op{}, train.ErrNotFound
+	}
+	op := programmer.Op{ID: len(p.ops) + 1, Kind: "pom_read", Train: id, CV: cv, Value: 13, OK: true}
+	p.ops = append(p.ops, op)
+	return op, nil
+}
+
 func newTrainAPI(t *testing.T) (*testAPI, *fakeTrainBus) {
 	t.Helper()
 	reg := newFakeRegistry()
@@ -287,12 +296,19 @@ func TestProgrammingEndpoints(t *testing.T) {
 	if rec, _ = ta.do(t, http.MethodPost, "/api/v1/trains/nope/cv", `{"cv": 3, "value": 5}`); rec.Code != http.StatusNotFound {
 		t.Errorf("pom for unknown train = %d", rec.Code)
 	}
+	rec, body = ta.do(t, http.MethodPost, "/api/v1/trains/1234/cv/read", `{"cv": 3}`)
+	if rec.Code != http.StatusOK || body["kind"] != "pom_read" || body["value"] != 13.0 {
+		t.Fatalf("pom read = %d %v", rec.Code, body)
+	}
+	if rec, _ = ta.do(t, http.MethodPost, "/api/v1/trains/1234/cv/read", `{}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("pom read without cv = %d", rec.Code)
+	}
 	rec, body = ta.do(t, http.MethodPost, "/api/v1/programming/find", "")
 	if rec.Code != http.StatusOK || body["name"] != "Bench" {
 		t.Fatalf("find = %d %v", rec.Code, body)
 	}
 	rec, body = ta.do(t, http.MethodGet, "/api/v1/programming", "")
-	if rec.Code != http.StatusOK || len(body["history"].([]any)) != 3 {
+	if rec.Code != http.StatusOK || len(body["history"].([]any)) != 4 {
 		t.Fatalf("history = %d %v", rec.Code, body)
 	}
 }

@@ -56,7 +56,11 @@ These are facts from the firmware, and they drive the first milestones.
   listener forwarding.
 - POM: memory space 0xF8 on the train node, CV `n` at address `n - 1`, plus
   the OpenMRN indirect form at `0x7F000000` (CV index) and `0x7F000004` (CV
-  value). Reads need RailCom and are not implemented yet.
+  value). Reads are POM reads answered over RailCom (since the RailCom
+  detector shield, 2026-10-28): two copies of the packet per attempt, up
+  to four attempts of 250 ms, 0x2031 when no decoder answered, a
+  temporary error while another read runs, and "not implemented" with
+  the cutout off.
 - Service mode: the command station node produces the well-known
   "is programming track" event. CV reads and writes go to space 0xF8 on that
   node at `CV - 1`, answered with Datagram OK reply-pending and a delayed
@@ -337,8 +341,8 @@ traces, RailCom sightings. `modernc.org/sqlite` keeps the build cgo free.
 - Throttle: Train Search with allocate to find or create a train node, then
   Controller Assign, then speed and function commands. Listener and consist
   support in the UI after that.
-- POM: write CV through space 0xF8 on the train node (direct form). Read
-  waits on RailCom support in `simple-dcc`.
+- POM: read and write CVs through space 0xF8 on the train node (direct
+  form); reads need RailCom at the command station.
 - Service mode: find the node producing the "is programming track" event,
   then read and write space 0xF8 on it at `CV - 1`, honoring reply-pending
   and the DCC error codes. UI: a CV read and write tool first; named
@@ -748,8 +752,14 @@ since its result could change the model.
   decoder's values and kept through reads, and a definition's files
   fetched several at a time on first use (a cold LokSound 5 in about
   0.15 s instead of 0.75 s). Verified against the simulator.
-- Still to do in Phase 7: reading on the main, which needs RailCom
-  support in `simple-dcc`.
+- Reading on the main (2026-10-28): CVs read through a train node's
+  space 0xF8, which `simple-dcc` answers over RailCom with its detector
+  shield. The decoder settings page reads pages on the main as on the
+  programming track, without a check (the address picks the decoder),
+  and a change to part of a CV reads it first there too. A command
+  station that cannot read on the main is told apart, and writes there
+  go on as before. The simulated command station answers these reads
+  after 50 ms, or refuses them with `-no-railcom`.
 - Throttle apps (2026-10-18): `internal/withrottle` serves the WiThrottle
   protocol on port 12090 for Engine Driver, WiThrottle and WiTcontroller:
   the roster with function labels and momentary functions, driving

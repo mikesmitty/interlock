@@ -971,7 +971,8 @@ export interface ProgrammingTrack {
 
 export interface CVOp {
   id: number;
-  kind: "read" | "write" | "pom";
+  /** pom is a write on the main and pom_read a read there. */
+  kind: "read" | "write" | "pom" | "pom_read";
   train?: string;
   train_name?: string;
   cv: number;
@@ -1349,6 +1350,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ cv, value }),
     }),
+  readPOM: (id: string, cv: number) =>
+    request<CVOp>(`${trainPath(id)}/cv/read`, {
+      method: "POST",
+      body: JSON.stringify({ cv }),
+    }),
   layout: () => request<LayoutState>("/api/v1/trains/layout"),
   setLayout: (change: { power?: boolean; emergency_stop?: boolean }) =>
     request<LayoutState>("/api/v1/trains/layout", {
@@ -1372,7 +1378,8 @@ export const api = {
   decoderDefinition: (file: string, model: string) => request<DecoderDefinition>(`/api/v1/decoders/definition?${new URLSearchParams({ file, model }).toString()}`),
   identifyDecoder: () => request<IdentifyResult>("/api/v1/programming/identify", { method: "POST" }),
   decoderCV: (body: { file: string; model: string; cv: string; write?: boolean; value?: number; train?: string; locomotive?: string; decoder?: string }) =>
-    request<{ cv: string; value: number; ok: boolean; error?: string }>("/api/v1/programming/decoder-cv", {
+    /** cannot_read: the command station cannot read on the main at all. */
+    request<{ cv: string; value: number; ok: boolean; error?: string; cannot_read?: boolean }>("/api/v1/programming/decoder-cv", {
       method: "POST",
       body: JSON.stringify(body),
     }),

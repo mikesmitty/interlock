@@ -1,9 +1,10 @@
 // Package programmer reads and writes DCC configuration variables: in
 // service mode on the programming track, through memory space 0xF8 of the
 // node that produces the "is programming track" event, and on the main
-// (POM) through the same space of a train node. Each operation is one
-// byte, answered when the decoder has, with the DCC error codes turned
-// into plain words.
+// (POM) through the same space of a train node, where a read needs a
+// command station that hears the decoder's RailCom answer. Each operation
+// is one byte, answered when the decoder has, with the DCC error codes
+// turned into plain words.
 package programmer
 
 import (
@@ -69,9 +70,12 @@ var (
 	ErrNoTrack = errors.New("programmer: no programming track found")
 )
 
-// DCC programming error codes, from the DCC working note.
+// DCC programming error codes, from the DCC working note. On the main,
+// simple-dcc answers a read no decoder answered with CodeNoLocomotive and
+// OpenMRN with CodeNoAnswer.
 const (
 	CodeProgrammingDisabled openlcb.ErrorCode = 0x1021
+	CodeNoAnswer            openlcb.ErrorCode = 0x2030
 	CodeNoLocomotive        openlcb.ErrorCode = 0x2031
 	CodeFailedVerify        openlcb.ErrorCode = 0x2032
 	CodeShort               openlcb.ErrorCode = 0x2035
@@ -88,9 +92,9 @@ type Track struct {
 // Op is one CV operation, kept in the history.
 type Op struct {
 	ID int `json:"id"`
-	// Kind is read, write or pom.
+	// Kind is read, write, pom (a write on the main) or pom_read.
 	Kind string `json:"kind"`
-	// Train and TrainName for a POM write.
+	// Train and TrainName for work on the main.
 	Train     string `json:"train,omitempty"`
 	TrainName string `json:"train_name,omitempty"`
 	CV        int    `json:"cv"`
@@ -264,8 +268,56 @@ func (p *Programmer) WritePOM(ctx context.Context, trainID string, cv, value int
 		if err != nil {
 			return err
 		}
-		return p.opts.Memory.Write(ctx, id, traction.SpaceCV, uint32(cv-1), []byte{byte(value)})
+		if err := p.opts.Memory.Write(ctx, id, traction.SpaceCV, uint32(cv-1), []byte{byte(value)}); err != nil {
+			return mainError{err}
+		}
+		return nil
 	})
+}
+
+// ReadPOM reads a CV on the main, through the train's node. The command
+// station sends the decoder a read and waits for its RailCom answer.
+func (p *Programmer) ReadPOM(ctx context.Context, trainID string, cv int) (Op, error) {
+	if err := checkCV(cv); err != nil {
+		return Op{}, err
+	}
+	if p.opts.Trains == nil {
+		return Op{}, errors.New("programmer: trains are not available")
+	}
+	return p.run(ctx, Op{Kind: "pom_read", Train: trainID, CV: cv}, func(ctx context.Context, op *Op) error {
+		id, tr, err := p.opts.Trains.NodeFor(ctx, trainID)
+		op.Train, op.TrainName = tr.ID, tr.Name
+		if err != nil {
+			return err
+		}
+		data, err := p.opts.Memory.Read(ctx, id, traction.SpaceCV, uint32(cv-1), 1)
+		if err != nil {
+			return mainError{err}
+		}
+		if len(data) != 1 {
+			return fmt.Errorf("programmer: the command station answered with %d bytes", len(data))
+		}
+		op.Value = int(data[0])
+		return nil
+	})
+}
+
+// mainError is the command station's answer to work on the main, which
+// Explain words apart from the programming track's.
+type mainError struct{ err error }
+
+func (e mainError) Error() string { return e.err.Error() }
+func (e mainError) Unwrap() error { return e.err }
+
+// CannotReadOnMain reports whether the command station said it cannot
+// read on the main at all, as one without RailCom does.
+func CannotReadOnMain(err error) bool {
+	var oerr *openlcb.Error
+	return errors.As(err, &mainError{}) && errors.As(err, &oerr) && notImplemented(oerr.Code)
+}
+
+func notImplemented(code openlcb.ErrorCode) bool {
+	return code == openlcb.ErrCodeNotImplementedDatagram || code == openlcb.ErrCodeNotImplemented || code == openlcb.ErrCodeNotImplementedSubcommand
 }
 
 // run performs one operation, records it and tells subscribers.
@@ -351,6 +403,16 @@ func Explain(err error) string {
 		return "The command station did not answer in time."
 	case errors.Is(err, context.DeadlineExceeded):
 		return "Timed out waiting for the command station."
+	case errors.As(err, &mainError{}) && errors.As(err, &oerr):
+		switch {
+		case oerr.Code == CodeNoLocomotive || oerr.Code == CodeNoAnswer:
+			return "No decoder answered on the main. Is the locomotive on the track with power on, and RailCom turned on in its decoder?"
+		case oerr.Code == openlcb.ErrCodeTemporary:
+			return "The command station is busy with another CV on the main; try again."
+		case notImplemented(oerr.Code):
+			return "This command station cannot read on the main. That needs RailCom: a detector at the command station and the cutout turned on."
+		}
+		return "The command station reported " + oerr.Code.String() + "."
 	case errors.As(err, &oerr):
 		switch oerr.Code {
 		case CodeNoLocomotive:
@@ -363,8 +425,9 @@ func Explain(err error) string {
 			return "The command station has no programming track."
 		case openlcb.ErrCodeTemporary:
 			return "The programming track is busy; try again."
-		case openlcb.ErrCodeNotImplementedDatagram, openlcb.ErrCodeNotImplemented, openlcb.ErrCodeNotImplementedSubcommand:
-			return "The command station cannot do that; reading on the main needs RailCom."
+		}
+		if notImplemented(oerr.Code) {
+			return "The command station cannot do that."
 		}
 		return "The command station reported " + oerr.Code.String() + "."
 	}

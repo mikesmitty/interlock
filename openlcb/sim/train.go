@@ -14,7 +14,7 @@ import (
 
 // Train is a simulated train node for one DCC locomotive, as simple-dcc
 // creates them: it speaks Train Control, answers the search that created
-// it, and takes POM writes in space 0xF8.
+// it, and takes POM reads and writes in space 0xF8.
 type Train struct {
 	*node.Node
 	station *Station
@@ -312,11 +312,17 @@ func (t *Train) consistCommand(c traction.Command) []byte {
 }
 
 // pomSpace is space 0xF8 on a train node: a write to address n-1 sends a
-// POM write of CV n, as do the indirect index and value registers; reads
-// of CVs need RailCom, which the firmware does not have yet.
+// POM write of CV n, as do the indirect index and value registers, and a
+// read there is a POM read the decoder answers over RailCom a moment
+// later. Without RailCom, reads are not implemented, as in the firmware
+// with the cutout off.
 type pomSpace struct {
 	t *Train
 }
+
+// railComDelay is how long a POM read takes: simple-dcc reads in about
+// 50 ms on the first attempt.
+const railComDelay = 50 * time.Millisecond
 
 const (
 	cvIndexOffset = 0x7F000000
@@ -335,10 +341,32 @@ func (p *pomSpace) Read(address uint32, buf []byte) (int, error) {
 		b := []byte{byte(idx >> 24), byte(idx >> 16), byte(idx >> 8), byte(idx)}
 		return copy(buf, b[address-cvIndexOffset:]), nil
 	}
-	if address < 1024 || address >= cvValueOffset {
+	var cv uint32
+	switch {
+	case address < 1024:
+		cv = address + 1
+	case address == cvValueOffset:
+		p.t.mu.Lock()
+		cv = p.t.cvIndex
+		p.t.mu.Unlock()
+		if cv == 0 || cv > 1024 {
+			return 0, &openlcb.Error{Code: openlcb.ErrCodeInvalidArguments}
+		}
+	case address > cvValueOffset:
+		// The verify registers.
+		return 0, &openlcb.Error{Code: openlcb.ErrCodeNotImplementedDatagram}
+	default:
+		return 0, &openlcb.Error{Code: openlcb.ErrCodeAddressOutOfBounds}
+	}
+	if p.t.station.noRailCom {
 		return 0, &openlcb.Error{Code: openlcb.ErrCodeNotImplementedDatagram}
 	}
-	return 0, &openlcb.Error{Code: openlcb.ErrCodeAddressOutOfBounds}
+	time.Sleep(railComDelay)
+	p.t.station.mu.Lock()
+	buf[0] = p.t.Decoder.CV(uint16(cv))
+	p.t.station.mu.Unlock()
+	p.t.log.Info("sim: POM read", "address", p.t.Address, "cv", cv, "value", buf[0])
+	return 1, nil
 }
 
 func (p *pomSpace) Write(address uint32, data []byte) error {

@@ -151,6 +151,7 @@ POST   /api/v1/trains/{id}/estop
 POST   /api/v1/trains/{id}/function          {function, on}
 POST   /api/v1/trains/{id}/refresh           read speed and functions back
 POST   /api/v1/trains/{id}/cv                write a CV on the main {cv, value}
+POST   /api/v1/trains/{id}/cv/read           read a CV on the main over RailCom {cv}
 GET    /api/v1/consists                      {consists}
 POST   /api/v1/consists                      {name, members: [{train, reverse, f0, functions}]}, the lead first
 GET    /api/v1/consists/{id}                 with made_up, attached and any problem
@@ -224,14 +225,16 @@ GET    /api/v1/decoders                      where the definitions come from {so
 GET    /api/v1/decoders/index                every manufacturer, family and model
 GET    /api/v1/decoders/definition           ?file=&model= one model's settings and pages
 POST   /api/v1/programming/identify          {identity, manufacturer, candidates, address, roster}
-POST   /api/v1/programming/decoder-cv        {file, model, cv, write, value, train, locomotive, decoder} -> {cv, value, ok, error}
+POST   /api/v1/programming/decoder-cv        {file, model, cv, write, value, train, locomotive, decoder} -> {cv, value, ok, error, cannot_read}
 ```
 
 The index and definitions are large and sent gzipped when the client
 accepts it. `decoder-cv` takes a CV by the name the definition uses
 (`29`, `16.0.259`, `T2CV.1.05`) and does the index writes it needs; with
-`train` it writes on the main; with a roster `locomotive` and one of its
-`decoder`s, the value is saved for that decoder. It refuses CVs the
+`train` it reads or writes on the main, and `cannot_read` says when a
+read failed because the command station cannot read there at all; with a
+roster `locomotive` and one of its `decoder`s, the value is saved for
+that decoder. It refuses CVs the
 definition marks read-only, write-only or for information only.
 `identify` also reads the decoder's address and lists the roster
 decoders it could be; when the first checks out, its session begins and

@@ -166,6 +166,7 @@ func New(deps Deps) *API {
 	a.mux.HandleFunc("POST /api/v1/trains/{id}/function", a.trainFunction)
 	a.mux.HandleFunc("POST /api/v1/trains/{id}/refresh", a.trainAction(http.StatusOK, func(ctx context.Context, id string) (train.Train, error) { return a.deps.Trains.Refresh(ctx, id) }))
 	a.mux.HandleFunc("POST /api/v1/trains/{id}/cv", a.writePOM)
+	a.mux.HandleFunc("POST /api/v1/trains/{id}/cv/read", a.readPOM)
 	a.mux.HandleFunc("POST /api/v1/trains/{id}/decoders", a.addDecoder)
 	a.mux.HandleFunc("PATCH /api/v1/trains/{id}/decoders/{decoder}", a.updateDecoder)
 	a.mux.HandleFunc("DELETE /api/v1/trains/{id}/decoders/{decoder}", a.removeDecoder)

@@ -51,6 +51,7 @@ func main() {
 	pace := flag.Duration("pace", 6*time.Second, "how often the locomotive moves to the next track; 0 for never")
 	address := flag.Int("address", 1234, "DCC address of the locomotive (outpost: the one detected; cs: the one on the programming track)")
 	decoderKind := flag.String("decoder", "diy", "cs: the decoder on the programming track, diy (a plain one) or esu (a LokSound 5 with paged CVs)")
+	noRailCom := flag.Bool("no-railcom", false, "cs: refuse reads on the main, as a command station without RailCom does")
 	verbose := flag.Bool("v", false, "log every frame")
 	makeFirmware := flag.String("make-firmware", "", "write a firmware image the simulated outpost accepts to this file and exit")
 	firmwareVersion := flag.String("firmware-version", "1.2.3", "software version the image made with -make-firmware reports")
@@ -113,6 +114,7 @@ func main() {
 			peer, err = sim.NewStation(cfg, sim.StationOptions{
 				Decoders:         []*sim.Decoder{dec},
 				ProgrammingTrack: uint16(*address),
+				NoRailCom:        *noRailCom,
 			})
 		}
 	default:

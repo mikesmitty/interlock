@@ -94,6 +94,17 @@ func TestRosterDecoderEndpoints(t *testing.T) {
 	if rec, _ := ta.do(t, http.MethodPost, "/api/v1/programming/decoder-cv", `{`+def+`"cv":"29"}`); rec.Code != http.StatusConflict {
 		t.Errorf("read after the session ended = %d", rec.Code)
 	}
+	// On the main the address picks the decoder, so a read there needs no
+	// check, and begins a session without one.
+	if rec, body := ta.do(t, http.MethodPost, "/api/v1/programming/decoder-cv", `{`+def+`"cv":"29","train":"gp40"}`); rec.Code != http.StatusOK || body["ok"] != true {
+		t.Fatalf("read on the main = %d %v", rec.Code, body)
+	}
+	if s := session(); s == nil || fmt.Sprint(s["read"]) != "[29]" || s["check"] != nil {
+		t.Errorf("session after a read on the main = %v", s)
+	}
+	if rec, _ := ta.do(t, http.MethodDelete, "/api/v1/trains/gp40/decoders/loksound-5/session", ""); rec.Code != http.StatusNoContent {
+		t.Fatalf("DELETE session = %d", rec.Code)
+	}
 	// A session can begin without a match, when asked to.
 	if rec, body := ta.do(t, http.MethodPost, "/api/v1/trains/gp40/decoders/loksound-5/session", ""); rec.Code != http.StatusOK || body["check"] != "accepted" {
 		t.Errorf("POST session = %d %v", rec.Code, body)

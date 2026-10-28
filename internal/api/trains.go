@@ -77,6 +77,7 @@ type Programmer interface {
 	Read(ctx context.Context, cv int) (programmer.Op, error)
 	Write(ctx context.Context, cv, value int) (programmer.Op, error)
 	WritePOM(ctx context.Context, trainID string, cv, value int) (programmer.Op, error)
+	ReadPOM(ctx context.Context, trainID string, cv int) (programmer.Op, error)
 	History() []programmer.Op
 	Subscribe(programmer.Subscriber) func()
 }
@@ -99,6 +100,7 @@ type Programmer interface {
 //	POST   /api/v1/trains/{id}/function       {function, on}
 //	POST   /api/v1/trains/{id}/refresh        read the train's state back
 //	POST   /api/v1/trains/{id}/cv             {cv, value} write a CV on the main -> the operation
+//	POST   /api/v1/trains/{id}/cv/read        {cv} read a CV on the main over RailCom -> the operation, with value
 //	GET    /api/v1/programming                {track, history}
 //	POST   /api/v1/programming/find           look for the programming track again -> track
 //	POST   /api/v1/programming/read           {cv} -> the operation, with value
@@ -462,5 +464,17 @@ func (a *API) writePOM(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	op, err := a.deps.Programmer.WritePOM(r.Context(), r.PathValue("id"), *body.CV, *body.Value)
+	a.writeOp(w, op, err)
+}
+
+func (a *API) readPOM(w http.ResponseWriter, r *http.Request) {
+	if !a.programmerReady(w) {
+		return
+	}
+	body, ok := readCVBody(w, r, false)
+	if !ok {
+		return
+	}
+	op, err := a.deps.Programmer.ReadPOM(r.Context(), r.PathValue("id"), *body.CV)
 	a.writeOp(w, op, err)
 }
