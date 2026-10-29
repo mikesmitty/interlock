@@ -4,7 +4,7 @@ package version
 import "runtime/debug"
 
 // Version is the release version. release-please updates it on release.
-var Version = "0.1.0" // x-release-please-version
+var Version = "0.2.0" // x-release-please-version
 
 // Commit returns the VCS revision the binary was built from, with a "-dirty"
 // suffix for an uncommitted tree, or "" when the build carried no VCS info.
