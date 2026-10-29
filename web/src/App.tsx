@@ -29,39 +29,49 @@ function Shell() {
   return (
     <div className="shell">
       <nav className="rail" aria-label="Main">
-        <NavLink className="rail__brand" to="/nodes">
+        <NavLink className="rail__brand" to="/track">
           Interlock
         </NavLink>
-        <NavLink className="rail__link" to="/nodes">
-          Nodes
-        </NavLink>
-        <NavLink className="rail__link" to="/track">
-          Track
-        </NavLink>
-        <NavLink className="rail__link" to="/entities">
-          Entities
-        </NavLink>
-        <NavLink className="rail__link" to="/throttle">
-          Throttle
-        </NavLink>
-        <NavLink className="rail__link" to="/roster">
-          Roster
-        </NavLink>
-        <NavLink className="rail__link" to="/automations">
-          Automations
-        </NavLink>
-        <NavLink className="rail__link" to="/programming">
-          Programming
-        </NavLink>
-        <NavLink className="rail__link" to="/clock">
-          Clock
-        </NavLink>
-        <NavLink className="rail__link" to="/monitor">
-          Monitor
-        </NavLink>
-        <NavLink className="rail__link" to="/settings">
-          Settings
-        </NavLink>
+        {/* Grouped by task: running the layout, the trains, setting up
+            the layout, and Interlock itself at the foot. */}
+        <div className="rail__group">
+          <NavLink className="rail__link" to="/track">
+            Track
+          </NavLink>
+          <NavLink className="rail__link" to="/throttle">
+            Throttle
+          </NavLink>
+          <NavLink className="rail__link" to="/clock">
+            Clock
+          </NavLink>
+        </div>
+        <div className="rail__group">
+          <NavLink className="rail__link" to="/roster">
+            Roster
+          </NavLink>
+          <NavLink className="rail__link" to="/programming">
+            Programming
+          </NavLink>
+        </div>
+        <div className="rail__group">
+          <NavLink className="rail__link" to="/entities">
+            Entities
+          </NavLink>
+          <NavLink className="rail__link" to="/automations">
+            Automations
+          </NavLink>
+          <NavLink className="rail__link" to="/nodes">
+            Nodes
+          </NavLink>
+        </div>
+        <div className="rail__group rail__group--end">
+          <NavLink className="rail__link" to="/monitor">
+            Monitor
+          </NavLink>
+          <NavLink className="rail__link" to="/settings">
+            Settings
+          </NavLink>
+        </div>
         <div className="rail__foot">{health ? `v${health.version}` : ""}</div>
       </nav>
       <div className="main">
@@ -76,7 +86,7 @@ function NotFound() {
   return (
     <section className="page">
       <h1>Nothing here</h1>
-      <p>There is no page at this address. Try the nodes list.</p>
+      <p>There is no page at this address. Try the track plan.</p>
     </section>
   );
 }
@@ -85,7 +95,7 @@ export default function App() {
   return (
     <Routes>
       <Route element={<Shell />}>
-        <Route index element={<Navigate to="/nodes" replace />} />
+        <Route index element={<Navigate to="/track" replace />} />
         <Route path="nodes" element={<Nodes />} />
         <Route path="nodes/:id" element={<NodeDetail />} />
         <Route path="track" element={<TrackPlanPage />} />

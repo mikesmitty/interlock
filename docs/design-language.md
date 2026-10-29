@@ -37,7 +37,11 @@ no eyebrows, no monospace except raw frames in the monitor, which are code.
 
 Layout: a narrow navigation rail on the left (bottom bar on phones), a
 status strip across the top with one lamp per link and the local node's
-state, and the page below. Content is left aligned; measure under 80
+state, and the page below. The rail groups its pages by task, with space
+between the groups: running the layout (Track, Throttle, Clock), the
+trains (Roster, Programming), setting the layout up (Entities,
+Automations, Nodes), and Interlock itself (Monitor, Settings) at the
+foot. A new page joins the group of the task it serves. Content is left aligned; measure under 80
 characters for prose. Tables get the width they need.
 
 ```

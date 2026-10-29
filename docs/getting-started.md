@@ -61,9 +61,10 @@ the files the web interface edits: `entities.yaml`, `automations.yaml`,
 configuration directory: `~/.config` on Linux, `~/Library/Application
 Support` on macOS and `%AppData%` on Windows.
 
-Open <http://localhost:8080>. With no links yet the Nodes page shows only
-Interlock's own node and the Settings page lists the serial ports it can
-see.
+Open <http://localhost:8080>. It opens on the track plan, which stays
+empty until you make one. With no links yet the Nodes page shows only
+Interlock's own node, and the Settings page lists the serial ports it
+can see.
 
 ## Connect the layout
 

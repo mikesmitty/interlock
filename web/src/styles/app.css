@@ -54,8 +54,15 @@
   background: var(--enamel);
 }
 
-.rail__foot {
+.rail__group {
+  padding-bottom: 1rem;
+}
+
+.rail__group--end {
   margin-top: auto;
+}
+
+.rail__foot {
   padding: 0 1rem;
   color: var(--ivory-faint);
   font-size: var(--fs-sm);
@@ -161,6 +168,10 @@
   .rail__brand,
   .rail__foot {
     display: none;
+  }
+
+  .rail__group {
+    display: contents;
   }
 
   .rail__link {
