@@ -63,7 +63,9 @@ applied at the next start; the replaced files go to `before-restore-*/`.
   - `openlcb/detector` the DCC detector event protocol: a 16-bit range
     per detector whose low bytes report locomotives entering and leaving
   - `openlcb/traction` Train Control: command and reply encoding, the
-    Train Search event, DCC train node IDs; pure functions
+    Train Search event, DCC train node IDs, the DCC accessory events
+    (accessory numbers to the binary address the events carry, as
+    OpenMRN numbers them: 1 is binary 4); pure functions
   - `openlcb/clock` Broadcast Time events: time, date, year, rate,
     set, start, stop, query; pure functions
   - `openlcb/sim` simulated nodes built from the embedded copies of the
@@ -74,8 +76,9 @@ applied at the next start; the replaced files go to `before-restore-*/`.
     with a decoder on it, the emergency events (Emergency Stop holds
     every train at its speed until Clear Emergency Stop), consists that pass
     the lead's commands on, decoders that answer the consist address
-    in their CV 19, and the Long Address and Consist Control
-    instructions for writes of CVs 17 and 18 and of CV 19). The
+    in their CV 19, the Long Address and Consist Control
+    instructions for writes of CVs 17 and 18 and of CV 19, and the DCC
+    accessory event ranges with each output's last setting). The
     outpost also takes firmware upgrades (`sim.FirmwareImage` makes an
     image; a new image runs on trial and confirms itself or goes back)
 - `internal/config` — `interlock.yaml` loading and validation.
@@ -99,7 +102,9 @@ applied at the next start; the replaced files go to `before-restore-*/`.
 - `internal/entity` — kinds (turnout, block, reporter, sensor, switch,
   button), the manager that builds entities from profiles over the event
   table, follows Event Reports and Identified replies, sends commands,
-  and keeps overrides and hand-built entities in `<data>/entities.yaml`.
+  and keeps overrides and hand-built entities in `<data>/entities.yaml`
+  (a turnout on a DCC accessory decoder by its number, as
+  `turnout.dcc.<n>`).
 - `internal/trackplan` — the track plan in `<data>/trackplan.yaml`, to
   scale in millimeters: points, track between two of them (straight or
   turning by an angle), junctions (turnout, wye, crossing, crossover,
@@ -150,7 +155,8 @@ applied at the next start; the replaced files go to `before-restore-*/`.
   along the plan's `Network` (`trackplan/network.go`, legs through track
   and junction routes; `trackplan/stretch.go`, the track a train covers)
   moved at their decoders' speed with momentum,
-  turnouts from simulated servos, detectors with RailCom's timing (entry
+  turnouts from simulated servos or the command station's accessory
+  decoders, detectors with RailCom's timing (entry
   after a few packets, exit a second late, the decoder only, by its
   consist address while it runs in a DCC consist), and the
   test layout. The simulated outposts' node IDs are 0x10 apart because

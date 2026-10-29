@@ -454,3 +454,71 @@ func TestStationEmergencyStopHold(t *testing.T) {
 		t.Errorf("speeds after the hold = %+v", s)
 	}
 }
+
+func TestStationAccessories(t *testing.T) {
+	var mu sync.Mutex
+	said := map[openlcb.EventID]openlcb.MTI{}
+	heard := func() map[openlcb.EventID]openlcb.MTI {
+		mu.Lock()
+		defer mu.Unlock()
+		return maps.Clone(said)
+	}
+	local, _, station, ctx := simStationWatched(t, func(ev node.Event) {
+		if ev.Kind != node.EventMessage {
+			return
+		}
+		switch ev.Message.MTI {
+		case openlcb.MTIConsumerIdentifiedValid, openlcb.MTIConsumerIdentifiedInvalid, openlcb.MTIConsumerIdentifiedUnknown, openlcb.MTIConsumerRangeIdentified:
+			if id, ok := ev.Message.EventID(); ok {
+				mu.Lock()
+				said[id] = ev.Message.MTI
+				mu.Unlock()
+			}
+		}
+	})
+	// ask sends Identify Consumer for ev until the station gives want.
+	ask := func(ev openlcb.EventID, want openlcb.MTI) {
+		t.Helper()
+		deadline := time.Now().Add(time.Second)
+		for heard()[ev] != want {
+			if time.Now().After(deadline) {
+				t.Fatalf("%v: heard %v, want %v", ev, heard()[ev], want)
+			}
+			if err := local.Send(ctx, openlcb.Message{MTI: openlcb.MTIIdentifyConsumer, Payload: ev.AsSlice()}); err != nil {
+				t.Fatal(err)
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+	// On the bus, it says it consumes the three accessory ranges.
+	deadline := time.Now().Add(time.Second)
+	for heard()[traction.AccessoryActivate.Encode()] == 0 || heard()[traction.AccessoryDeactivate.Encode()] == 0 || heard()[traction.AccessoryExtended.Encode()] == 0 {
+		if time.Now().After(deadline) {
+			t.Fatalf("ranges not announced; heard %v", heard())
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	thrown, _ := traction.AccessoryEvent(12, false)
+	closed, _ := traction.AccessoryEvent(12, true)
+	ask(thrown, openlcb.MTIConsumerIdentifiedUnknown)
+	if got := station.Accessory(12); got != "unknown" {
+		t.Errorf("before any event: %s", got)
+	}
+	if err := local.SendEvent(ctx, closed); err != nil {
+		t.Fatal(err)
+	}
+	ask(closed, openlcb.MTIConsumerIdentifiedValid)
+	ask(thrown, openlcb.MTIConsumerIdentifiedInvalid)
+	if got := station.Accessory(12); got != "closed" {
+		t.Errorf("after close: %s", got)
+	}
+	if err := local.SendEvent(ctx, thrown); err != nil {
+		t.Fatal(err)
+	}
+	ask(thrown, openlcb.MTIConsumerIdentifiedValid)
+	if got, other := station.Accessory(12), station.Accessory(13); got != "thrown" || other != "unknown" {
+		t.Errorf("after throw: 12 %s, 13 %s", got, other)
+	}
+	ask(0x0101020001001000, openlcb.MTIConsumerIdentifiedUnknown)
+}

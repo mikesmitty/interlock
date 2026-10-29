@@ -106,6 +106,8 @@ func (b *bench) Turnout(n openlcb.NodeID, servo int) string {
 	return b.servos[entity.ProfileID(entity.KindTurnout, n, fmt.Sprintf("servo_%d", servo+1))]
 }
 
+func (b *bench) Accessory(number int) string { return b.servos[entity.AccessoryID(number)] }
+
 // SetTrack is a detector's report, which reaches tracking as its
 // reporter entity changing.
 func (b *bench) SetTrack(n openlcb.NodeID, track int, loco *sim.Locomotive) {

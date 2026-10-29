@@ -1,7 +1,8 @@
 // Package traction encodes and decodes the Train Control protocol: the
 // commands a throttle sends to a train node, the replies that come back,
-// the Train Search event, and the node IDs of DCC locomotives. It is pure
-// functions over bytes; the node package carries the messages.
+// the Train Search event, the node IDs of DCC locomotives, and the events
+// that drive DCC accessory decoders. It is pure functions over bytes; the
+// node package carries the messages.
 //
 // Speeds travel as IEEE half-precision floats whose sign is the direction
 // (negative is reverse, so a negative zero is "stopped, facing reverse").

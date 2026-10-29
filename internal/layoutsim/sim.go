@@ -2,7 +2,7 @@
 // scheduling work can be built and tried without the hardware: trains
 // that move along the track plan at the speed their decoders are set to,
 // with the decoders' momentum, turnouts set by simulated outposts'
-// servos, and detectors that see the trains' decoders as canbus-outpost's
+// servos or by DCC accessory decoders, and detectors that see the trains' decoders as canbus-outpost's
 // RailCom detectors do. A detector sees only a train's decoder, not the
 // cars around it; it reports a decoder entering after a few DCC packets
 // and leaving only after a second without it.
@@ -11,7 +11,8 @@
 // turnouts drawn there are the ones the trains run over; a block's
 // reporter (or occupancy) entity and a junction's switch name the
 // simulated outpost's track or servo by their entity IDs, as in
-// reporter.0a0000000110.track_1.
+// reporter.0a0000000110.track_1, or the command station's accessory
+// decoder output by the turnout's, as in turnout.dcc.12.
 package layoutsim
 
 import (
@@ -23,6 +24,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mikesmitty/interlock/internal/entity"
 	"github.com/mikesmitty/interlock/internal/trackplan"
 	"github.com/mikesmitty/interlock/internal/train"
 	"github.com/mikesmitty/interlock/openlcb"
@@ -40,8 +42,9 @@ const (
 )
 
 // Hardware is the simulated boards the layout acts through: the command
-// station whose decoders set the trains' speeds, and the outposts whose
-// servos set the junctions and whose detectors see the trains.
+// station whose decoders set the trains' speeds and whose accessory
+// decoders set some junctions, and the outposts whose servos set the
+// others and whose detectors see the trains.
 type Hardware interface {
 	// DecoderState is a decoder's state as the command station last set
 	// it.
@@ -50,6 +53,9 @@ type Hardware interface {
 	Power() bool
 	// Turnout is a servo's state: thrown, closed, moving or unknown.
 	Turnout(node openlcb.NodeID, servo int) string
+	// Accessory is a DCC accessory decoder output's state: thrown,
+	// closed or unknown.
+	Accessory(number int) string
 	// SetTrack reports a locomotive on a detector's track, or the track
 	// clear with nil.
 	SetTrack(node openlcb.NodeID, track int, loco *sim.Locomotive)
@@ -236,18 +242,23 @@ func (s *Sim) place(t *running) error {
 	return nil
 }
 
-// position is how a junction is set, as its servo reports; a junction
-// without a switch machine stays closed. The caller holds s.mu.
+// position is how a junction is set, as its servo or accessory decoder
+// reports; a junction without a switch machine stays closed. The caller
+// holds s.mu.
 func (s *Sim) position(junction string) trackplan.Position {
 	id := s.net.Switch(junction)
 	if id == "" {
 		return trackplan.Closed
 	}
-	node, servo, ok := parseEntity(id, "servo_")
-	if !ok {
+	var state string
+	if n, ok := entity.ParseAccessoryID(id); ok {
+		state = s.hw.Accessory(n)
+	} else if node, servo, ok := parseEntity(id, "servo_"); ok {
+		state = s.hw.Turnout(node, servo)
+	} else {
 		return trackplan.Closed
 	}
-	switch s.hw.Turnout(node, servo) {
+	switch state {
 	case "closed":
 		return trackplan.Closed
 	case "thrown":

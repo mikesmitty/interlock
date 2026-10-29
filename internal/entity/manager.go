@@ -150,7 +150,11 @@ func (m *Manager) Run(ctx context.Context) error {
 	}
 }
 
-// HandleNode follows the registry: availability, names and removal.
+// HandleNode follows the registry: availability, names and removal. A
+// node that comes online is asked for its states, and the bus is asked
+// again about the manual entities' events, since the node may be the one
+// that answers for them, as a command station does for its accessory
+// decoders.
 func (m *Manager) HandleNode(info registry.Info) {
 	if info.Local {
 		return
@@ -184,6 +188,7 @@ func (m *Manager) HandleNode(info registry.Info) {
 	}
 	if info.Online && (!known || !wasOnline) {
 		m.requestIdentify(info.ID)
+		m.requestIdentify(0)
 	}
 }
 
@@ -259,6 +264,7 @@ func (m *Manager) place(spec Spec, now time.Time) *Entity {
 		DefaultName: spec.Name,
 		Node:        spec.Node,
 		Group:       spec.Group,
+		Accessory:   spec.Accessory,
 		Source:      spec.Source,
 		Profile:     spec.Profile,
 		Suggested:   spec.Suggested && !override.Confirmed,
@@ -281,7 +287,7 @@ func (m *Manager) place(spec Spec, now time.Time) *Entity {
 		return &next
 	}
 	same := ent.Name == next.Name && ent.DefaultName == next.DefaultName && ent.NodeName == next.NodeName &&
-		ent.Group == next.Group && ent.Suggested == next.Suggested && ent.Hidden == next.Hidden &&
+		ent.Group == next.Group && ent.Accessory == next.Accessory && ent.Suggested == next.Suggested && ent.Hidden == next.Hidden &&
 		ent.Available == next.Available && ent.Source == next.Source && ent.Profile == next.Profile &&
 		sameEvents(ent.Events, next.Events) && sameStrings(ent.Commands, next.Commands)
 	if same {
@@ -568,7 +574,10 @@ func (m *Manager) requestIdentify(node openlcb.NodeID) {
 }
 
 // sendIdentify asks a node for the state of all its events, or, for node
-// zero, asks the bus about the events of manual entities.
+// zero, asks the bus about the events of manual entities: the producers of
+// their feedback, and the consumers of the commands of those that have
+// none, such as a command station that remembers what it last set each
+// DCC accessory decoder output to.
 func (m *Manager) sendIdentify(ctx context.Context, node openlcb.NodeID) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -597,26 +606,42 @@ func (m *Manager) sendIdentify(ctx context.Context, node openlcb.NodeID) {
 		}
 		return
 	}
+	for _, msg := range m.manualAsks() {
+		if err := m.opts.Bus.Send(ctx, msg); err != nil {
+			m.log.Debug("identify failed", "mti", msg.MTI, "error", err)
+			return
+		}
+	}
+}
+
+// manualAsks are the Identify Producer and Identify Consumer messages that
+// ask about the events of manual entities.
+func (m *Manager) manualAsks() []openlcb.Message {
 	m.mu.RLock()
-	var events []openlcb.EventID
+	defer m.mu.RUnlock()
+	var asks []openlcb.Message
 	for _, ent := range m.entities {
 		if ent.Node != 0 {
 			continue
 		}
 		def, _ := Lookup(ent.Kind)
+		bound := make(map[string]bool, len(ent.Events))
+		for role := range ent.Events {
+			bound[role] = true
+		}
+		feedback := def.hasFeedback(bound)
 		for role, ev := range ent.Events {
-			if r, ok := def.Role(role); ok && !r.Command {
-				events = append(events, ev)
+			r, ok := def.Role(role)
+			switch {
+			case !ok:
+			case !r.Command:
+				asks = append(asks, openlcb.Message{MTI: openlcb.MTIIdentifyProducer, Payload: ev.AsSlice()})
+			case !feedback:
+				asks = append(asks, openlcb.Message{MTI: openlcb.MTIIdentifyConsumer, Payload: ev.AsSlice()})
 			}
 		}
 	}
-	m.mu.RUnlock()
-	for _, ev := range events {
-		if err := m.opts.Bus.Send(ctx, openlcb.Message{MTI: openlcb.MTIIdentifyProducer, Payload: ev.AsSlice()}); err != nil {
-			m.log.Debug("identify producer failed", "event", ev, "error", err)
-			return
-		}
-	}
+	return asks
 }
 
 // IdentifyAll asks every node with entities for its states again.
@@ -738,7 +763,7 @@ func (m *Manager) Update(id string, change Change) (Entity, error) {
 }
 
 func (m *Manager) updateManual(current Entity, change Change) (Entity, error) {
-	man := Manual{ID: current.ID, Kind: current.Kind, Name: current.Name, Events: current.Events}
+	man := Manual{ID: current.ID, Kind: current.Kind, Name: current.Name, Events: current.Events, Accessory: current.Accessory}
 	if change.Name != nil && *change.Name != "" {
 		man.Name = *change.Name
 	}
@@ -754,7 +779,7 @@ func (m *Manager) updateManual(current Entity, change Change) (Entity, error) {
 			return current, err
 		}
 	}
-	if err := m.opts.File.PutManual(man); err != nil {
+	if err := m.opts.File.PutManual(man.stored()); err != nil {
 		return current, err
 	}
 	m.mu.Lock()
@@ -783,7 +808,7 @@ func (m *Manager) Create(man Manual) (Entity, error) {
 	if exists {
 		return Entity{}, fmt.Errorf("%w: %s", ErrExists, spec.ID)
 	}
-	if err := m.opts.File.PutManual(man); err != nil {
+	if err := m.opts.File.PutManual(man.stored()); err != nil {
 		return Entity{}, err
 	}
 	m.mu.Lock()

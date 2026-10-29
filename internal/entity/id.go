@@ -2,6 +2,7 @@ package entity
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/mikesmitty/interlock/openlcb"
@@ -12,6 +13,25 @@ import (
 // slug, as in turnout.0aff9024a634.servo_1.
 func ProfileID(kind Kind, node openlcb.NodeID, slug string) string {
 	return fmt.Sprintf("%s.%012x.%s", kind, uint64(node), slug)
+}
+
+// AccessoryID is the ID of the turnout on DCC accessory number n, as in
+// turnout.dcc.12.
+func AccessoryID(n int) string {
+	return fmt.Sprintf("%s.dcc.%d", KindTurnout, n)
+}
+
+// ParseAccessoryID returns the accessory number in an AccessoryID.
+func ParseAccessoryID(id string) (int, bool) {
+	rest, ok := strings.CutPrefix(id, string(KindTurnout)+".dcc.")
+	if !ok {
+		return 0, false
+	}
+	n, err := strconv.Atoi(rest)
+	if err != nil || AccessoryID(n) != id {
+		return 0, false
+	}
+	return n, true
 }
 
 // MoveID returns the ID that an entity built from node from would have if

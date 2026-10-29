@@ -306,7 +306,7 @@ function Editor({ entity, def, names, onDone, onMessage }: EditorProps) {
                 {role.label}
                 {role.required ? "" : <span className="faint"> (optional)</span>}
               </span>
-              {manual ? (
+              {manual && !(entity.accessory && role.command) ? (
                 <input
                   className="input input--event"
                   list="event-names"
@@ -329,6 +329,11 @@ function Editor({ entity, def, names, onDone, onMessage }: EditorProps) {
           );
         })}
       </div>
+      {entity.accessory !== undefined && (
+        <p className="muted ent-edit__hint">
+          Throw and close are the events for DCC accessory {entity.accessory}. The number is part of the turnout's ID, so to use another one, build a new turnout.
+        </p>
+      )}
       {!manual && (
         <p className="muted ent-edit__hint">
           The events come from {entity.node_name ? <Link to={`/nodes/${entity.node}`}>{entity.node_name}</Link> : "the node"}
@@ -382,14 +387,19 @@ function Editor({ entity, def, names, onDone, onMessage }: EditorProps) {
   );
 }
 
-/** Builds an entity by hand from event IDs. */
+/** Builds an entity by hand from event IDs, or a turnout from its DCC accessory number. */
 function AddForm({ kinds, onDone }: { kinds: KindDef[]; onDone: (created?: Entity) => void }) {
   const [kind, setKind] = useState<EntityKind>("turnout");
   const [name, setName] = useState("");
   const [events, setEvents] = useState<Record<string, string>>({});
+  const [onDecoder, setOnDecoder] = useState(false);
+  const [accessory, setAccessory] = useState("");
   const [error, setError] = useState<string>();
   const [saving, setSaving] = useState(false);
   const def = kinds.find((k) => k.kind === kind);
+  const dcc = kind === "turnout" && onDecoder;
+  // An accessory decoder turnout's number gives its throw and close events.
+  const roles = (def?.roles ?? []).filter((r) => !(dcc && r.command));
 
   async function submit(ev: FormEvent) {
     ev.preventDefault();
@@ -398,7 +408,12 @@ function AddForm({ kinds, onDone }: { kinds: KindDef[]; onDone: (created?: Entit
       setError("Give it a name.");
       return;
     }
-    for (const role of def?.roles ?? []) {
+    const number = Number(accessory);
+    if (dcc && !(Number.isInteger(number) && number >= 1 && number <= 2048)) {
+      setError("DCC accessory numbers run from 1 to 2048.");
+      return;
+    }
+    for (const role of roles) {
       const id = events[role.name]?.trim() ?? "";
       if (role.required && !id) {
         setError(`A ${def?.label.toLowerCase()} needs its ${role.label.toLowerCase()} event.`);
@@ -411,7 +426,8 @@ function AddForm({ kinds, onDone }: { kinds: KindDef[]; onDone: (created?: Entit
     }
     setSaving(true);
     try {
-      const created = await api.createEntity({ kind, name: name.trim(), events: Object.fromEntries(Object.entries(events).filter(([, id]) => id.trim())) });
+      const filled = Object.fromEntries(Object.entries(events).filter(([role, id]) => id.trim() && roles.some((r) => r.name === role)));
+      const created = await api.createEntity({ kind, name: name.trim(), events: filled, accessory: dcc ? number : undefined });
       onDone(created);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -423,7 +439,9 @@ function AddForm({ kinds, onDone }: { kinds: KindDef[]; onDone: (created?: Entit
   return (
     <form className="panel ent-add" onSubmit={submit}>
       <h2>Build an entity by hand</h2>
-      <p className="muted">Pick what it is and the events that drive it. Event fields offer every event named in a node's configuration.</p>
+      <p className="muted">
+        Pick what it is and the events that drive it. Event fields offer every event named in a node's configuration. A turnout on a DCC accessory decoder needs only its number.
+      </p>
       <div className="ent-edit__row">
         <label className="ent-edit__field">
           <span>Kind</span>
@@ -446,9 +464,24 @@ function AddForm({ kinds, onDone }: { kinds: KindDef[]; onDone: (created?: Entit
           <span>Name</span>
           <input className="input input--text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Yard lead" />
         </label>
+        {kind === "turnout" && (
+          <label className="ent-edit__field">
+            <span>Driven by</span>
+            <select className="input input--select" value={onDecoder ? "dcc" : "events"} onChange={(e) => setOnDecoder(e.target.value === "dcc")}>
+              <option value="events">Events</option>
+              <option value="dcc">A DCC accessory decoder</option>
+            </select>
+          </label>
+        )}
+        {dcc && (
+          <label className="ent-edit__field">
+            <span>Accessory number</span>
+            <input className="input input--num" type="number" min={1} max={2048} value={accessory} onChange={(e) => setAccessory(e.target.value)} placeholder="1" />
+          </label>
+        )}
       </div>
       <div className="ent-edit__events">
-        {(def?.roles ?? []).map((role) => (
+        {roles.map((role) => (
           <label key={role.name} className="ent-edit__field">
             <span>
               {role.label}

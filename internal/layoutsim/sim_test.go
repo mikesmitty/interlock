@@ -52,6 +52,15 @@ func (f *fakeHardware) Turnout(n openlcb.NodeID, servo int) string {
 	return "closed"
 }
 
+func (f *fakeHardware) Accessory(number int) string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if s, ok := f.servos[fmt.Sprintf("dcc/%d", number)]; ok {
+		return s
+	}
+	return "unknown"
+}
+
 func (f *fakeHardware) SetTrack(n openlcb.NodeID, track int, loco *sim.Locomotive) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -164,6 +173,26 @@ func TestThrownTurnoutTakesTheSiding(t *testing.T) {
 	got := strings.Join(f.reported(), "; ")
 	if !strings.Contains(got, "1/2 101") || strings.Contains(got, "1/1 101") {
 		t.Errorf("reports %s; want the siding's detector, not the platform's", got)
+	}
+}
+
+func TestAccessoryDecoderTurnout(t *testing.T) {
+	trains := []TrainSpec{{Name: "Local 1", Address: 101, Length: 456, Decoder: 57, TopSpeed: 160, Block: "east-outer"}}
+	f := newFake(trains)
+	s := New(f, trains, quiet)
+	plan := TestLayout()
+	for i := range plan.Junctions {
+		if plan.Junctions[i].ID == "main-east" {
+			plan.Junctions[i].Switch = "turnout.dcc.5"
+		}
+	}
+	s.SetPlan(plan, "r1")
+	// The servo it no longer follows says closed.
+	f.servos[fmt.Sprintf("dcc/%d", 5)] = "thrown"
+	f.set(101, 126, false)
+	f.run(s, 7*time.Second)
+	if b := s.trains[0].block; b != "main-siding" {
+		t.Errorf("decoder in %q; want main-siding", b)
 	}
 }
 

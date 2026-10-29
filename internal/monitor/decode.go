@@ -9,6 +9,7 @@ import (
 	"github.com/mikesmitty/interlock/openlcb/can"
 	"github.com/mikesmitty/interlock/openlcb/clock"
 	"github.com/mikesmitty/interlock/openlcb/memconfig"
+	"github.com/mikesmitty/interlock/openlcb/traction"
 )
 
 // Lookup supplies the node ID behind an alias, or 0.
@@ -184,6 +185,8 @@ func summarize(msg *openlcb.Message) string {
 			if name := openlcb.WellKnownName(id); name != "" {
 				s += " (" + name + ")"
 			} else if name := clockName(id); name != "" {
+				s += " (" + name + ")"
+			} else if name := accessoryName(msg.MTI, id); name != "" {
 				s += " (" + name + ")"
 			}
 			return s
@@ -386,6 +389,36 @@ func summarizeTraction(p []byte, reply bool) string {
 		name += " (forwarded to listener)"
 	}
 	return name
+}
+
+// accessoryName describes a DCC accessory event, such as "DCC accessory
+// 12 thrown", or one of the accessory ranges.
+func accessoryName(mti openlcb.MTI, id openlcb.EventID) string {
+	if mti == openlcb.MTIConsumerRangeIdentified || mti == openlcb.MTIProducerRangeIdentified {
+		switch openlcb.ParseEventRange(id) {
+		case traction.AccessoryActivate:
+			return "every DCC accessory"
+		case traction.AccessoryDeactivate:
+			return "every DCC accessory, off"
+		case traction.AccessoryExtended:
+			return "every DCC extended accessory"
+		}
+		return ""
+	}
+	if cmd, ok := traction.ParseAccessoryEvent(id); ok {
+		name := fmt.Sprintf("DCC accessory %d thrown", cmd.Number)
+		if cmd.Normal {
+			name = fmt.Sprintf("DCC accessory %d closed", cmd.Number)
+		}
+		if !cmd.Activate {
+			name += ", off"
+		}
+		return name
+	}
+	if traction.AccessoryExtended.Contains(id) {
+		return fmt.Sprintf("DCC extended accessory %d aspect %d", traction.AccessoryNumber(uint16(id>>8)), byte(id))
+	}
+	return ""
 }
 
 // clockName describes a Broadcast Time event of one of the well-known

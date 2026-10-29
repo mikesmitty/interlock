@@ -227,6 +227,10 @@ func (h *harness) Turnout(n openlcb.NodeID, servo int) string {
 	return h.ents.state(entity.ProfileID(entity.KindTurnout, n, fmt.Sprintf("servo_%d", servo+1)))
 }
 
+func (h *harness) Accessory(number int) string {
+	return h.ents.state(entity.AccessoryID(number))
+}
+
 // SetTrack is a detector's report. An entry after a run at a step held
 // since the last is what tracking would measure the speed at that step
 // from.

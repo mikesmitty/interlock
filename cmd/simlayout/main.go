@@ -102,6 +102,8 @@ func (h hardware) Turnout(n openlcb.NodeID, servo int) string {
 	return o.Turnout(servo)
 }
 
+func (h hardware) Accessory(number int) string { return h.station.Accessory(number) }
+
 func (h hardware) SetTrack(n openlcb.NodeID, track int, loco *sim.Locomotive) {
 	if o, ok := h.outposts[n]; ok {
 		o.SetTrack(track, loco)

@@ -92,7 +92,7 @@ plain words, and `from` and `to` software versions. See
 
 ```
 GET    /api/v1/entities                      every entity with its state
-POST   /api/v1/entities                      make one by hand {kind, name, events}
+POST   /api/v1/entities                      make one by hand {kind, name, events, accessory}
 POST   /api/v1/entities/refresh              ask the nodes for current states
 GET    /api/v1/entities/kinds                kinds, their roles and states
 GET    /api/v1/entities/{id}

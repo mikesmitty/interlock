@@ -27,6 +27,30 @@ shipped ones.
 Entities can also be made by hand on the page from any event IDs, for
 nodes with no description at all.
 
+## Turnouts on DCC accessory decoders
+
+A turnout on a DCC accessory decoder needs only its number. On the
+Entities page, choose **Build one by hand**, pick Turnout, set **Driven
+by** to a DCC accessory decoder, and type the number the decoder is set
+to, 1 to 2048, as your throttle or the decoder's instructions number it.
+A command station that takes the standard LCC accessory events, such as
+`simple-dcc`, turns each throw and close into an accessory packet.
+
+The events carry the decoder's address in the form the DCC packet uses,
+which is not the number people type: accessory 1 is address 4 in the
+packet, and 2045 to 2048 come round to 0 to 3. Interlock works this out
+for you. Other LCC software that numbers accessories the standard way
+throws the same turnout for the same number.
+
+The turnout's ID is `turnout.dcc.` and the number, such as
+`turnout.dcc.12`, and `entities.yaml` keeps the number rather than the
+events. To use another number, build a new turnout. An accessory
+decoder doesn't say where its points are, so the turnout shows what it
+was last told: Interlock asks the command station when it starts, and
+`simple-dcc` remembers each output's last setting until it restarts. If
+something reports the points' position, such as a sensor on an outpost,
+add its events as the turnout's thrown and closed feedback.
+
 ## Live state
 
 Interlock follows the bus. When a node reports an event, every entity
@@ -59,5 +83,6 @@ what was asked.
 | button   | pressed, idle                                 | press                |
 
 Entity IDs read like `turnout.0a0000000042.servo_1`: the kind, the node
-and the group. They are what automations refer to; the editor picks them
+and the group. Ones built by hand read like `sensor.manual.yard_door`,
+or `turnout.dcc.12` for a DCC accessory decoder. They are what automations refer to; the editor picks them
 from a list.

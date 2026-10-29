@@ -174,6 +174,8 @@ export interface Entity {
   node?: string;
   node_name?: string;
   group?: string;
+  /** The DCC accessory number of a turnout on an accessory decoder. */
+  accessory?: number;
   source: EntitySource;
   profile?: string;
   suggested?: boolean;
@@ -219,6 +221,8 @@ export interface ManualEntity {
   kind: EntityKind;
   name: string;
   events: Record<string, string>;
+  /** Puts a turnout on a DCC accessory decoder output, 1 to 2048; its throw and close events come from the number. */
+  accessory?: number;
 }
 
 /** One entry of the named event table. */

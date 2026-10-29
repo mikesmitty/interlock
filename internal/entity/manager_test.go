@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -451,6 +453,115 @@ func TestManualEntities(t *testing.T) {
 	waitFor(t, "third start", func() bool { return len(third.m.List()) == 4 })
 	if _, ok := third.m.Get(ent.ID); ok {
 		t.Error("deleted entity came back")
+	}
+}
+
+func TestAccessoryTurnouts(t *testing.T) {
+	dir := t.TempDir()
+	h := newHarness(t, dir)
+	// Accessory 1 is binary address 4: reversed 08, normal 09.
+	throw, closeEv := openlcb.EventID(0x0101020000FF0008), openlcb.EventID(0x0101020000FF0009)
+	ent, err := h.m.Create(Manual{Kind: KindTurnout, Name: "Yard lead", Accessory: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ent.ID != "turnout.dcc.1" || ent.Accessory != 1 || ent.Events["throw"] != throw || ent.Events["close"] != closeEv || ent.State != StateUnknown {
+		t.Errorf("created = %+v", ent)
+	}
+	if n, ok := ParseAccessoryID(ent.ID); !ok || n != 1 {
+		t.Errorf("ParseAccessoryID(%s) = %d %v", ent.ID, n, ok)
+	}
+
+	var invalid *InvalidError
+	for name, man := range map[string]Manual{
+		"not a turnout":   {Kind: KindSwitch, Name: "Lamp", Accessory: 3},
+		"out of range":    {Kind: KindTurnout, Name: "Far", Accessory: 2049},
+		"its own command": {Kind: KindTurnout, Name: "Odd", Accessory: 3, Events: map[string]openlcb.EventID{"throw": evThrow}},
+	} {
+		if _, err := h.m.Create(man); !errors.As(err, &invalid) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	if _, err := h.m.Create(Manual{Kind: KindTurnout, Name: "Again", Accessory: 1}); !errors.Is(err, ErrExists) {
+		t.Errorf("the same number twice = %v", err)
+	}
+
+	// Without feedback, its commands set it, and the command station is
+	// asked what it last set the output to.
+	if _, err := h.m.Command(context.Background(), ent.ID, "close"); err != nil {
+		t.Fatal(err)
+	}
+	if events, _ := h.bus.sent(); len(events) == 0 || events[len(events)-1] != closeEv {
+		t.Errorf("sent %v, want close %v", events, closeEv)
+	}
+	if e := h.get(t, ent.ID); e.State != StateClosed {
+		t.Errorf("after close: %s", e.State)
+	}
+	h.identified(openlcb.MTIConsumerIdentifiedValid, throw)
+	if e := h.get(t, ent.ID); e.State != StateThrown {
+		t.Errorf("after the station said thrown: %s", e.State)
+	}
+	asked := func() map[openlcb.EventID]openlcb.MTI {
+		out := make(map[openlcb.EventID]openlcb.MTI)
+		for _, msg := range h.m.manualAsks() {
+			out[openlcb.EventIDFromBytes([8]byte(msg.Payload))] = msg.MTI
+		}
+		return out
+	}
+	if got := asked(); got[throw] != openlcb.MTIIdentifyConsumer || got[closeEv] != openlcb.MTIIdentifyConsumer {
+		t.Errorf("asks = %v", got)
+	}
+	// They are asked again when a node comes onto the bus, since the
+	// command station may come after Interlock.
+	sentAsks := func() int {
+		_, msgs := h.bus.sent()
+		n := 0
+		for _, msg := range msgs {
+			if msg.MTI == openlcb.MTIIdentifyConsumer && openlcb.EventIDFromBytes([8]byte(msg.Payload)) == throw {
+				n++
+			}
+		}
+		return n
+	}
+	waitFor(t, "the first ask", func() bool { return sentAsks() > 0 })
+	time.Sleep(3 * identifyPause)
+	before := sentAsks()
+	h.m.HandleNode(registry.Info{ID: other, Online: true})
+	waitFor(t, "an ask once a node is online", func() bool { return sentAsks() > before })
+
+	// With feedback, the feedback is what's asked about.
+	e, err := h.m.Update(ent.ID, Change{Events: map[string]openlcb.EventID{"throw": throw, "close": closeEv, "thrown": evThrown, "closed": evClosed}})
+	if err != nil || e.Events["closed"] != evClosed || e.Events["throw"] != throw {
+		t.Fatalf("add feedback = %+v, %v", e, err)
+	}
+	if got := asked(); got[evClosed] != openlcb.MTIIdentifyProducer || got[throw] != 0 {
+		t.Errorf("asks with feedback = %v", got)
+	}
+	if _, err := h.m.Update(ent.ID, Change{Events: map[string]openlcb.EventID{"throw": evThrow, "close": closeEv}}); !errors.As(err, &invalid) {
+		t.Errorf("changing its throw event = %v", err)
+	}
+
+	// The file keeps the number, not the events it gives.
+	data, err := os.ReadFile(filepath.Join(dir, FileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text := string(data); !strings.Contains(text, "accessory: 1") || strings.Contains(text, "throw:") || strings.Contains(text, "close:") {
+		t.Errorf("entities.yaml:\n%s", text)
+	}
+	again := newHarness(t, dir)
+	waitFor(t, "restart", func() bool { _, ok := again.m.Get(ent.ID); return ok })
+	if e, _ := again.m.Get(ent.ID); e.Accessory != 1 || e.Events["throw"] != throw || e.Events["closed"] != evClosed {
+		t.Errorf("restored = %+v", e)
+	}
+}
+
+func TestAccessoryIDs(t *testing.T) {
+	for id, want := range map[string]int{"turnout.dcc.12": 12, "turnout.dcc.2048": 2048, "turnout.dcc.012": 0, "turnout.dcc.x": 0, "switch.dcc.1": 0, "turnout.manual.dcc": 0} {
+		n, ok := ParseAccessoryID(id)
+		if ok != (want != 0) || n != want {
+			t.Errorf("ParseAccessoryID(%q) = %d %v", id, n, ok)
+		}
 	}
 }
 

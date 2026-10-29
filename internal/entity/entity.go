@@ -7,6 +7,7 @@ import (
 
 	"github.com/mikesmitty/interlock/openlcb"
 	"github.com/mikesmitty/interlock/openlcb/detector"
+	"github.com/mikesmitty/interlock/openlcb/traction"
 )
 
 // Source says where an entity came from.
@@ -64,6 +65,10 @@ type Spec struct {
 	Source    Source
 	Profile   string
 	Suggested bool
+	// Accessory is the number of the DCC accessory decoder output a
+	// turnout built by hand is on; its throw and close events come from
+	// it.
+	Accessory int
 }
 
 // NodeInfo is what a builder is told about the node.
@@ -93,8 +98,11 @@ type Entity struct {
 	Node        openlcb.NodeID `json:"node,omitempty"`
 	NodeName    string         `json:"node_name,omitempty"`
 	Group       string         `json:"group,omitempty"`
-	Source      Source         `json:"source"`
-	Profile     string         `json:"profile,omitempty"`
+	// Accessory is the DCC accessory number of a turnout on an accessory
+	// decoder.
+	Accessory int    `json:"accessory,omitempty"`
+	Source    Source `json:"source"`
+	Profile   string `json:"profile,omitempty"`
 	// Suggested marks a guess the user has not confirmed.
 	Suggested bool `json:"suggested,omitempty"`
 	// Hidden entities stay out of the main list and of automations.
@@ -122,7 +130,11 @@ type Manual struct {
 	ID     string                     `yaml:"id" json:"id"`
 	Kind   Kind                       `yaml:"kind" json:"kind"`
 	Name   string                     `yaml:"name" json:"name"`
-	Events map[string]openlcb.EventID `yaml:"events" json:"events"`
+	Events map[string]openlcb.EventID `yaml:"events,omitempty" json:"events"`
+	// Accessory puts a turnout on a DCC accessory decoder output, 1 to
+	// 2048: its throw and close events are the accessory events for that
+	// number, and Events holds at most its feedback.
+	Accessory int `yaml:"accessory,omitempty" json:"accessory,omitempty"`
 }
 
 // Spec turns a manual entity into a blueprint, checking it first.
@@ -134,15 +146,27 @@ func (m Manual) Spec() (Spec, error) {
 	if m.Name == "" {
 		return Spec{}, &InvalidError{Reason: "the entity needs a name"}
 	}
+	accessory, err := m.accessoryEvents()
+	if err != nil {
+		return Spec{}, err
+	}
 	events := make(map[string]openlcb.EventID)
 	bound := make(map[string]bool)
 	for role, ev := range m.Events {
-		if _, ok := def.Role(role); !ok {
+		r, ok := def.Role(role)
+		if !ok {
 			return Spec{}, &InvalidError{Reason: fmt.Sprintf("a %s has no %q event", def.Label, role)}
 		}
 		if ev == 0 {
 			continue
 		}
+		if accessory != nil && r.Command && ev != accessory[role] {
+			return Spec{}, &InvalidError{Reason: fmt.Sprintf("a turnout on a DCC accessory decoder takes its %s event from its number", role)}
+		}
+		events[role] = ev
+		bound[role] = true
+	}
+	for role, ev := range accessory {
 		events[role] = ev
 		bound[role] = true
 	}
@@ -150,10 +174,51 @@ func (m Manual) Spec() (Spec, error) {
 		return Spec{}, &InvalidError{Reason: fmt.Sprintf("a %s needs its %s event", def.Label, missing[0])}
 	}
 	id := m.ID
-	if id == "" {
+	switch {
+	case id != "":
+	case m.Accessory != 0:
+		id = AccessoryID(m.Accessory)
+	default:
 		id = string(m.Kind) + ".manual." + Slug(m.Name)
 	}
-	return Spec{ID: id, Kind: m.Kind, Name: m.Name, Events: events, Source: SourceManual}, nil
+	return Spec{ID: id, Kind: m.Kind, Name: m.Name, Events: events, Source: SourceManual, Accessory: m.Accessory}, nil
+}
+
+// accessoryEvents returns the throw and close events of a turnout on a DCC
+// accessory decoder, or nil for an entity that isn't one.
+func (m Manual) accessoryEvents() (map[string]openlcb.EventID, error) {
+	if m.Accessory == 0 {
+		return nil, nil
+	}
+	if m.Kind != KindTurnout {
+		return nil, &InvalidError{Reason: "only a turnout can be on a DCC accessory decoder"}
+	}
+	throw, ok := traction.AccessoryEvent(m.Accessory, false)
+	if !ok {
+		return nil, &InvalidError{Reason: fmt.Sprintf("DCC accessory numbers run from %d to %d", traction.AccessoryFirst, traction.AccessoryLast)}
+	}
+	closeEv, _ := traction.AccessoryEvent(m.Accessory, true)
+	return map[string]openlcb.EventID{"throw": throw, "close": closeEv}, nil
+}
+
+// stored is the manual entity as entities.yaml keeps it: a turnout on a
+// DCC accessory decoder without the events its number gives it.
+func (m Manual) stored() Manual {
+	if m.Accessory == 0 {
+		return m
+	}
+	def, _ := Lookup(m.Kind)
+	events := make(map[string]openlcb.EventID)
+	for role, ev := range m.Events {
+		if r, ok := def.Role(role); ok && !r.Command {
+			events[role] = ev
+		}
+	}
+	m.Events = events
+	if len(events) == 0 {
+		m.Events = nil
+	}
+	return m
 }
 
 // Change is what Update can alter about an entity.

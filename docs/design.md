@@ -66,8 +66,20 @@ These are facts from the firmware, and they drive the first milestones.
   node at `CV - 1`, answered with Datagram OK reply-pending and a delayed
   read or write reply. Error codes distinguish no ack, no loco, short and
   programming disabled.
-- Not implemented yet: DCC accessory packets, traction reservation
-  (`0x40`), remote consist members on other nodes.
+- DCC accessory decoders (since `ffab883`): the command station node
+  consumes the well-known basic accessory activate and deactivate ranges
+  (`01.01.02.00.00.FF.xx.xx`, `.FE.xx.xx`) and the extended range
+  (`01.01.02.00.01.xx.xx.xx`), each announced as one Consumer Range
+  Identified, and sends the matching accessory packet. Each basic output
+  remembers its last setting from boot, so Identify Consumer answers Valid
+  or Invalid once an event has set it, Unknown before. The events carry
+  the binary output address, which is not the number people use: number
+  n is binary n + 3, and 2045 to 2048 wrap round to 0 to 3 (OpenMRN's
+  `accy_address_user_to_binary`). Accessory 1 closed (normal) is
+  `01.01.02.00.00.FF.00.09`, thrown (reversed) `…00.08`. `simple-dcc`
+  passes the binary address through as it is.
+- Not implemented yet: traction reservation (`0x40`), remote consist
+  members on other nodes.
 
 ### canbus-outpost (switch machines and RailCom detectors)
 
@@ -489,8 +501,8 @@ acceleration by name, and see the change after a fresh read.
 ### Later
 
 Home Assistant integration, multi-user
-auth, accessory decoder turnouts once `simple-dcc` sends accessory packets,
-train reservation protocol, function description information (space 0xFA).
+auth, signals on extended accessory decoders, train reservation protocol,
+function description information (space 0xFA).
 
 A DCC-EX native protocol server (the `<...>` commands a DCC-EX command
 station takes). WiThrottle already covers driving, turnouts, power and
@@ -808,6 +820,20 @@ since its result could change the model.
   network, leaves it set to 0. A drive the hold or track power ends sets its train to
   0, and a consist held at a speed counts as moving. The simulated
   command station holds its trains the same way.
+- Turnouts on DCC accessory decoders (2026-10-28): a turnout built by
+  hand can take a DCC accessory number, 1 to 2048, instead of its throw
+  and close events, which `openlcb/traction` works out by OpenMRN's
+  numbering (accessory 1 is binary address 4) and which are tested at
+  both ends of the range. Its ID is `turnout.dcc.<number>`, and
+  `entities.yaml` keeps the number, not the events; feedback events
+  stay optional. Interlock asks the consumers of a hand-built entity's
+  commands for their state when it has no feedback, so a turnout on an
+  accessory decoder starts as the command station last set it. The
+  monitor names the accessory events. The simulated command station
+  consumes the ranges and remembers each output as `simple-dcc` does,
+  and the simulated layout sets a junction linked to `turnout.dcc.<n>`
+  from it. Not yet tried on a real accessory decoder with a known
+  address.
 - Phase 8 track plan (2026-10-27): `internal/trackplan` (directions,
   pieces from the directions a cell's track leaves by, plan validation,
   topology with open ends, block ends and links through turnout

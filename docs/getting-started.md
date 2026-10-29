@@ -135,7 +135,9 @@ stop markers for [driving](./driving.md) trains to.
 Its trains run along the plan at the speed their decoders are set to,
 with the decoders' momentum (CVs 3 and 4) and speed curve (CVs 2, 5
 and 6). The outposts' servos set the turnouts, taking their throw time to
-move. The detectors see the trains the way canbus-outpost's RailCom
+move. A junction linked to a turnout on a DCC accessory decoder, such as
+`turnout.dcc.12`, follows the simulated command station instead, which
+takes the accessory events as `simple-dcc` does. The detectors see the trains the way canbus-outpost's RailCom
 detectors do:
 
 - They see only the car with the decoder, not the rest of the train.

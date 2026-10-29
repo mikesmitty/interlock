@@ -156,7 +156,9 @@ type StationOptions struct {
 // events cut and restore track power, which is off until the first Clear
 // Emergency Off. Like the firmware, it says whether power is on in its
 // Consumer Identified replies for Emergency Off and Clear Emergency Off,
-// and announces them once it is on the bus.
+// and announces them once it is on the bus. It consumes the DCC accessory
+// event ranges, as one Consumer Range Identified each, and remembers each
+// basic accessory output's last setting for Identify Consumer.
 type Station struct {
 	*Node
 	log *slog.Logger
@@ -174,7 +176,10 @@ type Station struct {
 	// held is set from Emergency Stop to Clear Emergency Stop: every
 	// train stands, and goes back to its speed after.
 	held bool
-	work chan func()
+	// accessories holds each basic accessory output set since the start,
+	// by number: true for normal (closed).
+	accessories map[int]bool
+	work        chan func()
 }
 
 // NewStation builds a command station. cfg.Send must be set; cfg.ID
@@ -191,15 +196,16 @@ func NewStation(cfg node.Config, opts StationOptions) (*Station, error) {
 		return nil, err
 	}
 	s := &Station{
-		Node:      n,
-		log:       cfg.Logger,
-		cfg:       cfg,
-		ctx:       context.Background(),
-		decoders:  make(map[uint16]*Decoder),
-		trains:    make(map[openlcb.NodeID]*Train),
-		delay:     opts.ServiceModeDelay,
-		noRailCom: opts.NoRailCom,
-		work:      make(chan func(), 256),
+		Node:        n,
+		log:         cfg.Logger,
+		cfg:         cfg,
+		ctx:         context.Background(),
+		decoders:    make(map[uint16]*Decoder),
+		trains:      make(map[openlcb.NodeID]*Train),
+		delay:       opts.ServiceModeDelay,
+		noRailCom:   opts.NoRailCom,
+		accessories: make(map[int]bool),
+		work:        make(chan func(), 256),
 	}
 	if s.delay == 0 {
 		s.delay = 300 * time.Millisecond
@@ -394,7 +400,8 @@ func (s *Station) send(msg openlcb.Message) {
 	}
 }
 
-// onEvent handles a global event: a train search, or an emergency event.
+// onEvent handles a global event: a train search, an emergency event or a
+// DCC accessory event.
 func (s *Station) onEvent(ev openlcb.EventID, identify bool) {
 	if traction.IsSearchEvent(ev) {
 		s.onSearch(ev)
@@ -408,6 +415,11 @@ func (s *Station) onEvent(ev openlcb.EventID, identify bool) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if cmd, ok := traction.ParseAccessoryEvent(ev); ok {
+		s.accessories[cmd.Number] = cmd.Normal
+		s.log.Info("sim: accessory set", "number", cmd.Number, "state", accessoryState(cmd.Normal, true))
+		return
+	}
 	switch ev {
 	case openlcb.EventEmergencyOff:
 		s.power = false
@@ -490,16 +502,29 @@ func (s *Station) identifyAll() {
 	for _, ev := range []openlcb.EventID{openlcb.EventEmergencyOff, openlcb.EventClearEmergencyOff, openlcb.EventEmergencyStop, openlcb.EventClearEmergencyStop} {
 		s.identifyConsumer(ev)
 	}
+	for _, r := range []openlcb.EventRange{traction.AccessoryActivate, traction.AccessoryDeactivate, traction.AccessoryExtended} {
+		s.send(openlcb.Message{MTI: openlcb.MTIConsumerRangeIdentified, Payload: r.Encode().AsSlice()})
+	}
 }
 
 // identifyConsumer answers for one of the emergency events: the off pair
 // says whether track power is on, the stop pair whether the station holds
-// every train stopped.
+// every train stopped. For a basic accessory event it says whether that is
+// the output's last setting, or Unknown before one; for an extended one,
+// Unknown.
 func (s *Station) identifyConsumer(ev openlcb.EventID) {
 	s.mu.Lock()
 	power, held := s.power, s.held
+	cmd, accessory := traction.ParseAccessoryEvent(ev)
+	normal, set := s.accessories[cmd.Number]
 	s.mu.Unlock()
 	var mti openlcb.MTI
+	switch {
+	case accessory && set:
+		mti = validMTI(normal == cmd.Normal)
+	case accessory || traction.AccessoryExtended.Contains(ev):
+		mti = openlcb.MTIConsumerIdentifiedUnknown
+	}
 	switch ev {
 	case openlcb.EventEmergencyOff:
 		mti = validMTI(!power)
@@ -509,10 +534,30 @@ func (s *Station) identifyConsumer(ev openlcb.EventID) {
 		mti = validMTI(held)
 	case openlcb.EventClearEmergencyStop:
 		mti = validMTI(!held)
-	default:
+	}
+	if mti == 0 {
 		return
 	}
 	s.send(openlcb.Message{MTI: mti, Payload: ev.AsSlice()})
+}
+
+// Accessory is how a basic accessory output was last set: closed (normal),
+// thrown (reversed), or unknown before any event set it.
+func (s *Station) Accessory(number int) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	normal, set := s.accessories[number]
+	return accessoryState(normal, set)
+}
+
+func accessoryState(normal, set bool) string {
+	switch {
+	case !set:
+		return "unknown"
+	case normal:
+		return "closed"
+	}
+	return "thrown"
 }
 
 func validMTI(valid bool) openlcb.MTI {
