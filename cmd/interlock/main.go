@@ -225,7 +225,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			logger.Warn("saving CV values failed", "error", err)
 		}
 	}()
-	trains := train.New(train.Options{Bus: local, Nodes: reg, File: trainFile, Logger: logger, CVs: cvStore})
+	trains := train.New(train.Options{Bus: local, Nodes: reg, Memory: mem, File: trainFile, Logger: logger, CVs: cvStore})
 	logger.Info("loaded the roster", "count", len(trainFile.List()))
 	reg.Subscribe(trains.HandleNode)
 	prog := programmer.New(programmer.Options{Bus: local, Memory: mem, Nodes: reg, Trains: trains, Logger: logger})
@@ -254,6 +254,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	trains.Subscribe(tracker.HandleTrain)
 	trains.SubscribeCars(tracker.HandleCar)
 	trains.SubscribeFormations(tracker.HandleFormation)
+	trains.SubscribeConsists(tracker.HandleConsist)
 	trains.SubscribeLayout(tracker.HandleLayout)
 	trackPlan.Subscribe(tracker.HandlePlan)
 

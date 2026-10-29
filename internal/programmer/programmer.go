@@ -92,7 +92,9 @@ type Track struct {
 // Op is one CV operation, kept in the history.
 type Op struct {
 	ID int `json:"id"`
-	// Kind is read, write, pom (a write on the main) or pom_read.
+	// Kind is read, write, pom (a write on the main), pom_read or
+	// pom_address (a long address written on the main as one
+	// instruction: CV is 17 and Value the address).
 	Kind string `json:"kind"`
 	// Train and TrainName for work on the main.
 	Train     string `json:"train,omitempty"`
@@ -269,6 +271,33 @@ func (p *Programmer) WritePOM(ctx context.Context, trainID string, cv, value int
 			return err
 		}
 		if err := p.opts.Memory.Write(ctx, id, traction.SpaceCV, uint32(cv-1), []byte{byte(value)}); err != nil {
+			return mainError{err}
+		}
+		return nil
+	})
+}
+
+// WriteLongAddressPOM writes a long address on the main, CVs 17 and 18,
+// as one two-byte write, which the command station sends as one Long
+// Address instruction. The decoder sets CV 29 bit 5 too, so it never
+// answers a half-changed address.
+func (p *Programmer) WriteLongAddressPOM(ctx context.Context, trainID string, cv17, cv18 int) (Op, error) {
+	if err := checkValue(cv17); err != nil {
+		return Op{}, err
+	}
+	if err := checkValue(cv18); err != nil {
+		return Op{}, err
+	}
+	if p.opts.Trains == nil {
+		return Op{}, errors.New("programmer: trains are not available")
+	}
+	return p.run(ctx, Op{Kind: "pom_address", Train: trainID, CV: 17, Value: (cv17&0x3F)<<8 | cv18}, func(ctx context.Context, op *Op) error {
+		id, tr, err := p.opts.Trains.NodeFor(ctx, trainID)
+		op.Train, op.TrainName = tr.ID, tr.Name
+		if err != nil {
+			return err
+		}
+		if err := p.opts.Memory.Write(ctx, id, traction.SpaceCV, 16, []byte{byte(cv17), byte(cv18)}); err != nil {
 			return mainError{err}
 		}
 		return nil

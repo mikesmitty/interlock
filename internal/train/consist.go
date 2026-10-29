@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -81,6 +82,37 @@ func (mb Member) follows(fn int) bool {
 		return mb.F0
 	}
 	return mb.Functions
+}
+
+// The CVs a DCC consist sets in each decoder (S-9.2.2): the consist
+// address with the way the decoder faces in bit 7, and the functions it
+// takes at the consist address, F1 to F8 in CV 21 and F0 (both ways) and
+// F9 to F12 in CV 22.
+const (
+	cvConsistAddress    = 19
+	cvConsistFunctions1 = 21
+	cvConsistFunctions2 = 22
+)
+
+// consistFunctionMax is the highest function decoders take at a consist
+// address.
+const consistFunctionMax = 12
+
+// dccCVs returns the member's CVs 19, 21 and 22 in a DCC consist at
+// address. The lead takes every function the consist address carries.
+func (mb Member) dccCVs(address uint16, lead bool) (cv19, cv21, cv22 byte) {
+	cv19 = byte(address)
+	if mb.Reverse {
+		cv19 |= 0x80
+	}
+	if lead || mb.F0 {
+		cv22 |= 0x03
+	}
+	if lead || mb.Functions {
+		cv21 = 0xFF
+		cv22 |= 0x3C
+	}
+	return cv19, cv21, cv22
 }
 
 // ConsistState is a consist as the API shows it.
@@ -186,6 +218,8 @@ func (m *Manager) loadConsists() {
 // m.mu.
 func (m *Manager) consistStateLocked(c Consist) ConsistState {
 	_, attached := m.consistNode[c.ID]
+	// A DCC consist is kept in the decoders, which do not forget it.
+	attached = attached || c.Kind == ConsistDCC
 	return ConsistState{Consist: c.clone(), Attached: attached && c.MadeUp, Problem: m.consistProblem[c.ID]}
 }
 
@@ -393,7 +427,8 @@ func (m *Manager) consistTrainsLocked(c Consist) []*train {
 }
 
 // MakeUp puts a consist together on the layout: for an LCC consist, the
-// lead's train node is told to pass its commands on to the members'.
+// lead's train node is told to pass its commands on to the members'; for
+// a DCC consist, each decoder is given the consist address.
 func (m *Manager) MakeUp(ctx context.Context, id string) (ConsistState, error) {
 	m.consistOp.Lock()
 	defer m.consistOp.Unlock()
@@ -403,30 +438,59 @@ func (m *Manager) MakeUp(ctx context.Context, id string) (ConsistState, error) {
 		m.mu.Unlock()
 		return ConsistState{}, fmt.Errorf("%w: %s", ErrNotFound, id)
 	}
-	if err := m.checkConsistLocked(c); err != nil {
+	refuse := func(err error) (ConsistState, error) {
 		state := m.consistStateLocked(c)
 		m.mu.Unlock()
 		return state, err
 	}
-	if c.Kind == ConsistDCC {
-		state := m.consistStateLocked(c)
-		m.mu.Unlock()
-		return state, invalid("DCC consists cannot be made up yet: the command station has to send the decoders the consist instruction")
+	if err := m.checkConsistLocked(c); err != nil {
+		return refuse(err)
 	}
 	for _, mb := range c.Members {
 		e := m.roster[mb.Train]
 		if other, _, ok := m.madeUpAtLocked(e.key(), c.ID); ok {
-			state := m.consistStateLocked(c)
-			m.mu.Unlock()
-			return state, invalid("%s runs in %s; break that up first", e.Name, other.Name)
+			return refuse(invalid("%s runs in %s; break that up first", e.Name, other.Name))
 		}
 	}
 	trains := m.consistTrainsLocked(c)
+	if c.Kind == ConsistDCC {
+		if m.opts.Memory == nil {
+			return refuse(invalid("DCC consists need programming on the main, which is not set up"))
+		}
+		if other, ok := m.dccConsistAtLocked(c.Address, false); ok && other.ID != c.ID {
+			return refuse(invalid("%s uses consist address %d already", other.Name, c.Address))
+		}
+	}
 	m.mu.Unlock()
+	if c.Kind == ConsistDCC {
+		// A decoder answers its own address again when the consist is
+		// broken up, at the speed the command station last sent there.
+		// Another throttle may be driving one; the command station knows.
+		for _, tr := range trains {
+			moving, err := m.moving(ctx, tr, true)
+			if err == nil && moving {
+				err = invalid("stop %s before making up the consist", m.Name(tr.Address, tr.Long))
+			} else if err != nil {
+				err = fmt.Errorf("check %s is stopped: %w", m.Name(tr.Address, tr.Long), err)
+			}
+			if err != nil {
+				m.mu.RLock()
+				state := m.consistStateLocked(m.consists[id])
+				m.mu.RUnlock()
+				return state, err
+			}
+		}
+	}
 
-	lead, err := m.leadNode(ctx, trains[0])
-	if err == nil {
-		err = m.attach(ctx, c, lead, trains)
+	var lead openlcb.NodeID
+	var err error
+	if c.Kind == ConsistDCC {
+		err = m.makeUpDCC(ctx, c, trains)
+	} else {
+		lead, err = m.leadNode(ctx, trains[0])
+		if err == nil {
+			err = m.attach(ctx, c, lead, trains)
+		}
 	}
 	m.mu.Lock()
 	if err != nil {
@@ -436,7 +500,9 @@ func (m *Manager) MakeUp(ctx context.Context, id string) (ConsistState, error) {
 		c = m.consists[id]
 		c.MadeUp = true
 		m.consists[id] = c
-		m.consistNode[id] = lead
+		if lead != 0 {
+			m.consistNode[id] = lead
+		}
 	}
 	state := m.consistStateLocked(c)
 	m.mu.Unlock()
@@ -444,7 +510,7 @@ func (m *Manager) MakeUp(ctx context.Context, id string) (ConsistState, error) {
 		if ferr := m.opts.File.PutConsist(c); ferr != nil {
 			err = ferr
 		}
-		m.log.Info("made up a consist", "consist", c.ID, "lead", lead)
+		m.log.Info("made up a consist", "consist", c.ID, "kind", c.Kind, "lead", trains[0].ID)
 	}
 	m.sendConsist(state)
 	for _, tr := range trains {
@@ -502,13 +568,126 @@ func (m *Manager) attach(ctx context.Context, c Consist, lead openlcb.NodeID, tr
 	return nil
 }
 
-// ensureConsist puts the consist a train leads together again when the
-// command station may have lost it: after Interlock or the command
+// makeUpDCC gives each decoder of a DCC consist, on the main, the
+// functions it takes at the consist address and then the consist address
+// with the way it faces. With RailCom, each one's CV 19 is read back to
+// check it took it. When one cannot be given it, the others are taken out
+// again so no part of the consist is left together. The caller holds
+// m.consistOp.
+func (m *Manager) makeUpDCC(ctx context.Context, c Consist, trains []*train) error {
+	var done []*train
+	undo := func() {
+		for _, tr := range done {
+			if err := m.writeCV(ctx, tr, cvConsistAddress, 0); err != nil {
+				m.log.Debug("taking a decoder out of a consist failed", "consist", c.ID, "train", tr.ID, "error", err)
+			}
+		}
+	}
+	for i, tr := range trains {
+		cv19, cv21, cv22 := c.Members[i].dccCVs(c.Address, i == 0)
+		for _, w := range []struct {
+			cv    int
+			value byte
+		}{{cvConsistFunctions1, cv21}, {cvConsistFunctions2, cv22}, {cvConsistAddress, cv19}} {
+			if err := m.writeCV(ctx, tr, w.cv, w.value); err != nil {
+				undo()
+				return fmt.Errorf("give %s the consist address: %w", m.Name(tr.Address, tr.Long), err)
+			}
+		}
+		done = append(done, tr)
+	}
+	for i, tr := range trains {
+		want, _, _ := c.Members[i].dccCVs(c.Address, i == 0)
+		// Without RailCom, or with it off in the decoder, nothing answers.
+		if got, err := m.readCV(ctx, tr, cvConsistAddress); err == nil && got != want {
+			undo()
+			return fmt.Errorf("%s did not take the consist address: its CV 19 reads %d, not %d", m.Name(tr.Address, tr.Long), got, want)
+		}
+	}
+	return nil
+}
+
+// breakUpDCC takes each decoder of a DCC consist out of it. It reports
+// the decoders that could not be reached, or that still answer the
+// consist address when read back. The caller holds m.consistOp.
+func (m *Manager) breakUpDCC(ctx context.Context, c Consist, trains []*train) error {
+	var problems []string
+	for _, tr := range trains {
+		name := m.Name(tr.Address, tr.Long)
+		if err := m.writeCV(ctx, tr, cvConsistAddress, 0); err != nil {
+			problems = append(problems, fmt.Sprintf("%s could not be reached (%v)", name, err))
+			continue
+		}
+		if got, err := m.readCV(ctx, tr, cvConsistAddress); err == nil && got != 0 {
+			problems = append(problems, fmt.Sprintf("%s still has CV 19 at %d", name, got))
+		}
+	}
+	if len(problems) > 0 {
+		return fmt.Errorf("%s is still made up: %s; break it up again", c.Name, strings.Join(problems, ", "))
+	}
+	return nil
+}
+
+// writeCV writes a CV on the main through a train's node, and keeps the
+// value for the decoder fitted in the roster's locomotives at its
+// address.
+func (m *Manager) writeCV(ctx context.Context, tr *train, cv int, value byte) error {
+	tr.acquire.Lock()
+	node, err := m.ensureNode(ctx, tr)
+	tr.acquire.Unlock()
+	if err != nil {
+		return err
+	}
+	if err := m.opts.Memory.Write(ctx, node, traction.SpaceCV, uint32(cv-1), []byte{value}); err != nil {
+		return err
+	}
+	m.recordCV(tr, cv, value, true)
+	return nil
+}
+
+// readCV reads a CV on the main through a train's node, which needs a
+// command station that hears the decoder's RailCom answer.
+func (m *Manager) readCV(ctx context.Context, tr *train, cv int) (byte, error) {
+	tr.acquire.Lock()
+	node, err := m.ensureNode(ctx, tr)
+	tr.acquire.Unlock()
+	if err != nil {
+		return 0, err
+	}
+	b, err := m.opts.Memory.Read(ctx, node, traction.SpaceCV, uint32(cv-1), 1)
+	if err != nil {
+		return 0, err
+	}
+	if len(b) != 1 {
+		return 0, fmt.Errorf("read %d bytes of CV %d", len(b), cv)
+	}
+	m.recordCV(tr, cv, b[0], false)
+	return b[0], nil
+}
+
+// recordCV keeps a value read from or written to the decoder at a
+// train's address for the decoder the roster says is fitted there.
+func (m *Manager) recordCV(tr *train, cv int, value byte, written bool) {
+	m.mu.RLock()
+	es := m.entriesAtLocked(tr.ID)
+	m.mu.RUnlock()
+	for _, e := range es {
+		if e.Installed == "" {
+			continue
+		}
+		if err := m.opts.CVs.Programmed(e.Installed, strconv.Itoa(cv), int(value), written); err != nil {
+			m.log.Warn("could not keep a consist CV", "train", e.ID, "decoder", e.Installed, "cv", cv, "error", err)
+		}
+	}
+}
+
+// ensureConsist puts the LCC consist a train leads together again when
+// the command station may have lost it: after Interlock or the command
 // station restarted.
 func (m *Manager) ensureConsist(ctx context.Context, tr *train) error {
 	m.mu.RLock()
 	c, ok := m.ledByLocked(tr)
-	needed := ok && m.consistNode[c.ID] == 0
+	needed := ok && c.Kind == ConsistLCC && m.consistNode[c.ID] == 0
 	m.mu.RUnlock()
 	if !needed {
 		return nil
@@ -517,7 +696,7 @@ func (m *Manager) ensureConsist(ctx context.Context, tr *train) error {
 	defer m.consistOp.Unlock()
 	m.mu.Lock()
 	c, ok = m.ledByLocked(tr)
-	if !ok || m.consistNode[c.ID] != 0 {
+	if !ok || c.Kind != ConsistLCC || m.consistNode[c.ID] != 0 {
 		m.mu.Unlock()
 		return nil
 	}
@@ -565,7 +744,8 @@ func (m *Manager) ledByLocked(tr *train) (Consist, bool) {
 }
 
 // BreakUp takes a consist apart. The consist has to be stopped: a member
-// keeps the last speed the lead passed on.
+// of an LCC consist keeps the last speed the lead passed on, and the
+// decoders of a DCC consist the last speed sent to the consist address.
 func (m *Manager) BreakUp(ctx context.Context, id string) (ConsistState, error) {
 	m.consistOp.Lock()
 	defer m.consistOp.Unlock()
@@ -581,9 +761,11 @@ func (m *Manager) BreakUp(ctx context.Context, id string) (ConsistState, error) 
 		return state, nil
 	}
 	trains := m.consistTrainsLocked(c)
-	lead := trains[0]
-	leadNode, online := lead.Node, lead.Online
-	moving := lead.Speed != 0 && !lead.EStop
+	driven := trains[0]
+	if c.Kind == ConsistDCC {
+		driven = m.trainAtLocked(c.Address, false)
+	}
+	leadNode, online := driven.Node, driven.Online
 	members := make([]openlcb.NodeID, 0, len(trains)-1)
 	for _, tr := range trains[1:] {
 		if tr.Node != 0 {
@@ -591,23 +773,29 @@ func (m *Manager) BreakUp(ctx context.Context, id string) (ConsistState, error) 
 		}
 	}
 	m.mu.Unlock()
+	stateNow := func() ConsistState {
+		m.mu.RLock()
+		defer m.mu.RUnlock()
+		return m.consistStateLocked(m.consists[id])
+	}
 
-	if online && leadNode != 0 {
-		// Another throttle may be driving the lead; ask it.
-		qctx, cancel := context.WithTimeout(ctx, queryTimeout)
-		reply, err := m.opts.Bus.TractionCommand(qctx, leadNode, traction.QuerySpeeds(), true)
-		cancel()
-		if err == nil {
-			if speeds, perr := traction.ParseSpeeds(reply); perr == nil {
-				moving = speeds.Set.Value != 0 && !speeds.EStop
-			}
+	// The decoders run at the speed last sent to the consist address,
+	// which only the command station knows after a restart.
+	if moving, err := m.moving(ctx, driven, c.Kind == ConsistDCC); err != nil {
+		return stateNow(), fmt.Errorf("check %s is stopped: %w", c.Name, err)
+	} else if moving {
+		return stateNow(), invalid("stop %s before breaking it up; its locomotives would keep running", c.Name)
+	}
+	if c.Kind == ConsistDCC {
+		if err := m.breakUpDCC(ctx, c, trains); err != nil {
+			m.mu.Lock()
+			m.consistProblem[id] = problemText(err)
+			m.mu.Unlock()
+			state := stateNow()
+			m.sendConsist(state)
+			return state, err
 		}
-		if moving {
-			m.mu.RLock()
-			state := m.consistStateLocked(c)
-			m.mu.RUnlock()
-			return state, invalid("stop %s before breaking it up; its locomotives would keep running", c.Name)
-		}
+	} else if online && leadNode != 0 {
 		var problems []error
 		for _, n := range members {
 			reply, err := m.opts.Bus.TractionCommand(ctx, leadNode, traction.DetachConsist(n), true)
@@ -642,24 +830,108 @@ func (m *Manager) BreakUp(ctx context.Context, id string) (ConsistState, error) 
 	return state, err
 }
 
-// follow updates the state Interlock keeps for the members of the
-// consist a train leads, as the lead passed a command on to them.
+// moving reports whether a train is moving, asking its node when it is on
+// the bus, since another throttle may be driving it. With find, the node
+// is found first if need be, and an error says it could not be.
+func (m *Manager) moving(ctx context.Context, tr *train, find bool) (bool, error) {
+	if find {
+		tr.acquire.Lock()
+		_, err := m.ensureNode(ctx, tr)
+		tr.acquire.Unlock()
+		if err != nil {
+			return false, err
+		}
+	}
+	m.mu.RLock()
+	node, online := tr.Node, tr.Online
+	moving := tr.Speed != 0 && !tr.EStop
+	m.mu.RUnlock()
+	if !online || node == 0 {
+		return moving, nil
+	}
+	qctx, cancel := context.WithTimeout(ctx, queryTimeout)
+	reply, err := m.opts.Bus.TractionCommand(qctx, node, traction.QuerySpeeds(), true)
+	cancel()
+	if err == nil {
+		if speeds, perr := traction.ParseSpeeds(reply); perr == nil {
+			moving = speeds.Set.Value != 0 && !speeds.EStop
+		}
+	}
+	return moving, nil
+}
+
+// follow updates the state Interlock keeps for the locomotives that
+// follow a train: the members of the LCC consist it leads, as the lead
+// passed a command on to them, or every locomotive of the DCC consist
+// whose address it is, as their decoders took it there.
 func (m *Manager) follow(tr *train, change func(member *train, mb Member)) {
 	m.mu.Lock()
-	c, ok := m.ledByLocked(tr)
-	if !ok || m.consistNode[c.ID] == 0 {
+	var trains []*train
+	var members []Member
+	if c, ok := m.atConsistAddressLocked(tr); ok {
+		trains, members = m.consistTrainsLocked(c), append([]Member(nil), c.Members...)
+		// The lead's decoder takes every function the consist address
+		// carries.
+		members[0].F0, members[0].Functions = true, true
+	} else if c, ok := m.ledByLocked(tr); ok && c.Kind == ConsistLCC && m.consistNode[c.ID] != 0 {
+		trains, members = m.consistTrainsLocked(c)[1:], c.Members[1:]
+	} else {
 		m.mu.Unlock()
 		return
 	}
-	trains := m.consistTrainsLocked(c)
-	for i, member := range trains[1:] {
-		change(member, c.Members[i+1])
+	for i, member := range trains {
+		change(member, members[i])
 		member.Updated = time.Now()
 	}
 	m.mu.Unlock()
-	for _, member := range trains[1:] {
+	for _, member := range trains {
 		m.publish(member)
 	}
+}
+
+// dccTarget returns the ID of the address a command for a train goes to
+// when the train leads a made-up DCC consist, or with members set runs in
+// one at all.
+func (m *Manager) dccTarget(tr *train, members bool) (string, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	c, i, ok := m.madeUpAtLocked(tr.ID, "")
+	if !ok || c.Kind != ConsistDCC || (i > 0 && !members) {
+		return "", false
+	}
+	return IDFor(c.Address, false), true
+}
+
+// atConsistAddressLocked returns the made-up DCC consist whose address a
+// train is. The caller holds m.mu.
+func (m *Manager) atConsistAddressLocked(tr *train) (Consist, bool) {
+	return m.dccConsistAtLocked(tr.Address, tr.Long)
+}
+
+// dccConsistAtLocked returns the made-up DCC consist at an address. The
+// caller holds m.mu.
+func (m *Manager) dccConsistAtLocked(address uint16, long bool) (Consist, bool) {
+	if long || address > traction.ShortAddressMax {
+		return Consist{}, false
+	}
+	for _, c := range m.consists {
+		if c.MadeUp && c.Kind == ConsistDCC && c.Address == address {
+			return c, true
+		}
+	}
+	return Consist{}, false
+}
+
+// ConsistAt returns the made-up DCC consist at a consist address, which
+// RailCom detectors report its decoders by.
+func (m *Manager) ConsistAt(address uint16) (ConsistState, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	c, ok := m.dccConsistAtLocked(address, false)
+	if !ok {
+		return ConsistState{}, false
+	}
+	return m.consistStateLocked(c), true
 }
 
 // following returns an error when a train runs in a made-up consist

@@ -18,8 +18,10 @@ import (
 	"github.com/mikesmitty/interlock/internal/withrottle"
 	"github.com/mikesmitty/interlock/openlcb"
 	"github.com/mikesmitty/interlock/openlcb/can"
+	"github.com/mikesmitty/interlock/openlcb/memconfig"
 	"github.com/mikesmitty/interlock/openlcb/node"
 	"github.com/mikesmitty/interlock/openlcb/sim"
+	"github.com/mikesmitty/interlock/openlcb/traction"
 )
 
 const (
@@ -58,7 +60,8 @@ func newBench(t *testing.T, opts withrottle.Options) *bench {
 	}
 	// The trains follow the bus from the start, so they hear the station
 	// say its power is off.
-	b.trains = train.New(train.Options{Bus: local, File: f, Logger: logger, SearchWindow: 150 * time.Millisecond, Functions: 5})
+	mem := memconfig.NewClient(local, memconfig.WithLogger(logger), memconfig.WithReplyTimeout(time.Second))
+	b.trains = train.New(train.Options{Bus: local, Memory: mem, File: f, Logger: logger, SearchWindow: 150 * time.Millisecond, Functions: 5})
 	local.Observe(func(ev node.Event) {
 		if ev.Kind == node.EventMessage {
 			b.trains.HandleMessage(ev.Message)
@@ -237,6 +240,7 @@ func TestGreeting(t *testing.T) {
 		"HTInterlock",
 		"HtInterlock 1.2.3",
 		"RL1]\\[Challenger}|{1234}|{L",
+		"RCL0",
 		"PPA0",
 		"PTT]\\[Turnouts}|{Turnout]\\[Closed}|{2]\\[Thrown}|{4]\\[Unknown}|{1]\\[Inconsistent}|{8",
 		"PTL]\\[t1}|{Yard lead}|{2",
@@ -253,6 +257,41 @@ func TestGreeting(t *testing.T) {
 		t.Fatal(err)
 	}
 	a.until("RL2]\\[Big Boy}|{4014}|{L]\\[Challenger}|{1234}|{L")
+}
+
+// A DCC consist made up is listed by its consist address, which an app
+// can drive.
+func TestDecoderConsistList(t *testing.T) {
+	b := newBench(t, withrottle.Options{})
+	if _, err := b.trains.Create(train.Entry{Name: "Switcher", Address: 3}); err != nil {
+		t.Fatal(err)
+	}
+	c, err := b.trains.CreateConsist(train.Consist{Name: "Pair", Kind: train.ConsistDCC, Address: 10,
+		Members: []train.Member{{Train: "challenger"}, {Train: "switcher", Reverse: true}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := b.dial(t)
+	a.greeted("1")
+	if _, err := b.trains.MakeUp(b.ctx, c.ID); err != nil {
+		t.Fatal(err)
+	}
+	a.until("RCL1")
+	a.expect("RCD}|{10(S)}|{Pair]\\[1234(L)}|{true]\\[3(S)}|{false")
+
+	a.send("MT+S10<;>S10")
+	a.until("MTAS10<;>s1")
+	a.send("MTAS10<;>V40")
+	eventually(t, "the consist to move", func() bool {
+		return b.station.DecoderState(1234, true).Speed == traction.Speed{Value: 40} &&
+			b.station.DecoderState(3, false).Speed == traction.Speed{Value: 40, Reverse: true}
+	})
+	a.send("MTAS10<;>V0")
+	eventually(t, "the consist to stop", func() bool { return b.station.DecoderState(1234, true).Speed.Value == 0 })
+	if _, err := b.trains.BreakUp(b.ctx, c.ID); err != nil {
+		t.Fatal(err)
+	}
+	a.until("RCL0")
 }
 
 func TestDrive(t *testing.T) {

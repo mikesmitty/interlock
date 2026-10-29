@@ -2,6 +2,7 @@ package train_test
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -238,5 +239,166 @@ func TestConsistChecks(t *testing.T) {
 	}
 	if _, err := b.m.CreateConsist(train.Consist{Name: "Twins", Members: []train.Member{{Train: ids[0]}, {Train: ids[0]}}}); err == nil {
 		t.Error("a locomotive twice in a consist should be refused")
+	}
+}
+
+func TestDCCConsist(t *testing.T) {
+	b := newBench(t)
+	ids := rosterOf(t, b, 1001, 1002, 3)
+	c, err := b.m.CreateConsist(train.Consist{Name: "Coal Drag", Kind: train.ConsistDCC, Address: 10, Members: []train.Member{
+		{Train: ids[0]},
+		{Train: ids[1], Reverse: true, F0: true},
+		{Train: ids[2], Functions: true},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// A locomotive that is moving would run off at that speed once the
+	// consist is broken up.
+	if _, err := b.m.SetSpeed(b.ctx, ids[2], 15, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.m.MakeUp(b.ctx, c.ID); err == nil || !strings.Contains(err.Error(), "stop Unit 3") {
+		t.Fatalf("made up with a locomotive moving: %v", err)
+	}
+	if _, err := b.m.SetSpeed(b.ctx, ids[2], 0, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	// Each decoder takes the consist address, the way it faces, and the
+	// functions it follows; the lead takes them all.
+	c, err = b.m.MakeUp(b.ctx, c.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !c.MadeUp || !c.Attached || c.Problem != "" {
+		t.Errorf("made up = %+v", c)
+	}
+	for _, d := range []struct {
+		address uint16
+		long    bool
+		cv19    byte
+		cv21    byte
+		cv22    byte
+	}{
+		{1001, true, 10, 0xFF, 0x3F},
+		{1002, true, 0x80 | 10, 0, 0x03},
+		{3, false, 10, 0xFF, 0x3C},
+	} {
+		cvs := b.station.DecoderState(d.address, d.long).CVs
+		if cvs[19] != d.cv19 || cvs[21] != d.cv21 || cvs[22] != d.cv22 {
+			t.Errorf("decoder %d: CV19 %#x, CV21 %#x, CV22 %#x", d.address, cvs[19], cvs[21], cvs[22])
+		}
+	}
+
+	// Driving the lead drives the consist address.
+	if _, err := b.m.SetSpeed(b.ctx, ids[0], 40, train.Forward); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "the decoders to take the speed", func() bool {
+		return b.station.DecoderState(1001, true).Speed == traction.Speed{Value: 40} &&
+			b.station.DecoderState(1002, true).Speed == traction.Speed{Value: 40, Reverse: true} &&
+			b.station.DecoderState(3, false).Speed == traction.Speed{Value: 40}
+	})
+	if tr, _ := b.m.Get(ids[1]); tr.Speed != 40 || tr.Direction != train.Reverse || tr.Consist != c.ID {
+		t.Errorf("member's state = %v %s in %q", tr.Speed, tr.Direction, tr.Consist)
+	}
+	if tr, _ := b.m.Get("10"); tr.Name != "Coal Drag" || tr.Speed != 40 {
+		t.Errorf("consist address = %q at %v", tr.Name, tr.Speed)
+	}
+	if i := slices.IndexFunc(b.m.List(), func(tr train.Train) bool { return tr.ID == "10" }); i < 0 || b.m.List()[i].Name != "Coal Drag" {
+		t.Errorf("the consist address is not listed by the consist's name")
+	}
+	if _, err := b.m.SetSpeed(b.ctx, ids[2], 60, ""); err == nil {
+		t.Error("a member's speed should be refused")
+	}
+
+	// The lead's functions up to F12 go to the consist address, where each
+	// decoder takes the ones it follows; higher ones stay the lead's.
+	for _, fn := range []int{0, 2, 20} {
+		if _, err := b.m.SetFunction(b.ctx, ids[0], fn, true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	eventually(t, "functions at the consist address", func() bool {
+		lead, back, third := b.station.DecoderState(1001, true), b.station.DecoderState(1002, true), b.station.DecoderState(3, false)
+		return lead.Functions[0] && lead.Functions[2] && lead.Functions[20] && back.Functions[0] && third.Functions[2]
+	})
+	if back, third := b.station.DecoderState(1002, true), b.station.DecoderState(3, false); back.Functions[2] || third.Functions[0] || third.Functions[20] {
+		t.Errorf("functions reached decoders that do not follow them: %v, %v", back.Functions, third.Functions)
+	}
+	if tr, _ := b.m.Get(ids[2]); slices.Contains(tr.On, 0) || !slices.Contains(tr.On, 2) {
+		t.Errorf("member's functions = %v", tr.On)
+	}
+
+	// A member's emergency stop stops the consist: its decoder ignores
+	// its own address for speed.
+	if _, err := b.m.EmergencyStop(b.ctx, ids[2]); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "the consist to stop", func() bool {
+		return b.station.DecoderState(1001, true).EStop && b.station.DecoderState(1002, true).EStop
+	})
+
+	// Breaking up clears CV 19, and each locomotive answers its own
+	// address again.
+	if _, err := b.m.SetSpeed(b.ctx, ids[0], 20, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.m.BreakUp(b.ctx, c.ID); err == nil || !strings.Contains(err.Error(), "stop Coal Drag") {
+		t.Fatalf("broken up while moving: %v", err)
+	}
+	// After a restart only the command station knows the consist address
+	// is moving.
+	f, err := train.OpenFile(b.file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	again := train.New(train.Options{Bus: b.local, File: f, SearchWindow: 150 * time.Millisecond})
+	if _, err := again.BreakUp(b.ctx, c.ID); err == nil || !strings.Contains(err.Error(), "stop Coal Drag") {
+		t.Fatalf("broken up after a restart while moving: %v", err)
+	}
+	if _, err := b.m.SetSpeed(b.ctx, ids[0], 0, ""); err != nil {
+		t.Fatal(err)
+	}
+	c, err = b.m.BreakUp(b.ctx, c.ID)
+	if err != nil || c.MadeUp {
+		t.Fatalf("broken up = %+v, %v", c, err)
+	}
+	for _, d := range []struct {
+		address uint16
+		long    bool
+	}{{1001, true}, {1002, true}, {3, false}} {
+		if v := b.station.DecoderState(d.address, d.long).CVs[19]; v != 0 {
+			t.Errorf("decoder %d CV19 = %#x after the break up", d.address, v)
+		}
+	}
+	if _, err := b.m.SetSpeed(b.ctx, ids[2], 25, train.Forward); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "a former member to answer its own address", func() bool { return b.station.DecoderState(3, false).Speed.Value == 25 })
+	if s := b.station.DecoderState(1001, true).Speed.Value; s != 0 {
+		t.Errorf("the former lead moved to %v", s)
+	}
+}
+
+// Two made-up DCC consists cannot share an address.
+func TestDCCConsistAddressInUse(t *testing.T) {
+	b := newBench(t)
+	ids := rosterOf(t, b, 1001, 1002, 1003, 1004)
+	first, err := b.m.CreateConsist(train.Consist{Name: "First", Kind: train.ConsistDCC, Address: 20, Members: []train.Member{{Train: ids[0]}, {Train: ids[1]}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := b.m.CreateConsist(train.Consist{Name: "Second", Kind: train.ConsistDCC, Address: 20, Members: []train.Member{{Train: ids[2]}, {Train: ids[3]}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.m.MakeUp(b.ctx, first.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.m.MakeUp(b.ctx, second.ID); err == nil || !strings.Contains(err.Error(), "First uses consist address 20") {
+		t.Errorf("second at the same address = %v", err)
 	}
 }

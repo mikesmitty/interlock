@@ -78,6 +78,7 @@ type Programmer interface {
 	Write(ctx context.Context, cv, value int) (programmer.Op, error)
 	WritePOM(ctx context.Context, trainID string, cv, value int) (programmer.Op, error)
 	ReadPOM(ctx context.Context, trainID string, cv int) (programmer.Op, error)
+	WriteLongAddressPOM(ctx context.Context, trainID string, cv17, cv18 int) (programmer.Op, error)
 	History() []programmer.Op
 	Subscribe(programmer.Subscriber) func()
 }

@@ -18,12 +18,13 @@ function addressText(t: { address: number; long: boolean }): string {
   return `${t.address} ${t.long ? "long" : "short"}`;
 }
 
-/** The made-up consist a train runs in, and whether it leads it. */
-function consistOf(t: Train, consists: Record<string, Consist>, trains: Record<string, Train>): { consist: Consist; lead?: Train; leads: boolean } | undefined {
+/** The made-up consist a train runs in, whether it leads it, and whether it is a DCC consist's address, which drives it too. */
+function consistOf(t: Train, consists: Record<string, Consist>, trains: Record<string, Train>): { consist: Consist; lead?: Train; leads: boolean; address: boolean } | undefined {
   const consist = t.consist ? consists[t.consist] : undefined;
   if (!consist) return undefined;
   const lead = trains[consist.members[0]?.train];
-  return { consist, lead, leads: !!lead && lead.address === t.address && lead.long === t.long };
+  const address = !t.roster && consist.kind === "dcc" && !t.long && t.address === consist.address;
+  return { consist, lead, leads: address || (!!lead && lead.address === t.address && lead.long === t.long), address };
 }
 
 /** The lamp beside a train: lit green while this controller drives it. */
@@ -193,11 +194,12 @@ function Roster({ list, selected, nodeNames, onMessage }: { list: Train[]; selec
                 <Lamp color={lamp.color} label={lamp.label} />
                 <span className="thr-roster__name">
                   {t.name}
-                  {!t.roster && <span className="faint"> (not in roster)</span>}
+                  {!t.roster && !inConsist?.address && <span className="faint"> (not in roster)</span>}
                   {inConsist && (
                     <span className="faint">
                       {" "}
-                      ({inConsist.leads ? "leads" : "in"} {inConsist.consist.name})
+                      ({inConsist.address ? "consist address" : inConsist.leads ? "leads" : "in"}
+                      {inConsist.address ? "" : ` ${inConsist.consist.name}`})
                     </span>
                   )}
                 </span>
@@ -407,6 +409,10 @@ function Cab({
             <Link className="btn btn--quiet" to={`/roster/${encodeURIComponent(t.id)}`}>
               Roster entry
             </Link>
+          ) : inConsist?.address ? (
+            <Link className="btn btn--quiet" to={`/roster/consists/${encodeURIComponent(inConsist.consist.id)}`}>
+              Consist
+            </Link>
           ) : (
             <button
               className="btn btn--quiet"
@@ -426,14 +432,21 @@ function Cab({
       <div className="thr-cab__body">
         {inConsist &&
           (inConsist.leads ? (
-            <p className="thr-note">
-              Leads <Link to={`/roster/consists/${encodeURIComponent(inConsist.consist.id)}`}>{inConsist.consist.name}</Link>:{" "}
-              {inConsist.consist.members
-                .slice(1)
-                .map((m) => trains[m.train]?.name ?? m.train)
-                .join(", ")}{" "}
-              {inConsist.consist.members.length === 2 ? "follows" : "follow"} its speed.
-            </p>
+            inConsist.address ? (
+              <p className="thr-note">
+                The consist address of <Link to={`/roster/consists/${encodeURIComponent(inConsist.consist.id)}`}>{inConsist.consist.name}</Link>: it drives{" "}
+                {inConsist.consist.members.map((m) => trains[m.train]?.name ?? m.train).join(", ")} together.
+              </p>
+            ) : (
+              <p className="thr-note">
+                Leads <Link to={`/roster/consists/${encodeURIComponent(inConsist.consist.id)}`}>{inConsist.consist.name}</Link>:{" "}
+                {inConsist.consist.members
+                  .slice(1)
+                  .map((m) => trains[m.train]?.name ?? m.train)
+                  .join(", ")}{" "}
+                {inConsist.consist.members.length === 2 ? "follows" : "follow"} its speed.
+              </p>
+            )
           ) : (
             <p className="note">
               {t.name} runs in <Link to={`/roster/consists/${encodeURIComponent(inConsist.consist.id)}`}>{inConsist.consist.name}</Link>; its speed comes from{" "}
@@ -514,7 +527,7 @@ function Cab({
         </div>
         <p className="thr-note">
           {t.known ? `State read from the train; updated ${relativeTime(t.updated, now)}.` : "Not read from the train yet; the first command finds it and takes control."}
-          {!t.roster && " This locomotive is not in the roster; add it to keep a name, function labels and its decoder's settings."}
+          {!t.roster && !inConsist?.address && " This locomotive is not in the roster; add it to keep a name, function labels and its decoder's settings."}
         </p>
       </div>
     </div>

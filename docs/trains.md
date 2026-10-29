@@ -88,8 +88,9 @@ switched from Interlock or another throttle.
 
 A consist is two or more locomotives from the roster that run together,
 driven as one through the first of them, the lead. **Add a consist** on
-the Roster page starts one with a name, the lead and one more locomotive;
-its page adds the rest. For each locomotive after the lead it says:
+the Roster page starts one with a name, the lead, one more locomotive,
+and where the consist is kept; its page adds the rest. For each
+locomotive after the lead it says:
 
 - which way it faces: forward like the lead, or backward, so it runs in
   reverse while the lead runs forward;
@@ -97,28 +98,75 @@ its page adds the rest. For each locomotive after the lead it says:
   other functions. Functions it does not follow stay its own, worked
   from its own cab on the Throttle page.
 
-**Make up** puts the consist together: Interlock tells the lead's train
-node on the command station to pass its speed, and the functions each
-member follows, on to the members' train nodes. Nothing is written to the
-decoders, and each locomotive keeps its own address, so detectors still
-report each one. Drive the lead and the others follow; their cabs show
-the speed they were given and refuse speed changes of their own, though
-their functions and emergency stop still work. In a throttle app, drive
-the lead.
+A consist is kept in one of two places, chosen when it is added and
+changed on its page while it is apart.
+
+### Kept in the decoders
+
+Each decoder is given a consist address, 1 to 127, which it answers as
+well as its own: driving that address drives them all at once, with one
+packet on the track. This is DCC advanced consisting.
+
+**Make up** writes each decoder's CVs on the main, with the locomotives
+stopped: CV 19 holds the consist address, with bit 7 set for a
+locomotive facing backward, and CVs 21 and 22 the functions it takes at
+the consist address. The lead takes them all; the others take F0 and the
+rest as the consist says. With a command station that reads on the main
+over RailCom, Interlock then reads CV 19 back from each decoder, and
+puts the consist apart again when one did not take it. The CVs are kept
+for each locomotive's fitted decoder, as programming on the main keeps
+them.
+
+Drive the lead and the speed goes to the consist address, which every
+decoder answers; so do the lead's F0 to F12, which each decoder takes
+only if it follows them. Higher functions stay the lead's. A decoder in
+a consist ignores speeds at its own address, so the others' cabs refuse
+speed changes, and an emergency stop from any of their cabs stops the
+whole consist. Any throttle can drive the consist address too: it shows
+on the Throttle page under the consist's name once it has been driven,
+and throttle apps list it (see below).
+
+The decoders keep the consist until it is broken up, through restarts of
+the command station and of Interlock. **Break up**, once the consist is
+stopped, writes 0 to each decoder's CV 19; a decoder that could not be
+reached, or still reads its consist address, leaves the consist made up,
+with the reason on its page, so it can be broken up again. A locomotive
+left in a consist answers its own address only for functions, so it
+seems not to run.
+
+While a decoder is in a consist, RailCom detectors report it by the
+consist address. Tracking takes that address as the lead's train, so a
+consist runs as one train: put its locomotives in one
+[train](./roster.md#cars-and-trains) to give it its length.
+After the break up each decoder reports its own address again.
+
+The command station has to send the decoders the standard's consist
+instruction for a write of CV 19 on the main; `simple-dcc` does.
+
+### Kept by the command station
+
+**Make up** tells the lead's train node on the command station to pass
+its speed, and the functions each member follows, on to the members'
+train nodes. Nothing is written to the decoders, and each locomotive
+keeps its own address, so detectors still report each one. Drive the
+lead and the others follow; their cabs show the speed they were given
+and refuse speed changes of their own, though their functions and
+emergency stop still work. In a throttle app, drive the lead.
 
 The command station forgets a consist when it restarts. Interlock keeps
 it made up, and puts it together again before the lead is next driven,
 after either of them restarts. **Break up** takes it apart again, once
 the lead is stopped: a member keeps the last speed the lead passed on,
-so breaking up a moving consist would leave it running. While a consist
-is made up its locomotives can be renamed but not given new addresses,
-removed from the roster or put in another consist.
+so breaking up a moving consist would leave it running.
 
 A simple-dcc command station takes up to four locomotives besides the
 lead, and only locomotives on that command station; one that cannot be
-added leaves the consist apart, with the reason on its page. Consists
-kept in the decoders (DCC advanced consisting, CV 19) are not supported
-yet.
+added leaves the consist apart, with the reason on its page.
+
+### Either kind
+
+While a consist is made up its locomotives can be renamed but not given
+new addresses, removed from the roster or put in another consist.
 
 Consists are kept in `trains.yaml` beside the locomotives:
 
@@ -126,7 +174,8 @@ Consists are kept in `trains.yaml` beside the locomotives:
 consists:
   - id: coal-drag
     name: Coal Drag
-    kind: lcc
+    kind: dcc # lcc for one the command station keeps
+    address: 10
     members:
       - train: csx-6641
       - train: csx-9969
@@ -150,6 +199,11 @@ The app sees:
   momentary in the roster act only while held. A locomotive taken by its
   address, with nothing in the roster, keeps the app's own labels, and
   its F2 (the horn on most decoders) is momentary;
+- the consists kept in the decoders while they are made up, by consist
+  address; choosing one drives that address. Engine Driver lists each
+  under its locomotives' addresses joined by "+", such as
+  150(L)+9969(L). A consist the command station keeps is driven through
+  its lead;
 - the turnouts, to throw and close, except hidden ones and guesses not
   confirmed on the Entities page;
 - track power, which it switches with Emergency Off and Clear Emergency

@@ -31,10 +31,12 @@ type Trains interface {
 	SetSpeed(ctx context.Context, id string, speed float32, direction string) (train.Train, error)
 	EmergencyStop(ctx context.Context, id string) (train.Train, error)
 	SetFunction(ctx context.Context, id string, fn int, on bool) (train.Train, error)
+	Consists() []train.ConsistState
 	Layout() train.Layout
 	SetPower(ctx context.Context, on bool) (train.Layout, error)
 	Subscribe(train.Subscriber) func()
 	SubscribeLayout(train.LayoutSubscriber) func()
+	SubscribeConsists(train.ConsistSubscriber) func()
 }
 
 // Turnouts is what the server needs from the entity manager.
@@ -199,8 +201,8 @@ func (s *Server) advertise() (stop func()) {
 	return mdns.Shutdown
 }
 
-// subscribe follows the trains, the layout, the turnouts and the clock,
-// passing each change to every app.
+// subscribe follows the trains, the consists, the layout, the turnouts
+// and the clock, passing each change to every app.
 func (s *Server) subscribe() (unsubscribe func()) {
 	var subs []func()
 	subs = append(subs, s.opts.Trains.Subscribe(func(t train.Train) {
@@ -208,6 +210,9 @@ func (s *Server) subscribe() (unsubscribe func()) {
 	}))
 	subs = append(subs, s.opts.Trains.SubscribeLayout(func(l train.Layout) {
 		s.each(func(c *client) { c.layoutChanged(l) })
+	}))
+	subs = append(subs, s.opts.Trains.SubscribeConsists(func(train.ConsistState) {
+		s.each(func(c *client) { c.consistsChanged() })
 	}))
 	if s.opts.Turnouts != nil {
 		subs = append(subs, s.opts.Turnouts.Subscribe(func(e entity.Entity) {

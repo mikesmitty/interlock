@@ -19,6 +19,11 @@ export function consistLamp(c: Consist): { color: LampColor; label: string } {
   return { color: "green", label: "Made up" };
 }
 
+/** Where a consist is kept, as a phrase. */
+export function keptText(c: Consist): string {
+  return c.kind === "dcc" ? `kept in the decoders at consist address ${c.address}` : "kept by the command station";
+}
+
 /** The names of a consist's locomotives, the lead first. */
 export function memberNames(c: Consist, trains: Record<string, Train>): string {
   return c.members.map((m) => trains[m.train]?.name ?? m.train).join(", ");
@@ -70,7 +75,7 @@ export function ConsistPage() {
     <Page
       title={c.name}
       back={back}
-      lead={`${plural(c.members.length, "locomotive")}${lead ? `, led by ${lead.name}` : ""}.`}
+      lead={`${plural(c.members.length, "locomotive")}${lead ? `, led by ${lead.name}` : ""}, ${keptText(c)}.`}
       actions={
         <>
           {c.made_up ? (
@@ -95,18 +100,27 @@ export function ConsistPage() {
           <Status color={lamp.color}>{lamp.label}</Status>
           {message && <p className="note note--error">{message}</p>}
           {c.made_up && c.problem && <p className="note note--error">{c.problem}</p>}
-          <p className="thr-note">
-            {c.made_up
-              ? `The command station passes ${lead?.name ?? "the lead"}'s speed on to the others, with the functions each one follows. Drive the lead to drive the consist; stop it before breaking it up.`
-              : "Making up the consist tells the command station to pass the lead's speed on to the others. Nothing is written to the decoders. A simple-dcc command station takes up to four locomotives besides the lead, all on that command station."}
-          </p>
+          <p className="thr-note">{explain(c, lead?.name ?? "the lead")}</p>
         </div>
         <Members key={JSON.stringify(c.members)} consist={c} trains={trains} />
         <Name key={c.name} consist={c} />
+        {!c.made_up && <Kind key={`${c.kind}:${c.address ?? ""}`} consist={c} />}
         <Remove consist={c} />
       </div>
     </Page>
   );
+}
+
+/** What making up the consist does, or what it does while made up. */
+function explain(c: Consist, lead: string): string {
+  if (c.kind === "dcc") {
+    return c.made_up
+      ? `The decoders answer consist address ${c.address} as well as their own, so driving ${lead}, or address ${c.address} from any throttle, drives them all. At the consist address each takes the functions it follows, up to F12. Stop the consist before breaking it up.`
+      : `Making up the consist gives each decoder consist address ${c.address} on the main (CV 19), with the way it faces, and the functions it follows there (CVs 21 and 22). With RailCom, Interlock reads CV 19 back to check each one took it, and detectors report the consist by its consist address.`;
+  }
+  return c.made_up
+    ? `The command station passes ${lead}'s speed on to the others, with the functions each one follows. Drive the lead to drive the consist; stop it before breaking it up.`
+    : "Making up the consist tells the command station to pass the lead's speed on to the others. Nothing is written to the decoders. A simple-dcc command station takes up to four locomotives besides the lead, all on that command station.";
 }
 
 /** The locomotives in order, with how each one faces and what it follows. */
@@ -292,6 +306,46 @@ function Name({ consist: c }: { consist: Consist }) {
       </label>
       <button className="btn" type="submit" disabled={!name.trim() || name === c.name}>
         Rename
+      </button>
+      {message && <p className="field__error">{message}</p>}
+    </form>
+  );
+}
+
+/** Where the consist is kept: in the decoders at a consist address, or on the command station. */
+function Kind({ consist: c }: { consist: Consist }) {
+  const [kind, setKind] = useState(c.kind);
+  const [address, setAddress] = useState(c.address ? String(c.address) : "");
+  const [message, setMessage] = useState<string>();
+  const n = Number(address);
+  const valid = kind === "lcc" || (Number.isInteger(n) && n >= 1 && n <= 127);
+  const dirty = kind !== c.kind || (kind === "dcc" && n !== c.address);
+  async function save(e: FormEvent) {
+    e.preventDefault();
+    setMessage(undefined);
+    try {
+      await api.updateConsist(c.id, kind === "dcc" ? { kind, address: n } : { kind });
+    } catch (err) {
+      setMessage(`Could not save: ${describe(err)}`);
+    }
+  }
+  return (
+    <form className="panel ros-add" onSubmit={(e) => void save(e)}>
+      <label className="auto-field">
+        <span>Kept in</span>
+        <select className="input input--select" value={kind} onChange={(e) => setKind(e.target.value as Consist["kind"])}>
+          <option value="dcc">the decoders</option>
+          <option value="lcc">the command station</option>
+        </select>
+      </label>
+      {kind === "dcc" && (
+        <label className="auto-field">
+          <span>Consist address</span>
+          <input className="input input--short" type="number" min={1} max={127} value={address} onChange={(e) => setAddress(e.target.value)} placeholder="1–127" required />
+        </label>
+      )}
+      <button className="btn" type="submit" disabled={!dirty || !valid}>
+        Save
       </button>
       {message && <p className="field__error">{message}</p>}
     </form>

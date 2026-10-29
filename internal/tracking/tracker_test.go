@@ -31,6 +31,7 @@ type fakeTrains struct {
 func (f fakeTrains) List() []train.Train                { return f.trains }
 func (f fakeTrains) Cars() []train.CarState             { return f.cars }
 func (f fakeTrains) Formations() []train.FormationState { return f.formations }
+func (f fakeTrains) Consists() []train.ConsistState     { return nil }
 func (f fakeTrains) Layout() train.Layout               { return train.Layout{} }
 
 type fakePlan trackplan.State
@@ -262,6 +263,45 @@ func TestATrainIsFollowedByTheDecoderLastSeen(t *testing.T) {
 	l.train(train.Train{Entry: train.Entry{Address: 6}, Speed: 20, Direction: train.Reverse})
 	if tr.target != 20 {
 		t.Errorf("target %v; want the rear locomotive's reverse as the train's forward", tr.target)
+	}
+}
+
+// While a DCC consist is made up, detectors report its decoders by the
+// consist address, which stands for the lead's train.
+func TestAConsistAddressIsItsLead(t *testing.T) {
+	l := line(t)
+	l.setRoster(
+		[]train.Train{
+			{Entry: train.Entry{ID: "front", Name: "Front", Address: 5, Length: 100}, Roster: true},
+			{Entry: train.Entry{ID: "rear", Name: "Rear", Address: 6, Length: 100}, Roster: true},
+		},
+		nil,
+		[]train.FormationState{{Formation: train.Formation{ID: "pair", Name: "Pair", Vehicles: []train.Vehicle{{Locomotive: "front"}, {Locomotive: "rear", Reverse: true}}}}},
+	)
+	consist := train.ConsistState{Consist: train.Consist{ID: "c", Name: "C", Kind: train.ConsistDCC, Address: 10, MadeUp: true,
+		Members: []train.Member{{Train: "front"}, {Train: "rear", Reverse: true}}}}
+	l.consist(consist)
+	front, at10 := detector.Address{Type: detector.Short, Number: 5}, detector.Address{Type: detector.Consist, Number: 10}
+	tr := place(l, front, 500)
+	l.enter(at10, "a")
+	if l.trains[formationKey("pair")] != tr || tr.addr != at10 || tr.at != 50 || tr.backward {
+		t.Fatalf("followed by %v at %v (backward %v)", tr.addr, tr.at, tr.backward)
+	}
+	if len(l.trains) != 1 {
+		t.Errorf("followed %v; want the consist address in the pair", slices.Collect(maps.Keys(l.trains)))
+	}
+	// It goes at the lead's speed; the consist address itself is not
+	// followed.
+	l.train(train.Train{Entry: train.Entry{Address: 10, Name: "C"}, Consist: "c", Speed: 60})
+	l.train(train.Train{Entry: train.Entry{Address: 5}, Speed: 30, Direction: train.Forward})
+	if tr.target != 30 {
+		t.Errorf("target %v; want the lead's", tr.target)
+	}
+	// Broken up, the decoders answer their own addresses again.
+	consist.MadeUp = false
+	l.consist(consist)
+	if l.trains[formationKey("pair")] != tr || tr.addr != front || tr.stretch == nil {
+		t.Errorf("after the break up: followed by %v, placed %v", tr.addr, tr.stretch != nil)
 	}
 }
 

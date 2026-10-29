@@ -1,12 +1,12 @@
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router";
-import { api, type ImportPreview, type ImportResult, type ImportStep, type Train } from "../api";
+import { api, type Consist, type ImportPreview, type ImportResult, type ImportStep, type Train } from "../api";
 import { Status } from "../components/Lamp";
 import { Empty, Page } from "../components/Page";
 import { plural } from "../format";
 import { formationOf, lengthText, makeupText } from "../makeup";
 import { useBus } from "../store";
-import { consistLamp, memberNames } from "./Consist";
+import { consistLamp, keptText, memberNames } from "./Consist";
 
 function describe(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -251,6 +251,7 @@ export function Roster() {
                     >
                       <td>
                         <div className="cell-title">{c.name}</div>
+                        <div className="cell-sub">{keptText(c)}</div>
                       </td>
                       <td>{memberNames(c, trains)}</td>
                       <td>
@@ -354,8 +355,12 @@ function AddConsist({ locomotives, onCancel }: { locomotives: Train[]; onCancel:
   const [lead, setLead] = useState("");
   const [second, setSecond] = useState("");
   const [reverse, setReverse] = useState(false);
+  const [kind, setKind] = useState<Consist["kind"]>("dcc");
+  const [address, setAddress] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+  const n = Number(address);
+  const addressOK = kind === "lcc" || (Number.isInteger(n) && n >= 1 && n <= 127);
 
   async function add(e: FormEvent) {
     e.preventDefault();
@@ -364,6 +369,8 @@ function AddConsist({ locomotives, onCancel }: { locomotives: Train[]; onCancel:
     try {
       const c = await api.createConsist({
         name,
+        kind,
+        ...(kind === "dcc" ? { address: n } : {}),
         members: [
           { train: lead, reverse: false, f0: false, functions: false },
           { train: second, reverse, f0: false, functions: false },
@@ -407,7 +414,20 @@ function AddConsist({ locomotives, onCancel }: { locomotives: Train[]; onCancel:
       <label className="check">
         <input type="checkbox" checked={reverse} onChange={(e) => setReverse(e.target.checked)} /> facing backward
       </label>
-      <button className="btn btn--primary" type="submit" disabled={busy || !name.trim() || !lead || !second}>
+      <label className="auto-field">
+        <span>Kept in</span>
+        <select className="input input--select" value={kind} onChange={(e) => setKind(e.target.value as Consist["kind"])}>
+          <option value="dcc">the decoders</option>
+          <option value="lcc">the command station</option>
+        </select>
+      </label>
+      {kind === "dcc" && (
+        <label className="auto-field">
+          <span>Consist address</span>
+          <input className="input input--short" type="number" min={1} max={127} value={address} onChange={(e) => setAddress(e.target.value)} placeholder="1–127" required />
+        </label>
+      )}
+      <button className="btn btn--primary" type="submit" disabled={busy || !name.trim() || !lead || !second || !addressOK}>
         Add
       </button>
       <button className="btn btn--quiet" type="button" onClick={onCancel}>

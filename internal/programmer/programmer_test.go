@@ -133,3 +133,17 @@ func TestReadOnMainWithoutRailCom(t *testing.T) {
 		t.Errorf("WritePOM = %+v, %v", op, err)
 	}
 }
+
+func TestLongAddressOnMain(t *testing.T) {
+	ctx, p, station := bench(t, sim.StationOptions{})
+	op, err := p.WriteLongAddressPOM(ctx, "1234", 0xC5, 0x39)
+	if err != nil || !op.OK || op.Kind != "pom_address" || op.Value != 1337 {
+		t.Fatalf("WriteLongAddressPOM = %+v, %v", op, err)
+	}
+	if cvs := station.DecoderState(1234, true).CVs; cvs[17] != 0xC5 || cvs[18] != 0x39 || cvs[29]&0x20 == 0 {
+		t.Errorf("CV17 %#x, CV18 %#x, CV29 %#x", cvs[17], cvs[18], cvs[29])
+	}
+	if _, err := p.WriteLongAddressPOM(ctx, "1234", 256, 0); err == nil {
+		t.Error("value 256 should be invalid")
+	}
+}

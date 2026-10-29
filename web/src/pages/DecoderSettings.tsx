@@ -134,6 +134,9 @@ export function DecoderSettings() {
   const [failures, setFailures] = useState<Record<string, string>>({});
   const [job, setJob] = useState<Job>();
   const stopRef = useRef(false);
+  // On the main, CVs 17 and 18 written in one run go together as one long
+  // address; the one reached second is then skipped.
+  const pairRef = useRef({ both: false, done: false });
   // Write page waits for a yes when it would write values not read.
   const [confirmWrite, setConfirmWrite] = useState(false);
   const [train, setTrain] = useState(params.get("train") ?? "");
@@ -463,6 +466,7 @@ export function DecoderSettings() {
     let unchecked: string[] | undefined;
     let failed = 0;
     setJob({ kind, done: 0, total: cvs.length, failed });
+    pairRef.current = { both: kind === "write" && onMain && cvs.includes("17") && cvs.includes("18"), done: false };
     const newFailures: Record<string, string> = {};
     try {
       // The roster has the latest changes before the decoder is touched,
@@ -516,6 +520,11 @@ export function DecoderSettings() {
   async function writeCV(cv: string): Promise<string | undefined> {
     const cell = tableRef.current[cv];
     if (!cell) return undefined;
+    if ((cv === "17" || cv === "18") && pairRef.current.both) {
+      if (pairRef.current.done) return undefined;
+      pairRef.current.done = true;
+      return writeLongAddress();
+    }
     let value = cell.value;
     const info = cvInfo.get(cv);
     // A change to part of a CV keeps the decoder's other bits: unless this
@@ -530,6 +539,37 @@ export function DecoderSettings() {
     if (!w.ok) return w.error ?? "Failed";
     setTable(settle(tableRef.current, cv, value, "stored"));
     worked(true);
+    return undefined;
+  }
+
+  // CVs 17 and 18 on the main, together: one Long Address instruction,
+  // which sets CV 29 bit 5 too and moves the decoder to the new address at
+  // once, so the roster follows it before anything else is written.
+  async function writeLongAddress(): Promise<string | undefined> {
+    const v17 = tableRef.current["17"].value;
+    const v18 = tableRef.current["18"].value;
+    const r = await api.decoderCV({
+      file,
+      model,
+      cv: "17",
+      write: true,
+      value: v17,
+      next: v18,
+      train: train || undefined,
+      locomotive: loco || undefined,
+      decoder: loco ? decoderID : undefined,
+    });
+    if (!r.ok) return r.error ?? "Failed";
+    let t = settle(settle(tableRef.current, "17", v17, "stored"), "18", v18, "stored");
+    const c29 = t["29"];
+    if (c29) {
+      // Other changes to CV 29 are written after, at the new address.
+      if (c29.state !== "edited") t = settle(t, "29", c29.value | 0x20, "stored");
+      else if ((c29.edited & ~0x20) === 0 && c29.value & 0x20) t = settle(t, "29", c29.value, "stored");
+    }
+    setTable(t);
+    worked(true);
+    await followAddress();
     return undefined;
   }
 

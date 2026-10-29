@@ -32,10 +32,20 @@ type Nodes interface {
 	Get(id openlcb.NodeID) (registry.Info, bool)
 }
 
+// Memory reads and writes train nodes' memory, where their CV space
+// reaches the decoders on the main.
+type Memory interface {
+	Read(ctx context.Context, id openlcb.NodeID, space uint8, address uint32, count int) ([]byte, error)
+	Write(ctx context.Context, id openlcb.NodeID, space uint8, address uint32, data []byte) error
+}
+
 // Options configure the manager.
 type Options struct {
 	Bus   Bus
 	Nodes Nodes
+	// Memory writes the CVs that make up DCC consists; nil leaves them
+	// apart.
+	Memory Memory
 	// File is trains.yaml; nil keeps the roster in memory.
 	File   *File
 	Logger *slog.Logger
@@ -213,7 +223,11 @@ func (m *Manager) viewLocked(e Entry) Train {
 func (m *Manager) viewsLocked(tr *train) []Train {
 	es := m.entriesAtLocked(tr.ID)
 	if len(es) == 0 {
-		return []Train{tr.Train}
+		t := tr.Train
+		if c, ok := m.atConsistAddressLocked(tr); ok {
+			t.Name, t.Consist = c.Name, c.ID
+		}
+		return []Train{t}
 	}
 	out := make([]Train, len(es))
 	for i, e := range es {
@@ -234,6 +248,17 @@ func (m *Manager) viewFor(id string, tr *train) Train {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.viewForLocked(id, tr)
+}
+
+// view is the view of the train id names after a command that may have
+// gone to another train: the address of the DCC consist it runs in.
+func (m *Manager) view(id string, sent *train) Train {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if tr, ok := m.lookupLocked(id); ok && tr != nil {
+		return m.viewForLocked(id, tr)
+	}
+	return m.viewForLocked(id, sent)
 }
 
 // --- following the bus ---------------------------------------------------
@@ -389,7 +414,7 @@ func (m *Manager) List() []Train {
 	}
 	for key, tr := range m.trains {
 		if len(m.entriesAtLocked(key)) == 0 {
-			out = append(out, tr.Train)
+			out = append(out, m.viewsLocked(tr)...)
 		}
 	}
 	m.mu.RUnlock()
@@ -965,12 +990,16 @@ func (m *Manager) SetSpeed(ctx context.Context, id string, speed float32, direct
 	if direction != "" && direction != Forward && direction != Reverse {
 		return Train{}, invalid("the direction must be forward or reverse")
 	}
+	target := id
 	if tr, err := m.get(id); err == nil {
 		if err := m.following(tr); err != nil {
 			return m.viewFor(id, tr), err
 		}
+		if to, ok := m.dccTarget(tr, false); ok {
+			target = to
+		}
 	}
-	tr, nodeID, err := m.control(ctx, id, true)
+	tr, nodeID, err := m.control(ctx, target, true)
 	if err != nil {
 		return Train{}, err
 	}
@@ -981,7 +1010,7 @@ func (m *Manager) SetSpeed(ctx context.Context, id string, speed float32, direct
 	m.mu.RUnlock()
 	s := traction.Speed{Value: speed, Reverse: direction == Reverse}
 	if _, err := m.opts.Bus.TractionCommand(ctx, nodeID, traction.SetSpeed(s), false); err != nil {
-		return m.viewFor(id, tr), err
+		return m.view(id, tr), err
 	}
 	m.mu.Lock()
 	tr.setSpeed(s)
@@ -991,17 +1020,25 @@ func (m *Manager) SetSpeed(ctx context.Context, id string, speed float32, direct
 		member.setSpeed(traction.Speed{Value: s.Value, Reverse: s.Reverse != mb.Reverse})
 	})
 	m.publish(tr)
-	return m.viewFor(id, tr), nil
+	return m.view(id, tr), nil
 }
 
-// EmergencyStop stops a train at once.
+// EmergencyStop stops a train at once. A locomotive in a DCC consist
+// stops the whole consist, since its decoder takes speeds only at the
+// consist address.
 func (m *Manager) EmergencyStop(ctx context.Context, id string) (Train, error) {
-	tr, nodeID, err := m.control(ctx, id, false)
+	target := id
+	if tr, err := m.get(id); err == nil {
+		if to, ok := m.dccTarget(tr, true); ok {
+			target = to
+		}
+	}
+	tr, nodeID, err := m.control(ctx, target, false)
 	if err != nil {
 		return Train{}, err
 	}
 	if _, err := m.opts.Bus.TractionCommand(ctx, nodeID, traction.EmergencyStop(), false); err != nil {
-		return m.viewFor(id, tr), err
+		return m.view(id, tr), err
 	}
 	m.mu.Lock()
 	tr.EStop, tr.Speed = true, 0
@@ -1009,7 +1046,7 @@ func (m *Manager) EmergencyStop(ctx context.Context, id string) (Train, error) {
 	m.mu.Unlock()
 	m.follow(tr, func(member *train, _ Member) { member.EStop, member.Speed = true, 0 })
 	m.publish(tr)
-	return m.viewFor(id, tr), nil
+	return m.view(id, tr), nil
 }
 
 // SetFunction turns a function on or off.
@@ -1017,7 +1054,15 @@ func (m *Manager) SetFunction(ctx context.Context, id string, fn int, on bool) (
 	if fn < 0 || fn > MaxFunction {
 		return Train{}, invalid("there is no function F%d; functions run from F0 to F%d", fn, MaxFunction)
 	}
-	tr, nodeID, err := m.control(ctx, id, true)
+	// A DCC consist's lead sends the functions the decoders take at the
+	// consist address there, so the others follow; the rest stay its own.
+	target := id
+	if tr, err := m.get(id); err == nil && fn <= consistFunctionMax {
+		if to, ok := m.dccTarget(tr, false); ok {
+			target = to
+		}
+	}
+	tr, nodeID, err := m.control(ctx, target, true)
 	if err != nil {
 		return Train{}, err
 	}
@@ -1026,19 +1071,22 @@ func (m *Manager) SetFunction(ctx context.Context, id string, fn int, on bool) (
 		value = 1
 	}
 	if _, err := m.opts.Bus.TractionCommand(ctx, nodeID, traction.SetFunction(uint32(fn), value), false); err != nil {
-		return m.viewFor(id, tr), err
+		return m.view(id, tr), err
 	}
 	m.mu.Lock()
 	tr.setFunction(fn, on)
 	tr.Updated = time.Now()
+	_, atConsist := m.atConsistAddressLocked(tr)
 	m.mu.Unlock()
-	m.follow(tr, func(member *train, mb Member) {
-		if mb.follows(fn) {
-			member.setFunction(fn, on)
-		}
-	})
+	if !atConsist || fn <= consistFunctionMax {
+		m.follow(tr, func(member *train, mb Member) {
+			if mb.follows(fn) {
+				member.setFunction(fn, on)
+			}
+		})
+	}
 	m.publish(tr)
-	return m.viewFor(id, tr), nil
+	return m.view(id, tr), nil
 }
 
 // Refresh reads a train's state back from its node without taking
@@ -1114,6 +1162,9 @@ func (m *Manager) nameLocked(address uint16, long bool) string {
 	long = long || address > traction.ShortAddressMax
 	es := m.entriesAtLocked(IDFor(address, long))
 	if len(es) == 0 {
+		if c, ok := m.dccConsistAtLocked(address, long); ok {
+			return c.Name
+		}
 		return "locomotive " + traction.AddressName(address, long)
 	}
 	names := make([]string, len(es))

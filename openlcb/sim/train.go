@@ -192,23 +192,49 @@ func (t *Train) command(src openlcb.NodeHandle, payload []byte) []byte {
 	return nil
 }
 
-// apply carries out a speed, function or emergency stop command; the
-// caller holds the station's lock.
+// apply carries out a speed, function or emergency stop command on the
+// decoders that answer the train's address, as on the track: its own,
+// which ignores speed and emergency stops there while it runs in a
+// consist, and those whose consist address it is, each the way it faces
+// in the consist and taking only the functions its CVs 21 and 22 let
+// through. The caller holds the station's lock.
 func (t *Train) apply(c traction.Command) {
 	d := t.Decoder
+	if c.Kind == traction.CmdSetFunction || d.ConsistAddress() == 0 {
+		t.applyTo(d, c, false)
+	}
+	if t.Long || t.Address > traction.ShortAddressMax {
+		return
+	}
+	for _, m := range t.station.decoders {
+		if m == d || m.ConsistAddress() != t.Address {
+			continue
+		}
+		if c.Kind == traction.CmdSetFunction && !m.consistFunction(c.Function) {
+			continue
+		}
+		t.applyTo(m, c, m.consistReversed())
+	}
+}
+
+// applyTo carries out a command on one decoder, the other way round for
+// reverse.
+func (t *Train) applyTo(d *Decoder, c traction.Command, reverse bool) {
 	switch c.Kind {
 	case traction.CmdSetSpeed:
-		d.Speed, d.EStop = c.Speed, false
-		t.log.Info("sim: train speed", "address", t.Address, "speed", c.Speed.String(), "listener", c.Listener)
+		s := c.Speed
+		s.Reverse = s.Reverse != reverse
+		d.Speed, d.EStop = s, false
+		t.log.Info("sim: train speed", "address", t.Address, "decoder", d.Address, "speed", s.String(), "listener", c.Listener)
 	case traction.CmdSetFunction:
 		if c.Function <= traction.MaxFunction {
 			d.Functions[c.Function] = c.Value != 0
 		}
-		t.log.Info("sim: train function", "address", t.Address, "function", c.Function, "on", c.Value != 0, "listener", c.Listener)
+		t.log.Info("sim: train function", "address", t.Address, "decoder", d.Address, "function", c.Function, "on", c.Value != 0, "listener", c.Listener)
 	case traction.CmdEmergencyStop:
 		d.EStop = true
 		d.Speed.Value = 0
-		t.log.Info("sim: train emergency stop", "address", t.Address, "listener", c.Listener)
+		t.log.Info("sim: train emergency stop", "address", t.Address, "decoder", d.Address, "listener", c.Listener)
 	}
 }
 
@@ -315,7 +341,10 @@ func (t *Train) consistCommand(c traction.Command) []byte {
 // POM write of CV n, as do the indirect index and value registers, and a
 // read there is a POM read the decoder answers over RailCom a moment
 // later. Without RailCom, reads are not implemented, as in the firmware
-// with the cutout off.
+// with the cutout off. As in the firmware, three writes send the
+// instruction the standard has for them instead: CVs 17 and 18 together
+// (Long Address, which also sets CV 29 bit 5), CV 19 alone (Consist
+// Control) and CVs 19 and 20 together (Consist Address).
 type pomSpace struct {
 	t *Train
 }
@@ -381,7 +410,26 @@ func (p *pomSpace) Write(address uint32, data []byte) error {
 	}
 	switch {
 	case address < 1024:
-		write(address+1, data[0])
+		// The firmware takes the CVs one instruction at a time.
+		for i := 0; i < len(data) && address+uint32(i) < 1024; {
+			cv := address + 1 + uint32(i)
+			switch {
+			case cv == 17 && len(data)-i >= 2:
+				write(17, data[i])
+				write(18, data[i+1])
+				p.t.station.mu.Lock()
+				p.t.Decoder.CVs[29] |= 0x20
+				p.t.station.mu.Unlock()
+				i += 2
+			case cv == 19 && len(data)-i >= 2:
+				write(19, data[i])
+				write(20, data[i+1])
+				i += 2
+			default:
+				write(cv, data[i])
+				i++
+			}
+		}
 	case address >= cvIndexOffset && address < cvValueOffset:
 		p.t.mu.Lock()
 		b := []byte{byte(p.t.cvIndex >> 24), byte(p.t.cvIndex >> 16), byte(p.t.cvIndex >> 8), byte(p.t.cvIndex)}

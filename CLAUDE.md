@@ -72,9 +72,11 @@ applied at the next start; the replaced files go to `before-restore-*/`.
     detectors, Identify replies) over the plain node; `Station` behaves
     like simple-dcc (train search and train nodes, a programming track
     with a decoder on it, the emergency events, consists that pass
-    the lead's commands on). The outpost also takes
-    firmware upgrades (`sim.FirmwareImage` makes an image; a new image
-    runs on trial and confirms itself or goes back)
+    the lead's commands on, decoders that answer the consist address
+    in their CV 19, and the Long Address and Consist Control
+    instructions for writes of CVs 17 and 18 and of CV 19). The
+    outpost also takes firmware upgrades (`sim.FirmwareImage` makes an
+    image; a new image runs on trial and confirms itself or goes back)
 - `internal/config` — `interlock.yaml` loading and validation.
 - `internal/store` — sqlite (modernc, no cgo). Schema changes are new files
   in `internal/store/migrations/NNNN_name.sql`; never edit a released one.
@@ -116,7 +118,7 @@ applied at the next start; the replaced files go to `before-restore-*/`.
 - `internal/tracking` — train tracking: follows each decoder the
   reporters see through the plan as the train its locomotive is made up
   into (a formation; a locomotive in no train runs on its own, keyed by
-  address), places the train behind or ahead of it from the train's
+  address; a made-up DCC consist's address stands for its lead), places the train behind or ahead of it from the train's
   length and the locomotive's place in it once it runs from one block
   into the next, lays it out again around the decoder when the roster
   changes the train, moves it on between reports at its decoder's
@@ -148,7 +150,8 @@ applied at the next start; the replaced files go to `before-restore-*/`.
   and junction routes; `trackplan/stretch.go`, the track a train covers)
   moved at their decoders' speed with momentum,
   turnouts from simulated servos, detectors with RailCom's timing (entry
-  after a few packets, exit a second late, the decoder only), and the
+  after a few packets, exit a second late, the decoder only, by its
+  consist address while it runs in a DCC consist), and the
   test layout. The simulated outposts' node IDs are 0x10 apart because
   each takes the four after its own for its reporter ranges.
 - `internal/replace` — moves what names one node over to another, for a
@@ -167,8 +170,9 @@ applied at the next start; the replaced files go to `before-restore-*/`.
 - `internal/train` — the throttle side: the roster in `<data>/trains.yaml`,
   finding train nodes by Train Search, controller assign, speed and
   function commands, the layout's emergency events, consists (`consist.go`:
-  made up on the command station by Train Control's consist commands, the
-  members' state following the lead), cars and formations
+  kept in the decoders, CV 19 written on the main, driven at the consist
+  address; or made up on the command station by Train Control's consist
+  commands; the members' state following the lead), cars and formations
   (`formation.go`: trains made up of locomotives and cars from the front,
   each vehicle in one at most; the web interface calls formations
   trains, since here a train is a DCC address). Roster entries are

@@ -105,7 +105,7 @@ export function Programming() {
                 <tr key={op.id}>
                   <td className="dim">{clockTime(op.finished)}</td>
                   <td>{opLabel(op)}</td>
-                  <td className="num">{op.cv}</td>
+                  <td className="num">{op.kind === "pom_address" ? "17, 18" : op.cv}</td>
                   <td className="num">{op.ok ? op.value : op.kind === "read" || op.kind === "pom_read" ? "" : op.value}</td>
                   <td>{op.ok ? <Status color="green">Done</Status> : <Status color="red">{op.error ?? "Failed"}</Status>}</td>
                 </tr>
@@ -234,6 +234,8 @@ function opLabel(op: CVOp): string {
       return `Write on the main to ${op.train_name || op.train}`;
     case "pom_read":
       return `Read on the main from ${op.train_name || op.train}`;
+    case "pom_address":
+      return `Long address on the main to ${op.train_name || op.train}`;
   }
 }
 

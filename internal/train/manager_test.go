@@ -17,6 +17,7 @@ import (
 	"github.com/mikesmitty/interlock/internal/train"
 	"github.com/mikesmitty/interlock/openlcb"
 	"github.com/mikesmitty/interlock/openlcb/can"
+	"github.com/mikesmitty/interlock/openlcb/memconfig"
 	"github.com/mikesmitty/interlock/openlcb/node"
 	"github.com/mikesmitty/interlock/openlcb/sim"
 	"github.com/mikesmitty/interlock/openlcb/traction"
@@ -70,7 +71,8 @@ func newBench(t *testing.T) *bench {
 	if err != nil {
 		t.Fatal(err)
 	}
-	b.m = train.New(train.Options{Bus: b.local, File: f, Logger: logger, SearchWindow: 150 * time.Millisecond, Functions: 5})
+	mem := memconfig.NewClient(b.local, memconfig.WithLogger(logger), memconfig.WithReplyTimeout(time.Second))
+	b.m = train.New(train.Options{Bus: b.local, Memory: mem, File: f, Logger: logger, SearchWindow: 150 * time.Millisecond, Functions: 5})
 	b.m.Subscribe(func(tr train.Train) {
 		b.mu.Lock()
 		defer b.mu.Unlock()

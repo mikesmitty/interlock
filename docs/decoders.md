@@ -195,6 +195,11 @@ RailCom says it cannot read on the main; writes there still work, and a
 change to part of a CV is written with the page's values for its other
 bits.
 
+A new long address on the main goes as one instruction, CV 17 and CV 18
+together, which also sets CV 29 bit 5, so the decoder never answers a
+half-changed address; the locomotive's roster address follows it at
+once, and the rest of the page is written to the new address.
+
 ## ESU function mapping
 
 ESU decoders decide what each function key does with a table of their

@@ -157,6 +157,9 @@ type decoderCVBody struct {
 	Value *int   `json:"value"`
 	// Train is set to program on the main through that train's node.
 	Train string `json:"train"`
+	// Next is CV 18's value when CV 17 is written on the main with it:
+	// the two go as one long address.
+	Next *int `json:"next"`
 	// Locomotive and Decoder name a roster decoder to save the value for.
 	Locomotive string `json:"locomotive"`
 	Decoder    string `json:"decoder"`
@@ -196,6 +199,10 @@ func (a *API) decoderCV(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cv := d.CVs[i]
+	if body.Next != nil && (!body.Write || body.CV != "17" || body.Train == "" || !slices.ContainsFunc(d.CVs, func(c decoder.CV) bool { return c.Name == "18" })) {
+		writeError(w, http.StatusBadRequest, "next goes with writing CV 17 on the main, for a definition that has CV 18")
+		return
+	}
 	if body.Locomotive != "" || body.Decoder != "" {
 		if !a.trainsReady(w) {
 			return
@@ -242,10 +249,16 @@ func (a *API) decoderCV(w http.ResponseWriter, r *http.Request) {
 	session := a.sessions.get(body.Train)
 	cache := d.Programming.Index != nil && d.Programming.Index.Cache
 	resp := decoderCVResponse{CV: body.CV}
-	if body.Write {
+	switch {
+	case body.Next != nil:
+		// One Long Address instruction, so the decoder never answers a
+		// half-changed address.
+		_, err = a.deps.Programmer.WriteLongAddressPOM(r.Context(), body.Train, *body.Value, *body.Next)
+		resp.Value = *body.Value
+	case body.Write:
 		err = session.Write(r.Context(), bus, access, *body.Value, cache)
 		resp.Value = *body.Value
-	} else {
+	default:
 		resp.Value, err = session.Read(r.Context(), bus, access, cache)
 	}
 	resp.OK = err == nil
@@ -254,8 +267,20 @@ func (a *API) decoderCV(w http.ResponseWriter, r *http.Request) {
 		resp.CannotRead = !body.Write && programmer.CannotReadOnMain(err)
 	}
 	if resp.OK && body.Decoder != "" {
-		if err := a.deps.Trains.Programmed(body.Locomotive, body.Decoder, body.CV, resp.Value, body.Write); err != nil {
-			resp.Error = "The value could not be saved in the roster: " + err.Error()
+		saved := map[string]int{body.CV: resp.Value}
+		if body.Next != nil {
+			saved["18"] = *body.Next
+			// The decoder set CV 29 bit 5 itself.
+			if v, err := a.deps.Trains.CVs(body.Locomotive, body.Decoder); err == nil {
+				if cv29, ok := v.CVs["29"]; ok {
+					saved["29"] = cv29 | 0x20
+				}
+			}
+		}
+		for _, name := range slices.Sorted(maps.Keys(saved)) {
+			if err := a.deps.Trains.Programmed(body.Locomotive, body.Decoder, name, saved[name], body.Write); err != nil {
+				resp.Error = "The value could not be saved in the roster: " + err.Error()
+			}
 		}
 	}
 	writeJSON(w, http.StatusOK, resp)

@@ -362,7 +362,7 @@ func (s *Sim) detect(now time.Time) {
 		st.lastSeen = now
 		pick := here[0]
 		for _, t := range here {
-			if st.reported != nil && t.spec.locomotive() == st.reported.Address {
+			if st.reported != nil && s.announced(t) == st.reported.Address {
 				pick = t
 			}
 		}
@@ -370,7 +370,7 @@ func (s *Sim) detect(now time.Time) {
 			st.garbled = true
 			s.log.Warn("sim: two decoders on one detector; a real one would garble them", "node", key.node.String(), "track", key.track+1)
 		}
-		addr := pick.spec.locomotive()
+		addr := s.announced(pick)
 		if st.seen != addr {
 			st.seen, st.since = addr, now
 		}
@@ -380,6 +380,16 @@ func (s *Sim) detect(now time.Time) {
 			st.known, st.reported = true, &loco
 		}
 	}
+}
+
+// announced is the address a train's decoder sends over RailCom: its
+// consist address while it runs in a DCC consist, else its own.
+func (s *Sim) announced(t *running) detector.Address {
+	d := s.hw.DecoderState(t.spec.Address, t.spec.long())
+	if n := d.ConsistAddress(); n != 0 {
+		return detector.Address{Type: detector.Consist, Number: n}
+	}
+	return t.spec.locomotive()
 }
 
 // blockKeys lists the detectors the plan's blocks use.

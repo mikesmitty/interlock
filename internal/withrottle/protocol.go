@@ -83,6 +83,41 @@ func rosterList(trains []train.Train) string {
 	return "RL" + strconv.Itoa(n) + b.String()
 }
 
+// consistList is the consist list: RCL with how many there are, then an
+// RCD line for each DCC consist made up, by its consist address and name,
+// with its locomotives and the way each faces. Apps list them beside the
+// roster, and choosing one drives the consist address. Consists the
+// command station keeps are left out: their lead is in the roster.
+func consistList(consists []train.ConsistState, trains []train.Train) []string {
+	byID := make(map[string]train.Train, len(trains))
+	for _, t := range trains {
+		byID[t.ID] = t
+	}
+	var lines []string
+	for _, c := range consists {
+		if !c.MadeUp || c.Kind != train.ConsistDCC {
+			continue
+		}
+		var b strings.Builder
+		b.WriteString("RCD" + fieldSep + dccAddress(c.Address, false) + fieldSep + clean(c.Name))
+		for _, mb := range c.Members {
+			if t, ok := byID[mb.Train]; ok {
+				b.WriteString(listSep + dccAddress(t.Address, t.Long) + fieldSep + strconv.FormatBool(!mb.Reverse))
+			}
+		}
+		lines = append(lines, b.String())
+	}
+	return append([]string{"RCL" + strconv.Itoa(len(lines))}, lines...)
+}
+
+// dccAddress is an address as consist lists write one: 10(S), 1234(L).
+func dccAddress(address uint16, long bool) string {
+	if long || address > 127 {
+		return strconv.Itoa(int(address)) + "(L)"
+	}
+	return strconv.Itoa(int(address)) + "(S)"
+}
+
 // functionLabels is the labels part of an MTL message: one field per
 // function from F0, empty for those without a label.
 func functionLabels(labels map[int]string, count int) string {

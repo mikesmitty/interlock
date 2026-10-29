@@ -161,9 +161,14 @@ type layout struct {
 	entries    map[string]train.Entry
 	cars       map[string]train.Car
 	formations map[string]train.Formation
-	roster     map[detector.Address]*rosterInfo
-	units      map[string]*unit
-	speeds     map[detector.Address]speed
+	// consists are the DCC consists made up, by ID; while one is, its
+	// decoders answer, and detectors report them by, its consist
+	// address, which aliases maps to its lead's address.
+	consists map[string]train.Consist
+	aliases  map[detector.Address]detector.Address
+	roster   map[detector.Address]*rosterInfo
+	units    map[string]*unit
+	speeds   map[detector.Address]speed
 	// cvs reads a decoder's CVs; nil reads none.
 	cvs      func(decoder string) decoderCVs
 	powerOff bool
@@ -186,6 +191,8 @@ func newLayout() *layout {
 		entries:    map[string]train.Entry{},
 		cars:       map[string]train.Car{},
 		formations: map[string]train.Formation{},
+		consists:   map[string]train.Consist{},
+		aliases:    map[detector.Address]detector.Address{},
 		roster:     map[detector.Address]*rosterInfo{},
 		units:      map[string]*unit{},
 		speeds:     map[detector.Address]speed{},
@@ -314,7 +321,9 @@ func (l *layout) train(tr train.Train) {
 	if tr.Roster {
 		l.rosterEntry(tr.Entry, tr.Removed)
 	}
-	if tr.Removed {
+	// A DCC consist's address goes at its lead's speed, which the lead
+	// reports itself.
+	if tr.Removed || (!tr.Roster && tr.Consist != "") {
 		return
 	}
 	addr := addressOf(tr.Address, tr.Long)
@@ -323,7 +332,7 @@ func (l *layout) train(tr train.Train) {
 		s.step = -s.step
 	}
 	l.speeds[addr] = s
-	if t := l.get(addr); t.addr == addr {
+	if t := l.get(addr); t.addr == addr || l.aliases[t.addr] == addr {
 		l.drive(t)
 	}
 }
@@ -361,6 +370,23 @@ func (l *layout) formation(f train.FormationState) {
 		delete(l.formations, f.ID)
 	} else {
 		l.formations[f.ID] = f.Formation
+	}
+	l.rebuild()
+}
+
+// consist follows a DCC consist made up or broken up.
+func (l *layout) consist(c train.ConsistState) {
+	old, had := l.consists[c.ID]
+	if c.Removed || !c.MadeUp || c.Kind != train.ConsistDCC || len(c.Members) == 0 {
+		if !had {
+			return
+		}
+		delete(l.consists, c.ID)
+	} else {
+		if had && old.Address == c.Address && old.Members[0].Train == c.Members[0].Train {
+			return
+		}
+		l.consists[c.ID] = c.Consist
 	}
 	l.rebuild()
 }
@@ -439,7 +465,27 @@ func (l *layout) rebuild() {
 		info.unit, info.at = key, length/2
 		units[key] = &unit{id: idOf(addr), name: strings.Join(names, " / "), roster: slices.Clone(info.ids), addresses: []detector.Address{addr}, length: length}
 	}
-	l.roster, l.units = roster, units
+	// A DCC consist's address stands for its lead.
+	aliases := map[detector.Address]detector.Address{}
+	for _, c := range l.consists {
+		lead, ok := l.entries[c.Members[0].Train]
+		if !ok {
+			continue
+		}
+		from, to := detector.Address{Type: detector.Consist, Number: c.Address}, addressOf(lead.Address, lead.Long)
+		if info := roster[to]; info != nil {
+			roster[from], aliases[from] = info, to
+		}
+	}
+	before := l.aliases
+	l.roster, l.units, l.aliases = roster, units, aliases
+	// A train followed by a consist address no longer made up goes on
+	// with its lead's, which its decoder answers again.
+	for _, t := range l.trains {
+		if to, ok := before[t.addr]; ok && aliases[t.addr] != to {
+			l.follow(t, to)
+		}
+	}
 	l.settle()
 }
 
@@ -517,9 +563,14 @@ func (l *layout) follow(t *tracked, addr detector.Address) {
 
 // drive takes the speed the train's decoder is set to, in the train's
 // terms: a locomotive facing the train's rear runs it backward going
-// forward.
+// forward. A train followed by a DCC consist's address goes at its
+// lead's speed.
 func (l *layout) drive(t *tracked) {
-	s := l.speeds[t.addr]
+	addr := t.addr
+	if to, ok := l.aliases[addr]; ok {
+		addr = to
+	}
+	s := l.speeds[addr]
 	target := s.step
 	if t.backward {
 		target = -target

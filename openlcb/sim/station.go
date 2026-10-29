@@ -77,6 +77,32 @@ func (d *Decoder) SetCV(cv uint16, v byte) {
 	d.CVs[cv] = v
 }
 
+// ConsistAddress is the consist address the decoder answers besides its
+// own (CV 19), or zero when it runs on its own.
+func (d *Decoder) ConsistAddress() uint16 {
+	return uint16(d.CVs[19] & 0x7F)
+}
+
+// consistReversed reports whether the decoder faces the other way in its
+// consist (CV 19 bit 7).
+func (d *Decoder) consistReversed() bool {
+	return d.CVs[19]&0x80 != 0
+}
+
+// consistFunction reports whether the decoder takes function fn sent to
+// its consist address: F1 to F8 by CV 21, and F0 and F9 to F12 by CV 22.
+func (d *Decoder) consistFunction(fn uint32) bool {
+	switch {
+	case fn == 0:
+		return d.CVs[22]&0x03 != 0
+	case fn <= 8:
+		return d.CVs[21]&(1<<(fn-1)) != 0
+	case fn <= 12:
+		return d.CVs[22]&(1<<(fn-9+2)) != 0
+	}
+	return false
+}
+
 // ESUProductID is the product ID NewESUDecoder reports: an ESU LokSound 5
 // micro DCC Direct.
 const ESUProductID = 16777370

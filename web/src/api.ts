@@ -971,8 +971,8 @@ export interface ProgrammingTrack {
 
 export interface CVOp {
   id: number;
-  /** pom is a write on the main and pom_read a read there. */
-  kind: "read" | "write" | "pom" | "pom_read";
+  /** pom is a write on the main and pom_read a read there; pom_address is a long address written there as one instruction, CVs 17 and 18, with the address as its value. */
+  kind: "read" | "write" | "pom" | "pom_read" | "pom_address";
   train?: string;
   train_name?: string;
   cv: number;
@@ -1377,7 +1377,8 @@ export const api = {
   decoderIndex: () => request<DecoderIndex>("/api/v1/decoders/index"),
   decoderDefinition: (file: string, model: string) => request<DecoderDefinition>(`/api/v1/decoders/definition?${new URLSearchParams({ file, model }).toString()}`),
   identifyDecoder: () => request<IdentifyResult>("/api/v1/programming/identify", { method: "POST" }),
-  decoderCV: (body: { file: string; model: string; cv: string; write?: boolean; value?: number; train?: string; locomotive?: string; decoder?: string }) =>
+  /** next: CV 18's value, written on the main with CV 17 as one long address. */
+  decoderCV: (body: { file: string; model: string; cv: string; write?: boolean; value?: number; next?: number; train?: string; locomotive?: string; decoder?: string }) =>
     /** cannot_read: the command station cannot read on the main at all. */
     request<{ cv: string; value: number; ok: boolean; error?: string; cannot_read?: boolean }>("/api/v1/programming/decoder-cv", {
       method: "POST",

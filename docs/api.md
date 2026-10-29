@@ -153,12 +153,12 @@ POST   /api/v1/trains/{id}/refresh           read speed and functions back
 POST   /api/v1/trains/{id}/cv                write a CV on the main {cv, value}
 POST   /api/v1/trains/{id}/cv/read           read a CV on the main over RailCom {cv}
 GET    /api/v1/consists                      {consists}
-POST   /api/v1/consists                      {name, members: [{train, reverse, f0, functions}]}, the lead first
+POST   /api/v1/consists                      {name, kind, address, members: [{train, reverse, f0, functions}]}, the lead first
 GET    /api/v1/consists/{id}                 with made_up, attached and any problem
-PATCH  /api/v1/consists/{id}                 any of {name, members}; only the name while made up
+PATCH  /api/v1/consists/{id}                 any of {name, kind, address, members}; only the name while made up
 DELETE /api/v1/consists/{id}                 only while it is apart
-POST   /api/v1/consists/{id}/make-up         put it together on the command station
-POST   /api/v1/consists/{id}/break-up        take it apart; the lead has to be stopped
+POST   /api/v1/consists/{id}/make-up         put it together: in the decoders, or on the command station
+POST   /api/v1/consists/{id}/break-up        take it apart; it has to be stopped
 GET    /api/v1/cars                          {cars}
 POST   /api/v1/cars                          {name, road_name, road_number, manufacturer, model, comment, length}
 GET    /api/v1/cars/{id}
@@ -174,6 +174,15 @@ POST   /api/v1/programming/find              look for the programming track
 POST   /api/v1/programming/read              {cv}
 POST   /api/v1/programming/write             {cv, value}
 ```
+
+A consist's `kind` is `dcc` for one kept in the decoders at its consist
+`address` (1 to 127), written to them on the main when it is made up and
+cleared when it is broken up, or `lcc` for one the command station keeps
+by passing the lead's commands on. `attached` says the consist is
+together on the layout: always, for a made-up `dcc` consist; for an
+`lcc` one, once it was put together since the lead's train node last
+came onto the bus. A made-up `dcc` consist's address shows in `/trains`
+under the consist's name, with `consist` set, and drives the consist.
 
 A formation is a train made up of locomotives and cars, the web
 interface's **Trains** on the Roster page; `/trains` are the locomotives.
@@ -225,14 +234,17 @@ GET    /api/v1/decoders                      where the definitions come from {so
 GET    /api/v1/decoders/index                every manufacturer, family and model
 GET    /api/v1/decoders/definition           ?file=&model= one model's settings and pages
 POST   /api/v1/programming/identify          {identity, manufacturer, candidates, address, roster}
-POST   /api/v1/programming/decoder-cv        {file, model, cv, write, value, train, locomotive, decoder} -> {cv, value, ok, error, cannot_read}
+POST   /api/v1/programming/decoder-cv        {file, model, cv, write, value, next, train, locomotive, decoder} -> {cv, value, ok, error, cannot_read}
 ```
 
 The index and definitions are large and sent gzipped when the client
 accepts it. `decoder-cv` takes a CV by the name the definition uses
 (`29`, `16.0.259`, `T2CV.1.05`) and does the index writes it needs; with
 `train` it reads or writes on the main, and `cannot_read` says when a
-read failed because the command station cannot read there at all; with a
+read failed because the command station cannot read there at all. A
+write of CV 17 on the main with CV 18's value in `next` writes the long
+address as one instruction, which sets CV 29 bit 5 too and moves the
+decoder to its new address at once. With a
 roster `locomotive` and one of its `decoder`s, the value is saved for
 that decoder. It refuses CVs the
 definition marks read-only, write-only or for information only.
@@ -292,7 +304,9 @@ DELETE /api/v1/tracking/{id}                 forget where a train is; 204, 404 f
 
 Each train detectors have seen. A train made up in the roster has its
 formation's ID as its `id` and in `formation`; a locomotive in no train
-has its address (`101`, `3l`, `consist-12`). Each has its `name`, the
+has its address (`101`, `3l`, or `consist-12` for a consist address no
+made-up DCC consist uses; a made-up one's address counts as its lead's).
+Each has its `name`, the
 `roster` entries of its locomotives, the `address` of the decoder it is
 followed by (the one last reported), the `block` that decoder was last
 reported in and whether a detector `seen`

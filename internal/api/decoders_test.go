@@ -64,6 +64,13 @@ func (p *cvProgrammer) WritePOM(_ context.Context, train string, cv, value int) 
 	return programmer.Op{CV: cv, Value: value, OK: true}, nil
 }
 
+func (p *cvProgrammer) WriteLongAddressPOM(_ context.Context, train string, cv17, cv18 int) (programmer.Op, error) {
+	p.log = append(p.log, fmt.Sprintf("POM %s W17,18=%d,%d", train, cv17, cv18))
+	p.cvs[17], p.cvs[18] = cv17, cv18
+	p.cvs[29] |= 0x20
+	return programmer.Op{Kind: "pom_address", CV: 17, Value: (cv17&0x3F)<<8 | cv18, OK: true}, nil
+}
+
 // ReadPOM reads the same decoder, as though it had moved to the main.
 func (p *cvProgrammer) ReadPOM(_ context.Context, train string, cv int) (programmer.Op, error) {
 	p.log = append(p.log, fmt.Sprintf("POM %s R%d", train, cv))
@@ -166,7 +173,8 @@ func TestIdentifyEndpoint(t *testing.T) {
 }
 
 func TestDecoderCVEndpoint(t *testing.T) {
-	ta, _, prog := newDecoderAPI(t)
+	ta, fd, prog := newDecoderAPI(t)
+	fd.def.CVs = append(fd.def.CVs, decoder.CV{Name: "17"}, decoder.CV{Name: "18"})
 	call := func(body string) (int, map[string]any) {
 		t.Helper()
 		rec, resp := ta.do(t, http.MethodPost, "/api/v1/programming/decoder-cv", body)
@@ -203,6 +211,15 @@ func TestDecoderCVEndpoint(t *testing.T) {
 	}
 	prog.cvs[8] = 151
 
+	// A long address on the main goes as one instruction.
+	prog.log = nil
+	if code, body := call(`{` + def + `"cv":"17","write":true,"value":198,"next":58,"train":"3"}`); code != http.StatusOK || body["ok"] != true || body["value"] != float64(198) {
+		t.Errorf("long address: %d %v", code, body)
+	}
+	if got := strings.Join(prog.log, " "); got != "POM 3 W17,18=198,58" {
+		t.Errorf("long address operations: %s", got)
+	}
+
 	delete(prog.cvs, 29)
 	if code, body := call(`{` + def + `"cv":"29"}`); code != http.StatusOK || body["ok"] != false || !strings.Contains(body["error"].(string), "No decoder answered") {
 		t.Errorf("failed read: %d %v", code, body)
@@ -217,6 +234,8 @@ func TestDecoderCVEndpoint(t *testing.T) {
 		{"info-only", `{` + def + `"cv":"99"}`, http.StatusBadRequest},
 		{"not in the definition", `{` + def + `"cv":"300"}`, http.StatusBadRequest},
 		{"write without a value", `{` + def + `"cv":"29","write":true}`, http.StatusBadRequest},
+		{"next with another CV", `{` + def + `"cv":"29","write":true,"value":1,"next":2,"train":"3"}`, http.StatusBadRequest},
+		{"next on the programming track", `{` + def + `"cv":"17","write":true,"value":1,"next":2}`, http.StatusBadRequest},
 		{"unknown decoder", `{"file":"Nope.xml","model":"X","cv":"29"}`, http.StatusNotFound},
 	}
 	for _, tt := range bad {

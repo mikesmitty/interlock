@@ -103,6 +103,12 @@ func (p *fakeProgrammer) WritePOM(_ context.Context, id string, cv, value int) (
 	return op, nil
 }
 
+func (p *fakeProgrammer) WriteLongAddressPOM(_ context.Context, id string, cv17, cv18 int) (programmer.Op, error) {
+	op := programmer.Op{ID: len(p.ops) + 1, Kind: "pom_address", Train: id, CV: 17, Value: (cv17&0x3F)<<8 | cv18, OK: true}
+	p.ops = append(p.ops, op)
+	return op, nil
+}
+
 func (p *fakeProgrammer) ReadPOM(_ context.Context, id string, cv int) (programmer.Op, error) {
 	if id == "nope" {
 		return programmer.Op{}, train.ErrNotFound

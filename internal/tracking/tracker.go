@@ -112,6 +112,7 @@ type Trains interface {
 	List() []train.Train
 	Cars() []train.CarState
 	Formations() []train.FormationState
+	Consists() []train.ConsistState
 	Layout() train.Layout
 }
 
@@ -213,6 +214,12 @@ func (tk *Tracker) HandleCar(c train.CarState) {
 // HandleFormation follows the trains made up in the roster.
 func (tk *Tracker) HandleFormation(f train.FormationState) {
 	tk.push(func(l *layout) { l.formation(f) })
+}
+
+// HandleConsist follows the DCC consists made up, whose decoders
+// detectors report by the consist address.
+func (tk *Tracker) HandleConsist(c train.ConsistState) {
+	tk.push(func(l *layout) { l.consist(c) })
 }
 
 // HandleLayout follows track power and the emergency stop.
@@ -336,6 +343,9 @@ func (tk *Tracker) Run(ctx context.Context) error {
 	if tk.opts.Trains != nil {
 		trains := tk.opts.Trains.List()
 		l.setRoster(trains, tk.opts.Trains.Cars(), tk.opts.Trains.Formations())
+		for _, c := range tk.opts.Trains.Consists() {
+			l.consist(c)
+		}
 		for _, tr := range trains {
 			l.train(tr)
 		}

@@ -502,24 +502,14 @@ the browser, Engine Driver's Web tab included, so this waits until a
 tool needs it. DCC-EX's track manager and EXRAIL have no LCC
 counterpart.
 
-Consist support, the rest of it. LCC consists are done (see Status);
-still to come:
+Consist support, the rest of it. LCC and DCC consists are done (see
+Status); still to come:
 
-- DCC advanced consists, kept in the decoders: the consist address is
-  read from CV 19 but set with the Consist Control instruction, so
-  `simple-dcc` has to send it for a write of CV 19 through a train
-  node's space 0xF8 (and the short form for CV 19 and 20 together, for
-  long consist addresses, once what CV 20 holds is confirmed). The
-  model has the kind and address already; making one up refuses until
-  then.
-- Writing a long address on the main as one instruction: the short form
-  for CV 17 and 18 together, which also sets CV 29, through a two-byte
-  write at CV 17 in the same space, once `simple-dcc` sends it.
-  Interlock writes CV 17, 18 and 29 one at a time today.
-- Consists in throttle apps: WiThrottle's consist lists, so an app
-  shows the consist by name rather than its lead.
-- Members on another command station, which wait on `simple-dcc`
-  forwarding to train nodes it does not host.
+- Long consist addresses: the short form for CV 19 and 20 together,
+  which `simple-dcc` sends for a two-byte write at CV 19, once what CV
+  20 holds is confirmed (S-9.2.2 marks it reserved).
+- Members of an LCC consist on another command station, which wait on
+  `simple-dcc` forwarding to train nodes it does not host.
 
 ## Decisions on the open questions
 
@@ -786,6 +776,24 @@ since its result could change the model.
   left the bus or Interlock restarted, and breaks one up only when the
   lead is stopped. The simulator passes the lead's commands on as the
   firmware does, up to four members.
+- DCC consists (2026-10-28): making one up writes each decoder's CV 21
+  and 22 (the functions it takes at the consist address; the lead takes
+  F0 to F12) and then CV 19 (the address, bit 7 for facing backward) on
+  the main, with the locomotives stopped, reads CV 19 back where RailCom
+  answers, and clears it from the others when one fails; breaking up
+  writes 0 and keeps the consist made up while a decoder still holds
+  it. `simple-dcc` sends the Consist Control instruction for a write of
+  CV 19 there. The lead's speed, emergency stop and F0 to F12 go to the
+  consist address, which any throttle can also drive, and the members'
+  state follows it; a member's emergency stop stops the consist.
+  Tracking takes the consist address RailCom detectors report as the
+  lead's train, and goes back to the lead's own address after the break
+  up. WiThrottle lists the made-up ones (RCL, RCD) by consist address.
+  The simulator's decoders answer their consist address, ignore speeds
+  at their own, and are reported by it. A long address on the main is
+  one two-byte write at CV 17, which `simple-dcc` sends as the Long
+  Address instruction; the settings page uses it and moves the
+  roster to the new address before writing the rest.
 - Phase 8 track plan (2026-10-27): `internal/trackplan` (directions,
   pieces from the directions a cell's track leaves by, plan validation,
   topology with open ends, block ends and links through turnout

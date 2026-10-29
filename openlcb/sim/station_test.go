@@ -160,6 +160,78 @@ func TestStationTrains(t *testing.T) {
 	}
 }
 
+func TestStationDecoderConsist(t *testing.T) {
+	local, client, station, ctx := simStation(t)
+	trainNode := func(address uint16, long bool) openlcb.NodeID {
+		t.Helper()
+		found, err := local.Producers(ctx, traction.AddressSearch(address, long, true), 300*time.Millisecond, true)
+		if err != nil || len(found) != 1 {
+			t.Fatalf("search for %d = %+v, %v", address, found, err)
+		}
+		return found[0].Node
+	}
+	write := func(id openlcb.NodeID, cv uint32, data ...byte) {
+		t.Helper()
+		if err := client.Write(ctx, id, traction.SpaceCV, cv-1, data); err != nil {
+			t.Fatalf("write CV %d: %v", cv, err)
+		}
+	}
+	command := func(id openlcb.NodeID, payload []byte) {
+		t.Helper()
+		if _, err := local.TractionCommand(ctx, id, payload, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	short, long, consist := trainNode(3, false), trainNode(1234, true), trainNode(10, false)
+
+	// 3 takes F1 to F8 at the consist address; 1234 faces backward and
+	// takes F0.
+	write(short, 21, 0xFF)
+	write(long, 22, 0x03)
+	write(short, 19, 10)
+	write(long, 19, 0x80|10)
+	if d := station.DecoderState(1234, true); d.ConsistAddress() != 10 {
+		t.Fatalf("consist address = %d", d.ConsistAddress())
+	}
+
+	command(consist, traction.SetSpeed(traction.Speed{Value: 40}))
+	command(consist, traction.SetFunction(2, 1))
+	command(consist, traction.SetFunction(0, 1))
+	time.Sleep(20 * time.Millisecond)
+	s, l := station.DecoderState(3, false), station.DecoderState(1234, true)
+	if s.Speed != (traction.Speed{Value: 40}) || l.Speed != (traction.Speed{Value: 40, Reverse: true}) {
+		t.Errorf("speeds = %v, %v", s.Speed, l.Speed)
+	}
+	if !s.Functions[2] || s.Functions[0] || l.Functions[2] || !l.Functions[0] {
+		t.Errorf("functions = %v, %v", s.Functions, l.Functions)
+	}
+
+	// In a consist, a decoder ignores speeds at its own address but still
+	// takes functions there.
+	command(short, traction.SetSpeed(traction.Speed{Value: 90}))
+	command(short, traction.SetFunction(5, 1))
+	time.Sleep(20 * time.Millisecond)
+	if s = station.DecoderState(3, false); s.Speed.Value != 40 || !s.Functions[5] {
+		t.Errorf("at its own address: speed %v, F5 %v", s.Speed, s.Functions[5])
+	}
+
+	// Out of the consist, it answers its own address again.
+	write(short, 19, 0)
+	command(consist, traction.SetSpeed(traction.Speed{Value: 10}))
+	command(short, traction.SetSpeed(traction.Speed{Value: 20}))
+	time.Sleep(20 * time.Millisecond)
+	if s, l = station.DecoderState(3, false), station.DecoderState(1234, true); s.Speed.Value != 20 || l.Speed.Value != 10 {
+		t.Errorf("after leaving: speeds %v, %v", s.Speed, l.Speed)
+	}
+
+	// CVs 17 and 18 written together are one Long Address instruction,
+	// which sets CV 29 bit 5 too.
+	write(short, 17, 0xC1, 0x2C)
+	if cvs := station.DecoderState(3, false).CVs; cvs[17] != 0xC1 || cvs[18] != 0x2C || cvs[29]&0x20 == 0 {
+		t.Errorf("after the long address: CV17 %#x, CV18 %#x, CV29 %#x", cvs[17], cvs[18], cvs[29])
+	}
+}
+
 func TestStationProgrammingTrack(t *testing.T) {
 	local, client, station, ctx := simStation(t)
 

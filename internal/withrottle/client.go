@@ -86,6 +86,7 @@ type client struct {
 	lapsed  bool
 	// What the app was last sent.
 	roster        string
+	consists      string
 	turnoutNames  string
 	turnoutStates map[string]int
 	power         int
@@ -251,6 +252,7 @@ func (c *client) greet() {
 	c.send("Ht" + clean(description))
 	c.roster = rosterList(o.Trains.List())
 	c.send(c.roster)
+	c.consistsChanged()
 	c.power = powerState(o.Trains.Layout())
 	c.send("PPA" + strconv.Itoa(c.power))
 	if o.Turnouts != nil {
@@ -640,6 +642,8 @@ func (c *client) trainChanged(t train.Train) {
 	if roster := rosterList(trains.List()); roster != c.roster {
 		c.roster = roster
 		c.send(roster)
+		// The consists list their locomotives' addresses.
+		c.consistsChanged()
 	}
 	address := train.IDFor(t.Address, t.Long)
 	for th, locos := range c.throttles {
@@ -669,6 +673,18 @@ func (c *client) trainChanged(t train.Train) {
 				}
 			}
 			l.on = on
+		}
+	}
+}
+
+// consistsChanged sends the consist list again when it changed.
+func (c *client) consistsChanged() {
+	trains := c.s.opts.Trains
+	lines := consistList(trains.Consists(), trains.List())
+	if all := strings.Join(lines, "\n"); all != c.consists {
+		c.consists = all
+		for _, line := range lines {
+			c.send(line)
 		}
 	}
 }
