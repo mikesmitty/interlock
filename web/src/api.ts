@@ -958,6 +958,7 @@ export interface LayoutState {
   power_off: boolean;
   /** False until track power was seen switched or the command stations said, and while they disagree. */
   power_known: boolean;
+  /** Set while the command stations hold every train stopped; each keeps its speed and goes back to it when this ends. */
   emergency_stop: boolean;
   updated?: string;
 }
@@ -1356,6 +1357,8 @@ export const api = {
       body: JSON.stringify({ cv }),
     }),
   layout: () => request<LayoutState>("/api/v1/trains/layout"),
+  /** The trains that go back to a speed when the layout's emergency stop ends, as their train nodes say now. */
+  resuming: () => request<{ trains: Train[] }>("/api/v1/trains/layout/resume"),
   setLayout: (change: { power?: boolean; emergency_stop?: boolean }) =>
     request<LayoutState>("/api/v1/trains/layout", {
       method: "POST",

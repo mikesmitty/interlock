@@ -65,17 +65,37 @@ one Train Control message. Release gives the controller role up and keeps
 the last known state.
 
 Speed runs from 0 to 126, which DCC command stations map to the 128 speed
-steps one for one. An emergency stop is its own command; the train stays
+steps one for one. A train's emergency stop is its own command: it sets
+the speed to 0 at once, keeping the direction, and the train stays
 stopped until a speed is set. If another throttle takes the train, the
 train tells Interlock, which lets it go and shows who has it; the next
 command takes it back.
 
 The Throttle page also carries the layout's emergency controls. "Stop all
 trains" produces the well-known Emergency Stop event and "Power off" the
-Emergency Off event; command stations such as simple-dcc answer them by
-stopping every locomotive or cutting track power. Interlock watches for
-the same events from anyone else, so a stop pressed on a hardware
-throttle shows here too.
+Emergency Off event. Command stations such as simple-dcc answer Emergency
+Stop by holding every locomotive stopped without changing its speed, and
+Emergency Off by cutting track power. Interlock watches for the same
+events from anyone else, so a stop pressed on a hardware throttle shows
+here too, and asks the command stations whether they hold their trains
+when they come onto the bus.
+
+While the trains are held, each keeps the speed it was set to, and its
+cab shows that speed as held. A speed set meanwhile, here, from a
+throttle app or by an automation, is what the train goes back to; Stop
+sets it to 0, so the train stays put. **Resume** ends the hold, and every
+train goes back to its speed, slowly where its decoder has momentum.
+Before that, Interlock asks each train on the bus for its speed, since
+another throttle may have changed one during the hold, and lists those
+that will move, each with **Set to 0**. With none set to move it
+resumes at once.
+
+Releasing a train that is held at a speed leaves it to start again on
+Resume with no throttle driving it, so its cab warns first and offers
+**Stop and release**. A drive ends when the hold begins and sets its
+train to 0, so that Resume doesn't start it with nothing to brake it
+(see [Driving trains](./driving.md)). Trains keep their speeds through
+Power off too, and carry on when power comes back.
 
 Whether track power is on comes from the command stations: Interlock
 asks them when they come onto the bus, and simple-dcc also says so
@@ -218,7 +238,10 @@ the same locomotive, and each sees the others' changes. Interlock gives
 the train up when the last app releases it. Releasing a locomotive or
 closing the app leaves the train running at its speed, as other
 WiThrottle servers do; Engine Driver sets the speed to zero first unless
-told otherwise.
+told otherwise. While the layout's emergency stop holds the trains,
+Interlock sets a train an app lets go of, or loses when the phone drops
+off the network, to 0 first, so Resume doesn't start it with no throttle
+driving it.
 
 An app that asks Interlock to watch it, as Engine Driver does once it
 holds a locomotive, and then sends nothing for 15 seconds has its trains

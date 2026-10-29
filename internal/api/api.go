@@ -156,6 +156,7 @@ func New(deps Deps) *API {
 	a.mux.HandleFunc("POST /api/v1/trains/search", a.searchTrains)
 	a.mux.HandleFunc("GET /api/v1/trains/layout", a.getLayout)
 	a.mux.HandleFunc("POST /api/v1/trains/layout", a.setLayout)
+	a.mux.HandleFunc("GET /api/v1/trains/layout/resume", a.resuming)
 	a.mux.HandleFunc("GET /api/v1/trains/{id}", a.getTrain)
 	a.mux.HandleFunc("PATCH /api/v1/trains/{id}", a.updateTrain)
 	a.mux.HandleFunc("DELETE /api/v1/trains/{id}", a.deleteTrain)

@@ -28,8 +28,13 @@ type Decoder struct {
 	// single page, whose CVs 257 to 512 live in CVs.
 	Pages map[uint32]byte
 
-	Speed     traction.Speed
-	EStop     bool
+	// Speed is the speed the decoder was last set to, and EStop whether
+	// its own emergency stop, which set the speed to zero, stops it.
+	Speed traction.Speed
+	EStop bool
+	// Held is set in DecoderState's copy while the station's emergency
+	// stop holds every train stopped at the speed it keeps.
+	Held      bool
 	Functions map[uint32]bool
 }
 
@@ -166,7 +171,10 @@ type Station struct {
 	// noRailCom is set before the station runs and never changes.
 	noRailCom bool
 	power     bool
-	work      chan func()
+	// held is set from Emergency Stop to Clear Emergency Stop: every
+	// train stands, and goes back to its speed after.
+	held bool
+	work chan func()
 }
 
 // NewStation builds a command station. cfg.Send must be set; cfg.ID
@@ -261,6 +269,7 @@ func (s *Station) DecoderState(address uint16, long bool) Decoder {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	snapshot := *d
+	snapshot.Held = s.held
 	snapshot.CVs = make(map[uint16]byte, len(d.CVs))
 	for k, v := range d.CVs {
 		snapshot.CVs[k] = v
@@ -407,11 +416,11 @@ func (s *Station) onEvent(ev openlcb.EventID, identify bool) {
 		s.power = true
 		s.log.Info("sim: track power on")
 	case openlcb.EventEmergencyStop:
-		for _, d := range s.decoders {
-			d.EStop = true
-			d.Speed.Value = 0
-		}
-		s.log.Info("sim: emergency stop")
+		s.held = true
+		s.log.Info("sim: emergency stop, holding every train")
+	case openlcb.EventClearEmergencyStop:
+		s.held = false
+		s.log.Info("sim: emergency stop cleared")
 	}
 }
 
@@ -483,11 +492,12 @@ func (s *Station) identifyAll() {
 	}
 }
 
-// identifyConsumer answers for one of the emergency events. An emergency
-// stop is a one-shot command with no state, as in the firmware.
+// identifyConsumer answers for one of the emergency events: the off pair
+// says whether track power is on, the stop pair whether the station holds
+// every train stopped.
 func (s *Station) identifyConsumer(ev openlcb.EventID) {
 	s.mu.Lock()
-	power := s.power
+	power, held := s.power, s.held
 	s.mu.Unlock()
 	var mti openlcb.MTI
 	switch ev {
@@ -495,8 +505,10 @@ func (s *Station) identifyConsumer(ev openlcb.EventID) {
 		mti = validMTI(!power)
 	case openlcb.EventClearEmergencyOff:
 		mti = validMTI(power)
-	case openlcb.EventEmergencyStop, openlcb.EventClearEmergencyStop:
-		mti = openlcb.MTIConsumerIdentifiedUnknown
+	case openlcb.EventEmergencyStop:
+		mti = validMTI(held)
+	case openlcb.EventClearEmergencyStop:
+		mti = validMTI(!held)
 	default:
 		return
 	}

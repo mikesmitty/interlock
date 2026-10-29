@@ -830,8 +830,9 @@ func (m *Manager) BreakUp(ctx context.Context, id string) (ConsistState, error) 
 	return state, err
 }
 
-// moving reports whether a train is moving, asking its node when it is on
-// the bus, since another throttle may be driving it. With find, the node
+// moving reports whether a train is moving, or set to move again once the
+// layout's emergency stop ends, asking its node when it is on the bus,
+// since another throttle may be driving it. With find, the node
 // is found first if need be, and an error says it could not be.
 func (m *Manager) moving(ctx context.Context, tr *train, find bool) (bool, error) {
 	if find {
@@ -844,7 +845,7 @@ func (m *Manager) moving(ctx context.Context, tr *train, find bool) (bool, error
 	}
 	m.mu.RLock()
 	node, online := tr.Node, tr.Online
-	moving := tr.Speed != 0 && !tr.EStop
+	moving := tr.Speed != 0
 	m.mu.RUnlock()
 	if !online || node == 0 {
 		return moving, nil
@@ -854,7 +855,7 @@ func (m *Manager) moving(ctx context.Context, tr *train, find bool) (bool, error
 	cancel()
 	if err == nil {
 		if speeds, perr := traction.ParseSpeeds(reply); perr == nil {
-			moving = speeds.Set.Value != 0 && !speeds.EStop
+			moving = speeds.Set.Value != 0
 		}
 	}
 	return moving, nil

@@ -273,7 +273,7 @@ func (s *Sim) Step(now time.Time, dt time.Duration) {
 			continue
 		}
 		d := s.hw.DecoderState(t.spec.Address, t.spec.long())
-		if !power || d.EStop {
+		if !power || d.EStop || d.Held {
 			t.step = 0
 		} else {
 			target := float64(d.Speed.Value)

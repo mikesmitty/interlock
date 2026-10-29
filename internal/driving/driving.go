@@ -231,9 +231,13 @@ type run struct {
 	backward bool
 	reverse  bool
 	// stop is set when the drive is asked to stop the train; abort says
-	// why it ends at once, with the train left to whoever has it.
-	stop  bool
-	abort string
+	// why it ends at once, with the train left to whoever has it, or
+	// with settle, set to speed 0 first: the layout's emergency stop and
+	// track power going off stop it only until they end, and it would
+	// start again with no drive to brake it.
+	stop   bool
+	abort  string
+	settle bool
 	// sent are the speeds the drive set last, to tell them from a
 	// throttle's.
 	sent      []sent
@@ -332,14 +336,14 @@ func (d *Driver) HandleTrain(tr train.Train) {
 }
 
 // HandleLayout follows track power and the layout's emergency stop,
-// either of which ends every drive.
+// either of which ends every drive and leaves its train set to speed 0.
 func (d *Driver) HandleLayout(l train.Layout) {
 	why := ""
 	switch {
 	case l.PowerOff:
-		why = "Track power went off."
+		why = "Track power went off. It stays stopped when power comes back."
 	case l.EmergencyStop:
-		why = "The layout's emergency stop stopped it."
+		why = "The layout's emergency stop stopped it. It stays stopped after Resume."
 	default:
 		return
 	}
@@ -347,7 +351,7 @@ func (d *Driver) HandleLayout(l train.Layout) {
 	defer d.mu.Unlock()
 	for _, r := range d.runs {
 		if r.view.Active() && r.abort == "" {
-			r.abort = why
+			r.abort, r.settle = why, true
 		}
 	}
 }
@@ -668,10 +672,10 @@ func (d *Driver) update(r *run, now bool, change func(*Drive)) {
 }
 
 // control is what a drive's goroutine reads of its run each tick.
-func (d *Driver) control(r *run) (stop bool, abort string) {
+func (d *Driver) control(r *run) (stop bool, abort string, settle bool) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	return r.stop, r.abort
+	return r.stop, r.abort, r.settle
 }
 
 // setSpeed sets the train to a step the way the drive runs it.
@@ -743,7 +747,11 @@ func (d *Driver) drive(r *run, c *course, owned map[string]bool, b brakes, m *me
 			return
 		case <-ticker.C:
 		}
-		stop, abort := d.control(r)
+		stop, abort, settle := d.control(r)
+		if abort != "" && settle {
+			halt(StateStopped, abort)
+			return
+		}
 		if abort != "" {
 			d.end(r, c, owned, pos, StateStopped, abort)
 			return

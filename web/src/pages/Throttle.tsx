@@ -4,6 +4,7 @@ import { api, type Consist, type Direction, type FoundTrain, type Train } from "
 import { Lamp, Status, type LampColor } from "../components/Lamp";
 import { Empty, Page } from "../components/Page";
 import { plural, relativeTime, useNow } from "../format";
+import { releaseLeavesItSet, resumesAt, speedText } from "../hold";
 import { useBus } from "../store";
 
 const FUNCTION_COUNT = 29;
@@ -44,6 +45,8 @@ export function Throttle() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [message, setMessage] = useState<string>();
+  // The trains Resume would start, while the operator looks them over.
+  const [resume, setResume] = useState<Train[]>();
   const nodeNames: Record<string, string> = {};
   for (const n of Object.values(nodes)) nodeNames[n.id] = n.snip?.UserName || n.id;
 
@@ -51,6 +54,8 @@ export function Throttle() {
   const roster = list.filter((t) => t.roster);
   const driving = list.filter((t) => t.controlled).length;
   const selected = id ? trains[id] : undefined;
+  // What the trains said when asked, kept up to date as they change.
+  const resuming = resume?.map((r) => trains[r.id] ?? r).filter((t) => resumesAt(t, layout) > 0);
   // Whether track power is on, when the command stations have said.
   const powerOn = layout.power_known ? !layout.power_off : undefined;
 
@@ -73,12 +78,41 @@ export function Throttle() {
 
   async function setEStop(stop: boolean) {
     setMessage(undefined);
+    setResume(undefined);
     try {
       await api.setLayout({ emergency_stop: stop });
     } catch (err) {
       setMessage(`Could not send the emergency stop: ${describe(err)}`);
     }
   }
+
+  // Resume sends every held train back to its speed, which another
+  // throttle may have changed meanwhile: ask the trains first, and with
+  // any set to move, list them for the operator.
+  async function checkResume() {
+    setMessage(undefined);
+    try {
+      const { trains: moving } = await api.resuming();
+      if (moving.length === 0) await setEStop(false);
+      else setResume(moving);
+    } catch (err) {
+      setMessage(`Could not ask the trains their speeds: ${describe(err)}`);
+    }
+  }
+
+  async function stopBeforeResume(t: Train) {
+    setMessage(undefined);
+    try {
+      await api.trainSpeed(t.id, 0);
+      setResume((await api.resuming()).trains);
+    } catch (err) {
+      setMessage(`Could not stop ${t.name}: ${describe(err)}`);
+    }
+  }
+
+  useEffect(() => {
+    if (!layout.emergency_stop) setResume(undefined);
+  }, [layout.emergency_stop]);
 
   const lead = !loaded
     ? "Loading…"
@@ -94,8 +128,8 @@ export function Throttle() {
         <div className="thr-strip">
           {layout.emergency_stop ? (
             <>
-              <Status color="red">Emergency stop</Status>
-              <button className="btn" onClick={() => void setEStop(false)}>
+              <Status color="red">Emergency stop: trains held</Status>
+              <button className="btn" onClick={() => void checkResume()}>
                 Resume
               </button>
             </>
@@ -114,6 +148,43 @@ export function Throttle() {
       }
     >
       {message && <p className="note note--error">{message}</p>}
+      {resuming && (
+        <div className="confirm confirm--block thr-resume" role="alert">
+          {resuming.length > 0 ? (
+            <>
+              <p>
+                Resume sends {resuming.length === 1 ? "this train back to its speed" : `these ${resuming.length} trains back to their speeds`}. Set any that should stay put to 0
+                first.
+              </p>
+              <ul className="thr-resume__list">
+                {resuming.map((t) => (
+                  <li key={t.id}>
+                    <span>
+                      {t.name} <span className="faint">{addressText(t)}</span>
+                    </span>
+                    <span className="thr-resume__speed">
+                      {Math.round(t.speed)} {t.direction}
+                    </span>
+                    <button className="btn btn--quiet" onClick={() => void stopBeforeResume(t)}>
+                      Set to 0
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : (
+            <p>No train will move.</p>
+          )}
+          <span className="confirm">
+            <button className="btn btn--primary" onClick={() => void setEStop(false)}>
+              Resume
+            </button>
+            <button className="btn btn--quiet" onClick={() => setResume(undefined)}>
+              Cancel
+            </button>
+          </span>
+        </div>
+      )}
       <div className="thr-layout">
         <Roster list={list} selected={id} nodeNames={nodeNames} onMessage={setMessage} />
         {selected ? (
@@ -133,7 +204,7 @@ export function Throttle() {
 
 function Roster({ list, selected, nodeNames, onMessage }: { list: Train[]; selected?: string; nodeNames: Record<string, string>; onMessage: (m?: string) => void }) {
   const navigate = useNavigate();
-  const { trains, consists } = useBus();
+  const { trains, consists, layout } = useBus();
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
   const [long, setLong] = useState(false);
@@ -204,7 +275,7 @@ function Roster({ list, selected, nodeNames, onMessage }: { list: Train[]; selec
                   )}
                 </span>
                 <span className="thr-roster__address">{addressText(t)}</span>
-                <span className="thr-roster__speed">{t.estop ? "stop!" : t.speed ? `${t.speed} ${t.direction === "reverse" ? "rev" : "fwd"}` : "0"}</span>
+                <span className="thr-roster__speed">{speedText(t, layout)}</span>
               </button>
             </li>
           );
@@ -317,9 +388,12 @@ function Cab({
   nodeNames: Record<string, string>;
   onMessage: (m?: string) => void;
 }) {
-  const { trains } = useBus();
+  const { trains, layout } = useBus();
   // A member's speed comes from the lead.
   const follower = !!inConsist && !inConsist.leads;
+  // The layout's emergency stop holds the train at the speed it keeps.
+  const held = layout.emergency_stop && !t.estop;
+  const [confirmRelease, setConfirmRelease] = useState(false);
   const now = useNow();
   const navigate = useNavigate();
   const [busy, setBusy] = useState<string>();
@@ -394,7 +468,11 @@ function Cab({
         <Status color={lamp.color}>{lamp.label}</Status>
         <div className="thr-cab__actions">
           {t.controlled ? (
-            <button className="btn btn--quiet" onClick={() => void act("Release", () => api.releaseTrain(t.id))} disabled={!!busy}>
+            <button
+              className="btn btn--quiet"
+              onClick={() => (releaseLeavesItSet(t, layout, follower) ? setConfirmRelease(true) : void act("Release", () => api.releaseTrain(t.id)))}
+              disabled={!!busy}
+            >
               Release
             </button>
           ) : (
@@ -430,6 +508,44 @@ function Cab({
         </div>
       </div>
       <div className="thr-cab__body">
+        {confirmRelease && (
+          <div className="confirm confirm--block" role="alert">
+            <p>
+              {t.name} is set to {Math.round(t.speed)} {t.direction}. The emergency stop holds it now, but Resume would start it again with no throttle driving it.
+            </p>
+            <span className="confirm">
+              <button
+                className="btn btn--primary"
+                onClick={() => {
+                  setConfirmRelease(false);
+                  void act("Stop and release", async () => {
+                    await api.trainSpeed(t.id, 0);
+                    await api.releaseTrain(t.id);
+                  });
+                }}
+              >
+                Stop and release
+              </button>
+              <button
+                className="btn btn--quiet"
+                onClick={() => {
+                  setConfirmRelease(false);
+                  void act("Release", () => api.releaseTrain(t.id));
+                }}
+              >
+                Release anyway
+              </button>
+              <button className="btn btn--quiet" onClick={() => setConfirmRelease(false)}>
+                Cancel
+              </button>
+            </span>
+          </div>
+        )}
+        {held && speed > 0 && !follower && (
+          <p className="note">
+            The layout&apos;s emergency stop holds {t.name}. Resume sends it back to {Math.round(speed)} {t.direction}; Stop sets it to 0 so it stays put.
+          </p>
+        )}
         {inConsist &&
           (inConsist.leads ? (
             inConsist.address ? (
@@ -454,9 +570,9 @@ function Cab({
             </p>
           ))}
         <div className="thr-speed">
-          <div className={["thr-speed__readout", t.estop ? "is-estop" : ""].join(" ")}>
+          <div className={["thr-speed__readout", t.estop ? "is-estop" : held ? "is-held" : ""].join(" ")}>
             {t.estop ? "STOP" : Math.round(speed)}
-            <small>{t.estop ? "emergency stop" : t.direction}</small>
+            <small>{t.estop ? "emergency stop" : held ? `held, ${t.direction}` : t.direction}</small>
           </div>
           <div className="thr-speed__controls">
             <input
@@ -483,7 +599,7 @@ function Cab({
               <button className="btn btn--quiet" onClick={() => step(10)} disabled={follower}>
                 +10
               </button>
-              <button className="btn" onClick={() => slide(0)} disabled={follower}>
+              <button className={held && speed > 0 ? "btn btn--primary" : "btn"} onClick={() => slide(0)} disabled={follower}>
                 Stop
               </button>
               <button className="btn btn--stop btn--primary" onClick={() => void act("Emergency stop", () => api.trainEStop(t.id))}>

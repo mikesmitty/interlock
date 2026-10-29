@@ -158,16 +158,13 @@ func (t *Train) command(src openlcb.NodeHandle, payload []byte) []byte {
 			t.forward(c, payload)
 		}
 	case traction.CmdQuerySpeeds:
+		// As simple-dcc answers: the speed last set, zero after the
+		// train's own emergency stop, with the emergency stop bit for
+		// that and for the station's hold.
 		b := d.Speed.Encode()
-		if d.EStop {
-			b = [2]byte{0x7E, 0x00} // NaN, as OpenMRN reports after an estop
-			if d.Speed.Reverse {
-				b[0] |= 0x80
-			}
-		}
 		status := byte(0)
-		if d.EStop {
-			status = 0x01
+		if d.EStop || s.held {
+			status = 0x80
 		}
 		return []byte{traction.CmdQuerySpeeds, b[0], b[1], status, b[0], b[1], b[0], b[1]}
 	case traction.CmdQueryFunction:

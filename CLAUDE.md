@@ -71,7 +71,8 @@ applied at the next start; the replaced files go to `before-restore-*/`.
     firmware repos); `Outpost` adds the firmware's behavior (servos,
     detectors, Identify replies) over the plain node; `Station` behaves
     like simple-dcc (train search and train nodes, a programming track
-    with a decoder on it, the emergency events, consists that pass
+    with a decoder on it, the emergency events (Emergency Stop holds
+    every train at its speed until Clear Emergency Stop), consists that pass
     the lead's commands on, decoders that answer the consist address
     in their CV 19, and the Long Address and Consist Control
     instructions for writes of CVs 17 and 18 and of CV 19). The

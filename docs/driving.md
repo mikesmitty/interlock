@@ -92,7 +92,11 @@ A drive also ends, leaving the train where it is, when:
 
 - a throttle sets the train's speed. The throttle has taken the train
   over, and Interlock leaves it to the throttle;
-- the train is stopped by an emergency stop, or track power goes off;
+- the train is stopped by its own emergency stop;
+- the layout's emergency stop begins, or track power goes off. The
+  train is set to 0 as well: the command station keeps its speed through
+  the hold, and would start it again on Resume, or when power comes
+  back, with nothing to brake it;
 - a route ahead of it is canceled, or a turnout on its way moves. The
   train is stopped at once;
 - tracking loses the train, or has it somewhere off its way. The train

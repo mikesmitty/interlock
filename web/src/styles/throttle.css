@@ -160,6 +160,11 @@
   color: var(--lamp-red);
 }
 
+/* Held by the layout's emergency stop, at the speed it goes back to. */
+.thr-speed__readout.is-held {
+  color: var(--lamp-amber);
+}
+
 .thr-speed__controls {
   display: grid;
   gap: 0.75rem;
@@ -293,6 +298,32 @@
   color: var(--ivory-dim);
   font-size: var(--fs-sm);
   margin: 0;
+}
+
+/* The trains Resume would start */
+.thr-resume {
+  display: grid;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.thr-resume__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.25rem;
+}
+
+.thr-resume__list li {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.thr-resume__speed {
+  font-variant-numeric: tabular-nums;
 }
 
 /* Programming */

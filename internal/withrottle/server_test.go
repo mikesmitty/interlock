@@ -486,6 +486,41 @@ func TestReconnect(t *testing.T) {
 	}
 }
 
+// While the layout's emergency stop holds the trains, an app that lets a
+// train go, or drops off the network, leaves it set to 0, so Resume does
+// not start it with no throttle driving it.
+func TestHeldTrainLetGo(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		leave func(a *app)
+	}{
+		{"released", func(a *app) { a.send("MT-L1234<;>r") }},
+		{"dropped", func(a *app) { _ = a.conn.Close() }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b := newBench(t, withrottle.Options{})
+			if _, err := b.trains.SetPower(b.ctx, true); err != nil {
+				t.Fatal(err)
+			}
+			a := b.dial(t)
+			a.greeted("phone")
+			a.send("MT+L1234<;>L1234")
+			a.until("MTAL1234<;>s1")
+			a.send("MTA*<;>V20")
+			eventually(t, "speed", func() bool { return b.station.DecoderState(1234, true).Speed.Value == 20 })
+			if _, err := b.trains.SetEmergencyStop(b.ctx, true); err != nil {
+				t.Fatal(err)
+			}
+			tc.leave(a)
+			eventually(t, "release", func() bool { tr, _ := b.trains.Get("1234"); return !tr.Controlled })
+			eventually(t, "the train set to 0, still held", func() bool {
+				d := b.station.DecoderState(1234, true)
+				return d.Speed.Value == 0 && d.Held
+			})
+		})
+	}
+}
+
 func TestClock(t *testing.T) {
 	st := clock.State{Running: true, Rate: 4, Date: "2026-10-18", Time: "06:30", Second: 15}
 	b := newBench(t, withrottle.Options{Clock: fixedClock{st}})

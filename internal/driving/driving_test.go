@@ -145,6 +145,39 @@ func TestADriveTakenOverByAThrottle(t *testing.T) {
 	}
 }
 
+// The layout's emergency stop, or track power going off, ends a drive and
+// leaves the train set to 0: the command station keeps its speed through
+// the hold, and it would start again on Resume with no drive to brake it.
+func TestADriveEndedByTheLayout(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		layout train.Layout
+		why    string
+	}{
+		{"emergency stop", train.Layout{EmergencyStop: true}, "emergency stop"},
+		{"power off", train.Layout{PowerOff: true, PowerKnown: true}, "power"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			if _, err := h.d.Drive(context.Background(), "local-1", Request{To: "park-outer"}); err != nil {
+				t.Fatal(err)
+			}
+			eventually(t, "the train running", func() bool { v, _ := h.d.Get("local-1"); return v.State == StateRunning })
+			h.d.HandleLayout(tc.layout)
+			v := h.wait("local-1")
+			if v.State != StateStopped || !strings.Contains(v.Error, tc.why) {
+				t.Errorf("ended %+v", v)
+			}
+			h.mu.Lock()
+			last := h.set[len(h.set)-1]
+			h.mu.Unlock()
+			if last != "101 0 forward" {
+				t.Errorf("last speed set %q, want the train set to 0", last)
+			}
+		})
+	}
+}
+
 func TestStoppingADrive(t *testing.T) {
 	h := newHarness(t)
 	if _, err := h.d.Drive(context.Background(), "local-1", Request{To: "park-outer"}); err != nil {

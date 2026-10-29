@@ -213,6 +213,11 @@ func TestTrainEndpoints(t *testing.T) {
 	if rec, _ = ta.do(t, http.MethodPost, "/api/v1/trains/layout", `{}`); rec.Code != http.StatusBadRequest {
 		t.Errorf("empty layout = %d", rec.Code)
 	}
+	// Every train here answers that it is stopped.
+	rec, body = ta.do(t, http.MethodGet, "/api/v1/trains/layout/resume", "")
+	if list, ok := body["trains"].([]any); rec.Code != http.StatusOK || !ok || len(list) != 0 {
+		t.Errorf("resume = %d %v", rec.Code, body)
+	}
 
 	for _, id := range []string{"challenger", "again"} {
 		if rec, _ = ta.do(t, http.MethodDelete, "/api/v1/trains/"+id, ""); rec.Code != http.StatusNoContent {

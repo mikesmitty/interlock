@@ -127,6 +127,7 @@ POST   /api/v1/trains                        add to the roster {name, address, l
 POST   /api/v1/trains/search                 {address, long} -> what answered on the bus
 GET    /api/v1/trains/layout                 {power_off, power_known, emergency_stop}
 POST   /api/v1/trains/layout                 {power} or {emergency_stop}
+GET    /api/v1/trains/layout/resume          {trains}: those that go back to a speed when the emergency stop ends
 GET    /api/v1/trains/{id}                   a roster ID, or an address ("1234", "3l")
 PATCH  /api/v1/trains/{id}                   any roster field but the decoders
 DELETE /api/v1/trains/{id}                   with its decoders' CV values

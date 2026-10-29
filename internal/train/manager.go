@@ -100,9 +100,16 @@ type Manager struct {
 	// stations is whether track power is on as each command station or
 	// booster last said, by node; nodes that do not say are left out.
 	stations map[openlcb.NodeID]bool
+	// holds is whether each command station holds its trains stopped by
+	// Emergency Stop, as it last said; nodes that do not say are left
+	// out.
+	holds map[openlcb.NodeID]bool
 	// online is which other nodes are on the bus, to ask about track
 	// power when one arrives.
-	online     map[openlcb.NodeID]bool
+	online map[openlcb.NodeID]bool
+	// trainNodes is which train nodes are on the bus, to ask their speeds
+	// before the layout's emergency stop ends.
+	trainNodes map[openlcb.NodeID]bool
 	asking     bool
 	subs       map[int]Subscriber
 	layoutSubs map[int]LayoutSubscriber
@@ -143,7 +150,9 @@ func New(opts Options) *Manager {
 		trains:     make(map[string]*train),
 		roster:     make(map[string]Entry),
 		stations:   make(map[openlcb.NodeID]bool),
+		holds:      make(map[openlcb.NodeID]bool),
 		online:     make(map[openlcb.NodeID]bool),
+		trainNodes: make(map[openlcb.NodeID]bool),
 		subs:       make(map[int]Subscriber),
 		layoutSubs: make(map[int]LayoutSubscriber),
 
@@ -271,6 +280,11 @@ func (m *Manager) HandleNode(info registry.Info) {
 		return
 	}
 	m.mu.Lock()
+	if info.Online && !info.Forgotten {
+		m.trainNodes[info.ID] = true
+	} else {
+		delete(m.trainNodes, info.ID)
+	}
 	var changed *train
 	for _, tr := range m.trains {
 		if tr.Node != info.ID {
@@ -295,9 +309,11 @@ func (m *Manager) HandleNode(info registry.Info) {
 }
 
 // HandleMessage watches the bus for the emergency events, and for command
-// stations saying whether track power is on: Emergency Off is valid at a
-// station whose power is off, Clear Emergency Off at one whose power is
-// on. It runs on the node goroutine and must not block.
+// stations saying whether track power is on and whether they hold their
+// trains stopped: Emergency Off is valid at a station whose power is off,
+// Clear Emergency Off at one whose power is on, and Emergency Stop and
+// Clear Emergency Stop the same way for the hold. It runs on the node
+// goroutine and must not block.
 func (m *Manager) HandleMessage(msg *openlcb.Message) {
 	ev, ok := msg.EventID()
 	if !ok {
@@ -312,6 +328,10 @@ func (m *Manager) HandleMessage(msg *openlcb.Message) {
 			m.powerReported(msg.Source.ID, !valid)
 		case openlcb.EventClearEmergencyOff:
 			m.powerReported(msg.Source.ID, valid)
+		case openlcb.EventEmergencyStop:
+			m.holdReported(msg.Source.ID, valid)
+		case openlcb.EventClearEmergencyStop:
+			m.holdReported(msg.Source.ID, !valid)
 		}
 		return
 	default:
@@ -323,10 +343,9 @@ func (m *Manager) HandleMessage(msg *openlcb.Message) {
 	case openlcb.EventClearEmergencyOff:
 		m.powerSwitched(true)
 	case openlcb.EventEmergencyStop:
-		m.setLayout(func(l *Layout) { l.EmergencyStop = true })
-		m.stopAll()
+		m.holdSwitched(true)
 	case openlcb.EventClearEmergencyStop:
-		m.setLayout(func(l *Layout) { l.EmergencyStop = false })
+		m.holdSwitched(false)
 	}
 }
 
@@ -388,6 +407,17 @@ func (t *train) setSpeed(s traction.Speed) {
 		t.Direction = Reverse
 	}
 	t.EStop = false
+}
+
+// setSpeeds takes a train's state from its answer to Query Speeds. The
+// emergency stop flag is the train's own emergency stop, which sets its
+// speed to zero, unless the layout is held: then the flag says only that
+// the hold stops it. It reports whether anything changed.
+func (t *train) setSpeeds(s traction.Speeds, held bool) bool {
+	before := t.Train
+	t.setSpeed(s.Set)
+	t.EStop = s.EStop && s.Set.Value == 0 && !held
+	return t.Speed != before.Speed || t.Direction != before.Direction || t.EStop != before.EStop
 }
 
 func (t *train) setFunction(fn int, on bool) {
@@ -913,8 +943,7 @@ func (m *Manager) readBack(ctx context.Context, tr *train, id openlcb.NodeID) {
 		}
 	}
 	m.mu.Lock()
-	tr.setSpeed(speeds.Set)
-	tr.EStop = speeds.EStop
+	tr.setSpeeds(speeds, m.layout.EmergencyStop)
 	tr.on = on
 	tr.setFunction(-1, false)
 	tr.Known = true
@@ -1249,10 +1278,17 @@ func (m *Manager) followNode(info registry.Info) {
 		delete(m.online, info.ID)
 	}
 	m.mu.Unlock()
-	if !online && said {
+	m.mu.RLock()
+	_, held := m.holds[info.ID]
+	m.mu.RUnlock()
+	if !online && (said || held) {
 		m.setLayout(func(l *Layout) {
 			delete(m.stations, info.ID)
 			m.powerFromStationsLocked(l)
+			if held {
+				delete(m.holds, info.ID)
+				m.holdFromStationsLocked(l)
+			}
 		})
 	}
 	if arrived {
@@ -1260,8 +1296,9 @@ func (m *Manager) followNode(info registry.Info) {
 	}
 }
 
-// askPower asks every command station whether track power is on, once
-// for the nodes arriving together.
+// askPower asks every command station whether track power is on and
+// whether it holds its trains stopped, once for the nodes arriving
+// together.
 func (m *Manager) askPower() {
 	m.mu.Lock()
 	if m.asking {
@@ -1276,15 +1313,18 @@ func (m *Manager) askPower() {
 		m.mu.Unlock()
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		msg := openlcb.Message{MTI: openlcb.MTIIdentifyConsumer, Payload: openlcb.EventEmergencyOff.AsSlice()}
-		if err := m.opts.Bus.Send(ctx, msg); err != nil {
-			m.log.Debug("asking about track power failed", "error", err)
+		for _, ev := range []openlcb.EventID{openlcb.EventEmergencyOff, openlcb.EventEmergencyStop} {
+			msg := openlcb.Message{MTI: openlcb.MTIIdentifyConsumer, Payload: ev.AsSlice()}
+			if err := m.opts.Bus.Send(ctx, msg); err != nil {
+				m.log.Debug("asking about track power failed", "event", ev, "error", err)
+			}
 		}
 	})
 }
 
-// SetEmergencyStop produces Emergency Stop, which stops every train, or
-// clears it.
+// SetEmergencyStop produces Emergency Stop, which holds every train
+// stopped without changing its speed, or Clear Emergency Stop, which
+// sends each back to its speed. Resuming says which trains that moves.
 func (m *Manager) SetEmergencyStop(ctx context.Context, stop bool) (Layout, error) {
 	ev := openlcb.EventClearEmergencyStop
 	if stop {
@@ -1293,28 +1333,126 @@ func (m *Manager) SetEmergencyStop(ctx context.Context, stop bool) (Layout, erro
 	if err := m.opts.Bus.SendEvent(ctx, ev); err != nil {
 		return m.Layout(), err
 	}
-	if stop {
-		m.stopAll()
-	}
-	return m.setLayout(func(l *Layout) { l.EmergencyStop = stop }), nil
+	return m.holdSwitched(stop), nil
 }
 
-// stopAll marks every train as emergency stopped.
-func (m *Manager) stopAll() {
-	m.mu.Lock()
-	var changed []*train
+// holdSwitched follows an Emergency Stop or Clear Emergency Stop, which
+// every command station obeys. The trains keep their speeds: the
+// stations hold them stopped until the hold ends.
+func (m *Manager) holdSwitched(held bool) Layout {
+	return m.setLayout(func(l *Layout) {
+		for id := range m.holds {
+			m.holds[id] = held
+		}
+		l.EmergencyStop = held
+	})
+}
+
+// holdReported follows a command station saying whether it holds its
+// trains stopped.
+func (m *Manager) holdReported(station openlcb.NodeID, held bool) {
+	m.setLayout(func(l *Layout) {
+		m.holds[station] = held
+		m.holdFromStationsLocked(l)
+	})
+}
+
+// holdFromStationsLocked sets the layout's emergency stop from what the
+// command stations said: held while any of them holds its trains. The
+// caller holds m.mu.
+func (m *Manager) holdFromStationsLocked(l *Layout) {
+	l.EmergencyStop = false
+	for _, held := range m.holds {
+		l.EmergencyStop = l.EmergencyStop || held
+	}
+}
+
+// Resuming asks every train node on the bus for its speed, ahead of the
+// end of the layout's emergency stop, which sends each train back to its
+// speed, and returns the trains that will move then. Another throttle may
+// have set a speed during the hold, so what Interlock last saw is not
+// enough. Locomotives that run in a made-up consist come in their lead's
+// place, or the DCC consist's address's.
+func (m *Manager) Resuming(ctx context.Context) ([]Train, error) {
+	m.mu.RLock()
+	nodes := make(map[openlcb.NodeID]bool, len(m.trainNodes))
+	for id := range m.trainNodes {
+		nodes[id] = true
+	}
 	for _, tr := range m.trains {
-		if tr.EStop && tr.Speed == 0 {
+		if tr.Node != 0 && tr.Online {
+			nodes[tr.Node] = true
+		}
+	}
+	m.mu.RUnlock()
+	type answer struct {
+		node   openlcb.NodeID
+		speeds traction.Speeds
+	}
+	answers := make(chan answer, len(nodes))
+	var wg sync.WaitGroup
+	for id := range nodes {
+		wg.Go(func() {
+			qctx, cancel := context.WithTimeout(ctx, queryTimeout)
+			defer cancel()
+			reply, err := m.opts.Bus.TractionCommand(qctx, id, traction.QuerySpeeds(), true)
+			if err != nil {
+				m.log.Debug("train did not report its speed", "node", id, "error", err)
+				return
+			}
+			if speeds, err := traction.ParseSpeeds(reply); err == nil {
+				answers <- answer{id, speeds}
+			}
+		})
+	}
+	wg.Wait()
+	close(answers)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	var changed, moving []*train
+	m.mu.Lock()
+	for a := range answers {
+		address, long, ok := traction.DCCAddress(a.node)
+		if !ok {
 			continue
 		}
-		tr.EStop, tr.Speed = true, 0
-		tr.Updated = time.Now()
-		changed = append(changed, tr)
+		if !m.ownSpeedLocked(IDFor(address, long)) {
+			continue
+		}
+		if a.speeds.Set.Value == 0 {
+			if tr, ok := m.trains[IDFor(address, long)]; ok && tr.setSpeeds(a.speeds, m.layout.EmergencyStop) {
+				tr.Updated = time.Now()
+				changed = append(changed, tr)
+			}
+			continue
+		}
+		tr := m.trainAtLocked(address, long)
+		tr.Node, tr.Online = a.node, true
+		if tr.setSpeeds(a.speeds, m.layout.EmergencyStop) {
+			tr.Updated = time.Now()
+			changed = append(changed, tr)
+		}
+		moving = append(moving, tr)
+	}
+	out := make([]Train, 0, len(moving))
+	for _, tr := range moving {
+		out = append(out, m.viewsLocked(tr)[0])
 	}
 	m.mu.Unlock()
 	for _, tr := range changed {
 		m.publish(tr)
 	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
+}
+
+// ownSpeedLocked reports whether the train at a key goes at its own
+// speed: not when it runs in a made-up DCC consist, whose address drives
+// it, nor behind the lead of an LCC one. The caller holds m.mu.
+func (m *Manager) ownSpeedLocked(key string) bool {
+	c, i, ok := m.madeUpAtLocked(key, "")
+	return !ok || (c.Kind == ConsistLCC && i == 0)
 }
 
 func (m *Manager) setLayout(change func(*Layout)) Layout {

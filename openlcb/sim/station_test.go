@@ -129,7 +129,9 @@ func TestStationTrains(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if speeds, err = traction.ParseSpeeds(reply); err != nil || !speeds.EStop {
+	// The train's own emergency stop sets its speed to zero and keeps
+	// the direction.
+	if speeds, err = traction.ParseSpeeds(reply); err != nil || !speeds.EStop || speeds.Set != (traction.Speed{Reverse: true}) {
 		t.Fatalf("speeds after estop = %+v, %v", speeds, err)
 	}
 	reply, err = local.TractionCommand(ctx, want, traction.QueryController(), true)
@@ -320,12 +322,12 @@ func TestStationPowerState(t *testing.T) {
 		}
 	}
 	// On the bus, the station says its power is off, as the firmware does
-	// at boot; an emergency stop has no state to say.
+	// at boot, and that it holds no train stopped.
 	waitFor("the announcement", func(h map[openlcb.EventID]openlcb.MTI) bool {
 		return h[openlcb.EventEmergencyOff] == openlcb.MTIConsumerIdentifiedValid &&
 			h[openlcb.EventClearEmergencyOff] == openlcb.MTIConsumerIdentifiedInvalid &&
-			h[openlcb.EventEmergencyStop] == openlcb.MTIConsumerIdentifiedUnknown &&
-			h[openlcb.EventClearEmergencyStop] == openlcb.MTIConsumerIdentifiedUnknown
+			h[openlcb.EventEmergencyStop] == openlcb.MTIConsumerIdentifiedInvalid &&
+			h[openlcb.EventClearEmergencyStop] == openlcb.MTIConsumerIdentifiedValid
 	})
 	if err := local.SendEvent(ctx, openlcb.EventClearEmergencyOff); err != nil {
 		t.Fatal(err)
@@ -337,6 +339,21 @@ func TestStationPowerState(t *testing.T) {
 			t.Fatalf("power still reported off; heard %v", heard())
 		}
 		msg := openlcb.Message{MTI: openlcb.MTIIdentifyConsumer, Payload: openlcb.EventEmergencyOff.AsSlice()}
+		if err := local.Send(ctx, msg); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	// After Emergency Stop, asked again, it says it holds the trains.
+	if err := local.SendEvent(ctx, openlcb.EventEmergencyStop); err != nil {
+		t.Fatal(err)
+	}
+	deadline = time.Now().Add(time.Second)
+	for heard()[openlcb.EventEmergencyStop] != openlcb.MTIConsumerIdentifiedValid {
+		if time.Now().After(deadline) {
+			t.Fatalf("hold not reported; heard %v", heard())
+		}
+		msg := openlcb.Message{MTI: openlcb.MTIIdentifyConsumer, Payload: openlcb.EventEmergencyStop.AsSlice()}
 		if err := local.Send(ctx, msg); err != nil {
 			t.Fatal(err)
 		}
@@ -373,5 +390,67 @@ func TestESUDecoderPages(t *testing.T) {
 	}
 	if plain := sim.NewDecoder(3, false); plain.Pages != nil {
 		t.Error("a plain decoder has pages")
+	}
+}
+
+// The station's emergency stop holds every train stopped at the speed it
+// keeps; speeds set meanwhile wait, and Clear Emergency Stop sends each
+// train back to its speed. Asked, the station says whether it holds them.
+func TestStationEmergencyStopHold(t *testing.T) {
+	local, _, station, ctx := simStation(t)
+	found, err := local.Producers(ctx, traction.AddressSearch(3, false, true), 400*time.Millisecond, true)
+	if err != nil || len(found) != 1 {
+		t.Fatalf("search = %+v, %v", found, err)
+	}
+	trainNode := found[0].Node
+	speeds := func() traction.Speeds {
+		t.Helper()
+		reply, err := local.TractionCommand(ctx, trainNode, traction.QuerySpeeds(), true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s, err := traction.ParseSpeeds(reply)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return s
+	}
+	set := func(v float32) {
+		t.Helper()
+		if _, err := local.TractionCommand(ctx, trainNode, traction.SetSpeed(traction.Speed{Value: v}), false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	waitHeld := func(want bool) {
+		t.Helper()
+		deadline := time.Now().Add(time.Second)
+		for station.DecoderState(3, false).Held != want {
+			if time.Now().After(deadline) {
+				t.Fatalf("held = %v", !want)
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}
+	set(40)
+	if err := local.SendEvent(ctx, openlcb.EventEmergencyStop); err != nil {
+		t.Fatal(err)
+	}
+	waitHeld(true)
+	if s := speeds(); s.Set.Value != 40 || !s.EStop {
+		t.Errorf("held speeds = %+v", s)
+	}
+	set(25)
+	if s := speeds(); s.Set.Value != 25 || !s.EStop {
+		t.Errorf("speeds after a speed during the hold = %+v", s)
+	}
+	if d := station.DecoderState(3, false); d.Speed.Value != 25 || !d.Held || d.EStop {
+		t.Errorf("decoder after a speed during the hold = %+v", d)
+	}
+	if err := local.SendEvent(ctx, openlcb.EventClearEmergencyStop); err != nil {
+		t.Fatal(err)
+	}
+	waitHeld(false)
+	if s := speeds(); s.Set.Value != 25 || s.EStop {
+		t.Errorf("speeds after the hold = %+v", s)
 	}
 }

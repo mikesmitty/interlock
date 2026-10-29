@@ -46,6 +46,7 @@ type Trains interface {
 	Layout() train.Layout
 	SetPower(ctx context.Context, on bool) (train.Layout, error)
 	SetEmergencyStop(ctx context.Context, stop bool) (train.Layout, error)
+	Resuming(ctx context.Context) ([]train.Train, error)
 	Subscribe(train.Subscriber) func()
 	SubscribeLayout(train.LayoutSubscriber) func()
 	Consists() []train.ConsistState
@@ -90,6 +91,7 @@ type Programmer interface {
 //	POST   /api/v1/trains/search              {query} -> {trains: [found]}
 //	GET    /api/v1/trains/layout              {power_off, power_known, emergency_stop}
 //	POST   /api/v1/trains/layout              {power} or {emergency_stop} -> layout
+//	GET    /api/v1/trains/layout/resume       {trains}: those that go back to a speed when the emergency stop ends, asked of the train nodes
 //	GET    /api/v1/trains/{id}                id is a roster ID, or an address: "1234", "3", or "3l" for a long address under 128
 //	PATCH  /api/v1/trains/{id}                any of {name, address, long, functions, momentary, road_name, road_number,
 //	                                          manufacturer, model, owner, comment}
@@ -347,6 +349,20 @@ func (a *API) setLayout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, layout)
+}
+
+// resuming lists the trains that go back to a speed when the layout's
+// emergency stop ends, as the train nodes say now.
+func (a *API) resuming(w http.ResponseWriter, r *http.Request) {
+	if !a.trainsReady(w) {
+		return
+	}
+	list, err := a.deps.Trains.Resuming(r.Context())
+	if err != nil {
+		a.trainError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"trains": list})
 }
 
 func (a *API) trainError(w http.ResponseWriter, err error) {

@@ -3,6 +3,7 @@ package train_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"maps"
 	"os"
@@ -494,6 +495,122 @@ func TestDrive(t *testing.T) {
 	}
 }
 
+// The layout's emergency stop holds every train at the speed it keeps,
+// as the Train Control Standard has it: a speed set meanwhile is what the
+// train goes back to, and Resuming asks the trains what that is, since
+// another throttle may have set one.
+func TestEmergencyStopHold(t *testing.T) {
+	b := newBench(t)
+	if _, err := b.m.SetSpeed(b.ctx, "1234", 40, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.m.SetSpeed(b.ctx, "3", 0, ""); err != nil {
+		t.Fatal(err)
+	}
+	if l, err := b.m.SetEmergencyStop(b.ctx, true); err != nil || !l.EmergencyStop {
+		t.Fatalf("SetEmergencyStop = %+v, %v", l, err)
+	}
+	eventually(t, "the station's hold", func() bool { return b.station.DecoderState(1234, true).Held })
+	if got, _ := b.m.Get("1234"); got.EStop || got.Speed != 40 {
+		t.Errorf("held train = %+v", got)
+	}
+
+	// A speed set during the hold is what the train goes back to; the
+	// hold stays.
+	tr, err := b.m.SetSpeed(b.ctx, "1234", 30, "")
+	if err != nil || tr.Speed != 30 || tr.EStop || !b.m.Layout().EmergencyStop {
+		t.Fatalf("speed during the hold = %+v, %v; layout %+v", tr, err, b.m.Layout())
+	}
+	eventually(t, "the new speed", func() bool {
+		d := b.station.DecoderState(1234, true)
+		return d.Speed.Value == 30 && d.Held
+	})
+
+	// Another throttle sets locomotive 3 going, and a train node Interlock
+	// never drove.
+	b.station.ChangeDecoder(3, false, func(d *sim.Decoder) { d.Speed = traction.Speed{Value: 12, Reverse: true} })
+	if _, err := b.local.Producers(b.ctx, traction.AddressSearch(5, false, true), 300*time.Millisecond, true); err != nil {
+		t.Fatal(err)
+	}
+	b.station.ChangeDecoder(5, false, func(d *sim.Decoder) { d.Speed = traction.Speed{Value: 20} })
+	b.m.HandleNode(registry.Info{ID: traction.DCCNodeID(5, false), Online: true})
+	moving, err := b.m.Resuming(b.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, tr := range moving {
+		got[tr.ID] = fmt.Sprintf("%v %s", tr.Speed, tr.Direction)
+	}
+	want := map[string]string{"1234": "30 forward", "3": "12 reverse", "5": "20 forward"}
+	if !maps.Equal(got, want) {
+		t.Errorf("Resuming = %v, want %v", got, want)
+	}
+	if tr, _ := b.m.Get("3"); tr.Speed != 12 || tr.Direction != train.Reverse || tr.EStop {
+		t.Errorf("locomotive 3 after Resuming = %+v", tr)
+	}
+
+	// Set to 0 now, it stays put after the hold; the others go back to
+	// their speeds.
+	if _, err := b.m.SetSpeed(b.ctx, "3", 0, ""); err != nil {
+		t.Fatal(err)
+	}
+	if moving, err = b.m.Resuming(b.ctx); err != nil || len(moving) != 2 {
+		t.Errorf("Resuming after a stop = %+v, %v", moving, err)
+	}
+	if l, err := b.m.SetEmergencyStop(b.ctx, false); err != nil || l.EmergencyStop {
+		t.Fatalf("clear = %+v, %v", l, err)
+	}
+	eventually(t, "the end of the hold", func() bool { return !b.station.DecoderState(1234, true).Held })
+	if d := b.station.DecoderState(3, false); d.Speed.Value != 0 {
+		t.Errorf("locomotive 3 resumed at %v", d.Speed)
+	}
+
+	// With nothing set to move, Resuming says so.
+	for _, id := range []string{"1234", "5"} {
+		if _, err := b.m.SetSpeed(b.ctx, id, 0, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if moving, err = b.m.Resuming(b.ctx); err != nil || len(moving) != 0 {
+		t.Errorf("Resuming with every train stopped = %+v, %v", moving, err)
+	}
+}
+
+// After a restart Interlock asks the command stations whether they hold
+// their trains, and a train read back held with a speed is not stopped.
+func TestEmergencyStopLearnedAtStart(t *testing.T) {
+	b := newBench(t)
+	if _, err := b.m.SetSpeed(b.ctx, "1234", 40, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.m.SetEmergencyStop(b.ctx, true); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "the station's hold", func() bool { return b.station.DecoderState(1234, true).Held })
+	f, err := train.OpenFile(filepath.Join(t.TempDir(), "again.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	again := train.New(train.Options{Bus: b.local, File: f, SearchWindow: 150 * time.Millisecond, Functions: 1})
+	b.local.Observe(func(ev node.Event) {
+		if ev.Kind == node.EventMessage {
+			again.HandleMessage(ev.Message)
+		}
+	})
+	again.HandleNode(registry.Info{ID: stationID, Online: true})
+	eventually(t, "the hold learned", func() bool { return again.Layout().EmergencyStop })
+	tr, err := again.Acquire(b.ctx, "1234")
+	if err != nil || tr.Speed != 40 || tr.EStop {
+		t.Errorf("read back while held = %+v, %v", tr, err)
+	}
+	// The station leaving takes its hold with it.
+	again.HandleNode(registry.Info{ID: stationID})
+	if again.Layout().EmergencyStop {
+		t.Error("hold kept after the station left")
+	}
+}
+
 func TestLayoutAndNotices(t *testing.T) {
 	b := newBench(t)
 	l, err := b.m.SetPower(b.ctx, false)
@@ -518,8 +635,8 @@ func TestLayoutAndNotices(t *testing.T) {
 	if l, err = b.m.SetEmergencyStop(b.ctx, true); err != nil || !l.EmergencyStop {
 		t.Fatalf("SetEmergencyStop = %+v, %v", l, err)
 	}
-	if got, _ := b.m.Get("1234"); !got.EStop || got.Speed != 0 {
-		t.Errorf("train after emergency stop = %+v", got)
+	if got, _ := b.m.Get("1234"); got.EStop || got.Speed != 40 {
+		t.Errorf("train held by the emergency stop = %+v", got)
 	}
 	if l, err = b.m.SetEmergencyStop(b.ctx, false); err != nil || l.EmergencyStop {
 		t.Fatalf("clear = %+v, %v", l, err)

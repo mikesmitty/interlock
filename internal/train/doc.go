@@ -401,7 +401,10 @@ type Train struct {
 	// Speed is 0 to MaxSpeed; Direction is forward or reverse.
 	Speed     float32 `json:"speed"`
 	Direction string  `json:"direction"`
-	// EStop is set after an emergency stop until a speed is set.
+	// EStop is set after the train's own emergency stop, which sets its
+	// speed to zero, until a speed is set. The layout's emergency stop
+	// (Layout.EmergencyStop) leaves it alone: it holds every train stopped
+	// at the speed it keeps, and speeds set meanwhile wait for its end.
 	EStop bool `json:"estop"`
 	// On lists the functions that are on.
 	On []int `json:"on"`
@@ -437,7 +440,9 @@ type Layout struct {
 	// the command stations have said whether it is on, and while what
 	// they said agrees.
 	PowerKnown bool `json:"power_known"`
-	// EmergencyStop is set after Emergency Stop until it is cleared.
+	// EmergencyStop is set while the command stations hold every train
+	// stopped, from Emergency Stop until Clear Emergency Stop, which sends
+	// each train back to its speed.
 	EmergencyStop bool      `json:"emergency_stop"`
 	Updated       time.Time `json:"updated"`
 }

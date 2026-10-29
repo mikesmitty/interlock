@@ -359,6 +359,21 @@ func TestDCCConsist(t *testing.T) {
 	if _, err := again.BreakUp(b.ctx, c.ID); err == nil || !strings.Contains(err.Error(), "stop Coal Drag") {
 		t.Fatalf("broken up after a restart while moving: %v", err)
 	}
+	// Held by the layout's emergency stop, it still has its speed to go
+	// back to; broken up, its locomotives would go back to it apart.
+	if _, err := b.m.SetEmergencyStop(b.ctx, true); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "the hold", func() bool { return b.station.DecoderState(3, false).Held })
+	if _, err := b.m.BreakUp(b.ctx, c.ID); err == nil || !strings.Contains(err.Error(), "stop Coal Drag") {
+		t.Fatalf("broken up while held: %v", err)
+	}
+	if _, err := again.BreakUp(b.ctx, c.ID); err == nil || !strings.Contains(err.Error(), "stop Coal Drag") {
+		t.Fatalf("broken up while held after a restart: %v", err)
+	}
+	if _, err := b.m.SetEmergencyStop(b.ctx, false); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := b.m.SetSpeed(b.ctx, ids[0], 0, ""); err != nil {
 		t.Fatal(err)
 	}

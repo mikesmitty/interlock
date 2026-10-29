@@ -794,6 +794,20 @@ since its result could change the model.
   one two-byte write at CV 17, which `simple-dcc` sends as the Long
   Address instruction; the settings page uses it and moves the
   roster to the new address before writing the rest.
+- The layout's emergency stop as the Train Control Standard has it
+  (2026-10-28): Emergency Stop holds every train without changing its
+  speed, and Clear Emergency Stop sends each back to it; a train's own
+  emergency stop sets its speed to 0. The train manager keeps each
+  train's speed through the hold, asks the command stations whether
+  they hold their trains (Identify Consumer on Emergency Stop) when
+  they come onto the bus, and reads a speed with the emergency stop
+  flag back as held. Before Resume the Throttle page asks every train
+  node on the bus for its speed and lists those that will move, with
+  Set to 0; releasing a held train with a speed warns and offers Stop
+  and release, and a throttle app that lets one go, or drops off the
+  network, leaves it set to 0. A drive the hold or track power ends sets its train to
+  0, and a consist held at a speed counts as moving. The simulated
+  command station holds its trains the same way.
 - Phase 8 track plan (2026-10-27): `internal/trackplan` (directions,
   pieces from the directions a cell's track leaves by, plan validation,
   topology with open ends, block ends and links through turnout

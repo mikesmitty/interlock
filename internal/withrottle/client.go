@@ -494,13 +494,25 @@ func (c *client) drop(th, key string) {
 }
 
 // letGo gives a train up when no app's throttle holds it any longer.
+// While the layout's emergency stop holds the trains it sets the train to
+// 0 first, whether the app let it go or dropped off the network: released
+// at a speed, it would start again on Resume with no throttle driving it.
+// An app that connected again takes its trains over as they are.
 func (c *client) letGo(l *loco) {
 	if !l.held || !c.s.unhold(l.address) {
 		return
 	}
 	ctx, cancel := context.WithTimeout(c.ctx, commandTimeout)
 	defer cancel()
-	if _, err := c.s.opts.Trains.Release(ctx, l.id); err != nil {
+	trains := c.s.opts.Trains
+	if trains.Layout().EmergencyStop && !c.replaced.Load() {
+		if tr, ok := trains.Get(l.id); ok && tr.Speed != 0 {
+			if _, err := trains.SetSpeed(ctx, l.id, 0, ""); err != nil {
+				c.log.Warn("setting a held train to 0 failed", "train", l.id, "error", err)
+			}
+		}
+	}
+	if _, err := trains.Release(ctx, l.id); err != nil {
 		c.log.Debug("release failed", "train", l.id, "error", err)
 	}
 }
