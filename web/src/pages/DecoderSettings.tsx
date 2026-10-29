@@ -6,12 +6,13 @@ import { Page } from "../components/Page";
 import { rosterSettingsLink } from "../components/decoder/DecoderPicker";
 import { PaneNodes, type PaneContext } from "../components/decoder/PaneView";
 import { SourceKey } from "../components/decoder/SourceLamp";
-import { esuCVs, esuRowEdited, esuRowKnown } from "../decoder/esumap";
+import { esuCVs, esuRowCVs, esuRowEdited, esuRowKnown } from "../decoder/esumap";
 import type { DecoderDefinition, DecoderNode, DecoderPane, DecoderVariable, ESUMap } from "../decoder/types";
 import { relativeTime, useNow } from "../format";
 import {
   addressItems,
   addressOf,
+  allConfirmed,
   applyUpdates,
   confirmed,
   cvsOf,
@@ -24,6 +25,7 @@ import {
   knownValues,
   loadProfile,
   merge,
+  pagesToRead,
   pendingChanges,
   qualified,
   setAddress,
@@ -127,6 +129,7 @@ export function DecoderSettings() {
   const [table, setTableState] = useState<CVTable>({});
   const tableRef = useRef<CVTable>({});
   const [tab, setTab] = useState(0);
+  const tabsRef = useRef<HTMLDivElement>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [failures, setFailures] = useState<Record<string, string>>({});
   const [job, setJob] = useState<Job>();
@@ -538,6 +541,19 @@ export function DecoderSettings() {
     const c = cvInfo.get(cv);
     return !c?.info_only && !c?.read_only;
   };
+  // The pages that can be opened now to read these CVs.
+  const pagesFor = (list: string[]) =>
+    pagesToRead(
+      list.filter(readable),
+      def.panes.map((p) => ({ cvs: qualified(p.qualifiers, table, vars) ? paneCVs(p, def, vars) : [], table: p.all_cvs })),
+    ).map((i) => ({ index: i, name: def.panes[i].name }));
+  function openTab(i: number) {
+    setTab(i);
+    setConfirmWrite(false);
+    setMismatch(undefined);
+    setMessage(undefined);
+    setFailures({});
+  }
   const cvs = pane ? paneCVs(pane, def, vars) : [];
   const toRead = cvs.filter(readable);
   const changed = cvs.filter((cv) => writable(cv) && table[cv]?.state === "edited");
@@ -560,9 +576,14 @@ export function DecoderSettings() {
   const anyEdited = Object.values(table).some((c) => c.state === "edited");
   // An ESU function map's rows count as settings.
   const mapRows = pane ? esuMaps(pane.nodes).flatMap((m) => Array.from({ length: m.rows }, (_, r) => ({ m, r }))) : [];
-  const unread =
-    (pane ? pane.items.map((i) => vars.get(i)).filter((v): v is DecoderVariable => !!v && v.type !== "constant" && !isKnown(v, table)).length : 0) +
-    mapRows.filter(({ m, r }) => !esuRowKnown(m, table, r)).length;
+  const settings = pane ? pane.items.map((i) => vars.get(i)).filter((v): v is DecoderVariable => !!v && v.type !== "constant") : [];
+  const unread = settings.filter((v) => !isKnown(v, table)).length + mapRows.filter(({ m, r }) => !esuRowKnown(m, table, r)).length;
+  // Settings saved before this session, which the decoder may have
+  // changed since: the tab is up to date only once they are read again.
+  const checked = (list: string[]) => allConfirmed(list, table, readable);
+  const unchecked =
+    settings.filter((v) => isKnown(v, table) && !checked((v.parts ?? []).map((p) => p.cv))).length +
+    mapRows.filter(({ m, r }) => esuRowKnown(m, table, r) && !checked(esuRowCVs(m, r))).length;
   const changedSettings =
     (pane
       ? pane.items.filter((i) => {
@@ -641,7 +662,7 @@ export function DecoderSettings() {
         </p>
       )}
 
-      <div className="cfg-tabs" role="tablist" aria-label="Pages">
+      <div className="cfg-tabs" role="tablist" aria-label="Pages" ref={tabsRef}>
         {def.panes.map((p, i) => {
           const enabled = qualified(p.qualifiers, table, vars);
           const dirty = !p.all_cvs && anyEdited && paneCVs(p, def, vars).some((cv) => table[cv]?.state === "edited");
@@ -655,13 +676,7 @@ export function DecoderSettings() {
               aria-description={dirty ? "Has changes not written yet" : undefined}
               disabled={!enabled || busy}
               title={p.tooltip}
-              onClick={() => {
-                setTab(i);
-                setConfirmWrite(false);
-                setMismatch(undefined);
-                setMessage(undefined);
-                setFailures({});
-              }}
+              onClick={() => openTab(i)}
             >
               {p.name}
             </button>
@@ -719,7 +734,10 @@ export function DecoderSettings() {
                 <>
                   {message && <span>{message}</span>}
                   {!message && unread > 0 && <Status color="amber">{`${unread} not read yet`}</Status>}
-                  {!message && unread === 0 && changedSettings === 0 && (pane.items.length > 0 || mapRows.length > 0) && <Status color="green">Up to date</Status>}
+                  {!message && unread === 0 && unchecked > 0 && <Status color="off">{`${unchecked} saved before this session`}</Status>}
+                  {!message && unread === 0 && unchecked === 0 && changedSettings === 0 && (pane.items.length > 0 || mapRows.length > 0) && (
+                    <Status color="green">Up to date</Status>
+                  )}
                 </>
               )}
             </span>
@@ -777,6 +795,11 @@ export function DecoderSettings() {
             const r = loadProfile(tableRef.current, st.cvs, writable, fullBits, all);
             if (apply) changeTable(r.table);
             return r;
+          }}
+          pagesFor={pagesFor}
+          onPage={(i) => {
+            openTab(i);
+            tabsRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
           }}
         />
       )}
@@ -901,6 +924,8 @@ function DecoderProfiles({
   edited,
   onChange,
   onLoad,
+  pagesFor,
+  onPage,
 }: {
   loco: string;
   decoder: string;
@@ -910,7 +935,11 @@ function DecoderProfiles({
   edited: boolean;
   onChange: (profiles: DecoderProfile[]) => void;
   /** What loading a profile would change; with apply, it does. all marks too what matches but was not read in this session. */
-  onLoad: (profile: DecoderProfile, apply: boolean, all: boolean) => { changed: number; replaced: number; unread: number };
+  onLoad: (profile: DecoderProfile, apply: boolean, all: boolean) => { changed: number; replaced: number; unread: string[] };
+  /** The pages to read to see these CVs. */
+  pagesFor: (cvs: string[]) => { index: number; name: string }[];
+  /** Opens a page. */
+  onPage: (index: number) => void;
 }) {
   const now = useNow();
   const [name, setName] = useState("");
@@ -999,7 +1028,9 @@ function DecoderProfiles({
   // What a full load of the profile loaded last would still mark, counted
   // afresh so reads since then take values off.
   const last = loaded && !disabled ? profiles.find((st) => st.name === loaded) : undefined;
-  const unread = last ? onLoad(last, false, true).unread : 0;
+  const unreadCVs = last ? onLoad(last, false, true).unread : [];
+  const unread = unreadCVs.length;
+  const pages = unread > 0 ? pagesFor(unreadCVs) : [];
   return (
     <section className="panel dec-profiles">
       <h2>Decoder profiles</h2>
@@ -1083,7 +1114,25 @@ function DecoderProfiles({
         <span className="confirm">
           <span>
             {unread.toLocaleString()} value{unread === 1 ? " matches" : "s match"} {last.name} here but {unread === 1 ? "was" : "were"} not read from the decoder in this session,
-            so it may hold something else. Read their pages and load {last.name} again to check, or mark {unread === 1 ? "it" : "them"} to write too.
+            so it may hold something else.{" "}
+            {pages.length > 0 ? (
+              <>
+                Read{" "}
+                {pages.map((p, i) => (
+                  <span key={p.index}>
+                    {i > 0 && (i === pages.length - 1 ? " and " : ", ")}
+                    <button type="button" className="linklike" onClick={() => onPage(p.index)}>
+                      {p.name}
+                    </button>
+                  </span>
+                ))}
+                , then load {last.name} again to check, or mark {unread === 1 ? "it" : "them"} to write too.
+              </>
+            ) : (
+              <>
+                {unread === 1 ? "It cannot" : "They cannot"} be read back; mark {unread === 1 ? "it" : "them"} to write too.
+              </>
+            )}
           </span>
           <button className="btn" onClick={() => load(last, false, true)}>
             Mark {unread === 1 ? "it" : "them"} too

@@ -32,6 +32,8 @@ import {
   endSession,
   loadProfile,
   confirmed,
+  allConfirmed,
+  pagesToRead,
   type CVTable,
 } from "./values.ts";
 
@@ -437,7 +439,7 @@ test("a kept profile loads as changes where it differs", () => {
   );
   assert.equal(r.changed, 3, "CVs 1, 29 and 5, which had no value");
   assert.equal(r.replaced, 1, "the change to CV 1");
-  assert.equal(r.unread, 2, "CVs 3 and 4 match, though neither was read in this session");
+  assert.deepEqual(r.unread, ["3", "4"], "CVs 3 and 4 match, though neither was read in this session");
   assert.deepEqual(
     ["1", "3", "29", "4", "5", "8"].map((cv) => [r.table[cv].state, r.table[cv].value]),
     [
@@ -456,7 +458,7 @@ test("a kept profile loads as changes where it differs", () => {
     () => true,
     () => 0xff,
   );
-  assert.deepEqual([back.changed, back.replaced, back.unread], [0, 1, 1]);
+  assert.deepEqual([back.changed, back.replaced, back.unread], [0, 1, ["1"]]);
   assert.deepEqual(back.table["1"], { value: 3, state: "saved", known: true, edited: 0 }, "a profile that undoes a change drops it");
   assert.deepEqual(pendingChanges(r.table)["29"], { value: 7, bits: 0xff });
   assert.deepEqual(discard(r.table, ["1", "29"])["1"], { value: 3, state: "saved", known: true, edited: 0 }, "undoing goes back to before the edits");
@@ -474,7 +476,7 @@ test("a kept profile loads in full where the session has not seen the decoder ho
     () => 0xff,
     true,
   );
-  assert.deepEqual([r.changed, r.replaced, r.unread], [3, 1, 1], "CVs 1, 3 and 4; not 29, read in this session");
+  assert.deepEqual([r.changed, r.replaced, r.unread], [3, 1, ["3"]], "CVs 1, 3 and 4; not 29, read in this session");
   assert.deepEqual(
     ["1", "3", "29", "4"].map((cv) => [r.table[cv].state, r.table[cv].value, r.table[cv].edited]),
     [
@@ -492,7 +494,7 @@ test("a kept profile loads in full where the session has not seen the decoder ho
     () => 0xff,
     true,
   );
-  assert.deepEqual([again.changed, again.replaced, again.unread], [0, 0, 0], "loading it again finds nothing more to mark");
+  assert.deepEqual([again.changed, again.replaced, again.unread], [0, 0, []], "loading it again finds nothing more to mark");
   // Loaded first for the differences, then in full.
   const first = loadProfile(
     t,
@@ -500,7 +502,7 @@ test("a kept profile loads in full where the session has not seen the decoder ho
     () => true,
     () => 0xff,
   );
-  assert.deepEqual([first.changed, first.unread], [1, 2], "CV 4 differs; CVs 1 and 3 are taken as they are");
+  assert.deepEqual([first.changed, first.unread], [1, ["1", "3"]], "CV 4 differs; CVs 1 and 3 are taken as they are");
   assert.equal(
     loadProfile(
       first.table,
@@ -525,4 +527,22 @@ test("only values read or written in this session are confirmed", () => {
     "a change over a value read now, a value written now; not a change over a saved value, an imported value, a default or nothing",
   );
   assert.equal(confirmed(endSession(t)["3"]), false, "a session's values are saved once it ends");
+});
+
+test("a setting is confirmed when each CV that can be read was read or written in this session", () => {
+  let t: CVTable = withSaved({}, { "1": 3, "3": 10, "7": 2, "8": 151 });
+  t = withSession(t, { read: ["1"], written: ["3"] });
+  const readable = (cv: string) => cv !== "7";
+  assert.equal(allConfirmed(["1", "3"], t, readable), true);
+  assert.equal(allConfirmed(["1", "8"], t, readable), false, "CV 8 was saved before this session");
+  assert.equal(allConfirmed(["1", "7"], t, readable), true, "CV 7 cannot be read, so no read can confirm it");
+});
+
+test("each page to read shows a CV the pages before it do not", () => {
+  const pages = [{ cvs: ["1", "29"] }, { cvs: ["29", "17", "18"] }, { cvs: ["1", "2", "3", "4", "5", "17", "18", "29"], table: true }, { cvs: ["29", "3"] }, { cvs: [] }];
+  assert.deepEqual(pagesToRead(["29", "17", "3"], pages), [0, 1, 3], "Basic for 29, the next for 17 and the last for 3");
+  assert.deepEqual(pagesToRead(["18"], pages), [1]);
+  assert.deepEqual(pagesToRead(["2", "29"], pages), [0, 2], "the CV table only for CV 2, which no other page shows");
+  assert.deepEqual(pagesToRead(["9"], pages), [], "a CV no page shows");
+  assert.deepEqual(pagesToRead([], pages), []);
 });

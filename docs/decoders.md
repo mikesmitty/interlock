@@ -87,6 +87,13 @@ key at the top of each tab repeats it:
 A setting that spans several CVs shows the least certain of them. The
 ESU function map's rows and the CVs tab carry the same lamps.
 
+Beside the buttons, the tab's status counts its settings the same way:
+**N not read yet** for settings with no value from the decoder, **N
+saved before this session** for values saved earlier that the decoder
+may have changed since, and **Up to date** once every setting on the tab
+was read or written in this session and none has a change waiting. CVs
+that can only be written do not count, since no read can check them.
+
 ### Sessions
 
 For a decoder in the roster, a session is a spell of work on it, shown
@@ -155,9 +162,10 @@ name kept already is replaced only after you say so.
 and drops changes not written yet that the profile undoes. Values that
 already match the profile but were not read from the decoder in this
 session are left alone, though the decoder may hold something else, and
-the panel says how many there are: read their pages and load the profile
-again to find any that differ, or choose **Mark them too** to write them
-as well, for a full restore. Nothing reaches the decoder until you write
+the panel says how many there are and names the pages that show them,
+each a link to its tab: read those and load the profile again to find
+any that differ, or choose **Mark them too** to write them as well, for
+a full restore. Nothing reaches the decoder until you write
 the changes, page by page or with **Write changes on every page**. Loading over changes not written yet
 asks first. Decoder profiles live with the decoder's values in the data
 folder, and backups include them. They are not the node

@@ -347,9 +347,10 @@ export function settle(t: CVTable, cv: string, value: number, state: "read" | "s
  * each writable CV whose value differs from the profile's, or has none,
  * takes the profile's whole value, and a change not written yet that the
  * profile undoes is dropped. changed counts the CVs it marks, replaced the
- * changes not written yet it gives another value or drops, and unread the
- * CVs that show the profile's value though it was not read or written in
- * this session: left alone, or with all marked too, for a full restore.
+ * changes not written yet it gives another value or drops, and unread
+ * lists the CVs that show the profile's value though it was not read or
+ * written in this session: left alone, or with all marked too, for a full
+ * restore.
  */
 export function loadProfile(
   t: CVTable,
@@ -357,11 +358,11 @@ export function loadProfile(
   writable: (cv: string) => boolean,
   bits: (cv: string) => number,
   all = false,
-): { table: CVTable; changed: number; replaced: number; unread: number } {
+): { table: CVTable; changed: number; replaced: number; unread: string[] } {
   const out = { ...t };
   let changed = 0;
   let replaced = 0;
-  let unread = 0;
+  const unread: string[] = [];
   for (const [cv, value] of Object.entries(values)) {
     const old = out[cv];
     if (!old || !writable(cv)) continue;
@@ -369,7 +370,7 @@ export function loadProfile(
       const prior = old.prior;
       if (prior && prior.value === value && prior.state !== "unknown" && (!all || inSession(prior.state))) {
         if (old.value !== value) replaced++;
-        if (!inSession(prior.state)) unread++;
+        if (!inSession(prior.state)) unread.push(cv);
         out[cv] = { value, state: prior.state, known: old.known, edited: 0 };
         continue;
       }
@@ -377,7 +378,7 @@ export function loadProfile(
       replaced++;
     } else if (old.value === value && old.state !== "unknown") {
       if (inSession(old.state)) continue;
-      unread++;
+      unread.push(cv);
       if (!all) continue;
     }
     out[cv] = {
@@ -404,6 +405,31 @@ function inSession(state: CVState | undefined): boolean {
  */
 export function confirmed(cell: CVCell | undefined): boolean {
   return inSession(cell?.state === "edited" ? cell.prior?.state : cell?.state);
+}
+
+/** Whether each of these CVs that can be read was read or written in this session. */
+export function allConfirmed(cvs: string[], t: CVTable, readable: (cv: string) => boolean): boolean {
+  return cvs.every((cv) => !readable(cv) || confirmed(t[cv]));
+}
+
+/**
+ * The pages to read to see these CVs, by index: each adds some that the
+ * pages before it do not show, and the CV table, which shows them all,
+ * comes last for any no other page does. A page that cannot be opened
+ * now is given no CVs.
+ */
+export function pagesToRead(cvs: string[], pages: { cvs: string[]; table?: boolean }[]): number[] {
+  const left = new Set(cvs);
+  const out: number[] = [];
+  const take = (i: number) => {
+    const here = pages[i].cvs.filter((cv) => left.has(cv));
+    if (here.length === 0) return;
+    out.push(i);
+    for (const cv of here) left.delete(cv);
+  };
+  pages.forEach((p, i) => !p.table && take(i));
+  pages.forEach((p, i) => p.table && take(i));
+  return out;
 }
 
 /** A copy of the table with the changes to these CVs undone. */
