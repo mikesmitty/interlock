@@ -39,12 +39,20 @@ var (
 	no4Beside = trackplan.Vec{X: 248.98, Y: 32.8}
 )
 
+// TestHeads is how many signal heads the test layout uses on the nth
+// outpost, from 1.
+func TestHeads(n int) int {
+	return map[int]int{1: 7, 2: 5, 3: 2}[n]
+}
+
 // TestLayout is a small layout to run trains on before a real plan has
 // its blocks: a double-track loop, the outer track clockwise and the
 // inner counterclockwise, with Park Av on the top straight and Main St on
 // the bottom, where a siding outside the outer track lets one train pass
 // another. A crossover east of Park Av turns trains back. Its nine blocks
-// and three turnouts are linked to the first three simulated outposts.
+// and three turnouts are linked to the first three simulated outposts,
+// and so are the nine signals, for trains running the way the loop goes:
+// two heads where a junction lies ahead, one where plain track does.
 func TestLayout() trackplan.Plan {
 	b := newBuilder()
 	ent := func(kind entity.Kind, outpost int, slug string) string {
@@ -118,6 +126,18 @@ func TestLayout() trackplan.Plan {
 	b.marker("park-inner-stop", "inner-top-park", 576, true)
 	b.marker("main-inner-stop", "inner-main", 1036, true)
 	b.marker("main-siding-stop", "siding", 512, false)
+	head := func(outpost, n int) string { return ent(entity.KindSignalHead, outpost, fmt.Sprintf("head_%d", n)) }
+	b.plan.Signals = []trackplan.Signal{
+		{ID: "east-outer-signal", Track: "outer-bottom-east", At: 233, Upper: head(1, 1), Lower: head(1, 2)},
+		{ID: "main-outer-signal", Track: "outer-main", At: 724, Upper: head(1, 3), Lower: head(1, 4)},
+		{ID: "main-siding-signal", Track: "siding", At: 486, Upper: head(1, 5), Lower: head(1, 6)},
+		{ID: "main-inner-signal", Track: "inner-main", At: 15, Reverse: true, Upper: head(1, 7)},
+		{ID: "park-outer-signal", Track: "outer-top-park", At: 729, Upper: head(2, 1), Lower: head(2, 2)},
+		{ID: "east-inner-signal", Track: "inner-east-1", At: 15, Reverse: true, Upper: head(2, 3), Lower: head(2, 4)},
+		{ID: "park-inner-signal", Track: "inner-top-park", At: 14, Reverse: true, Upper: head(2, 5)},
+		{ID: "west-outer-signal", Track: "outer-top-west", At: 480, Upper: head(3, 1)},
+		{ID: "west-inner-signal", Track: "inner-bottom-west", At: 13, Reverse: true, Upper: head(3, 2)},
+	}
 	b.plan.Labels = []trackplan.Label{
 		{ID: "park-name", X: 700, Y: -outerRadius - 70, Text: "Park Av"},
 		{ID: "main-name", X: 700, Y: innerRadius - 70, Text: "Main St"},

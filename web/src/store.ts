@@ -18,6 +18,7 @@ import {
   type NodeInfo,
   type Trace,
   type Route,
+  type SignalState,
   type Drive,
   type TrackPlanState,
   type TrackedTrain,
@@ -59,6 +60,8 @@ export interface BusState {
   tracked: Record<string, TrackedTrain>;
   /** Every route the plan has, set or not, by ID. */
   routes: Record<string, Route>;
+  /** What every signal on the plan shows, by ID. */
+  signals: Record<string, SignalState>;
   /** The drives going and each train's last, by tracked train ID. */
   drives: Record<string, Drive>;
 }
@@ -105,6 +108,7 @@ class BusStore {
     firmware: {},
     tracked: {},
     routes: {},
+    signals: {},
     drives: {},
   };
   private listeners = new Set<Listener>();
@@ -168,6 +172,14 @@ class BusStore {
     es.addEventListener("routes", (ev) => {
       const { routes } = JSON.parse((ev as MessageEvent<string>).data) as { routes: Route[] };
       this.set({ routes: byID(routes) });
+    });
+    es.addEventListener("signal", (ev) => {
+      const v = JSON.parse((ev as MessageEvent<string>).data) as SignalState;
+      this.set({ signals: { ...this.state.signals, [v.id]: v } });
+    });
+    es.addEventListener("signals", (ev) => {
+      const { signals } = JSON.parse((ev as MessageEvent<string>).data) as { signals: SignalState[] };
+      this.set({ signals: byID(signals) });
     });
     es.addEventListener("clock", (ev) => {
       this.set({ clock: JSON.parse((ev as MessageEvent<string>).data) as ClockState });
@@ -286,6 +298,7 @@ class BusStore {
       const trackPlan = await api.trackPlan().catch(() => undefined);
       const trackingResponse = await api.tracking().catch(() => ({ trains: [] as TrackedTrain[] }));
       const routesResponse = await api.routes().catch(() => ({ routes: [] as Route[] }));
+      const signalsResponse = await api.signals().catch(() => ({ signals: [] as SignalState[] }));
       const drivesResponse = await api.drives().catch(() => ({ drives: [] as Drive[] }));
       const drives: Record<string, Drive> = {};
       for (const d of drivesResponse.drives) drives[d.train] = d;
@@ -329,6 +342,7 @@ class BusStore {
         trackPlan,
         tracked,
         routes: byID(routesResponse.routes),
+        signals: byID(signalsResponse.signals),
         drives,
         entries,
         lastSeq: Math.max(this.state.lastSeq, backlog.last_seq),

@@ -257,6 +257,71 @@ func (n *Network) Way(from, to Port, settings []Setting) ([]Leg, error) {
 	return nil, fmt.Errorf("the way from block %s goes round without reaching a block", from.Block)
 }
 
+// Into is the leg a train takes into a block by one of its ends, with
+// the junctions set as position says.
+func (n *Network) Into(p Port, position func(junction string) Position) (Leg, error) {
+	for _, a := range n.g.at[p.Point] {
+		if n.g.pieces[a.piece].block == p.Block {
+			return n.enter(a, position)
+		}
+	}
+	return Leg{}, fmt.Errorf("no track of block %s ends at %s", p.Block, p.Point)
+}
+
+// BlockEnd follows the track on from a leg through its block, with the
+// junctions in the block set as position says, and returns the block's
+// end it comes to and the legs on the way, l first. It returns
+// ErrTrackEnds and those legs if the track ends in the block, and a
+// SetAgainstError at a junction there with no way on as set.
+func (n *Network) BlockEnd(l Leg, position func(junction string) Position) (Port, []Leg, error) {
+	block := n.Block(l)
+	legs := []Leg{l}
+	for range len(n.g.pieces) + 1 {
+		i, ok := n.piece(l)
+		if !ok {
+			return Port{}, legs, fmt.Errorf("leg %s isn't in the plan", l.Piece)
+		}
+		pc := n.g.pieces[i]
+		_, out := n.ends(i, l)
+		in, ok := n.g.across(attach{i, out})
+		if !ok {
+			return Port{}, legs, ErrTrackEnds
+		}
+		if n.g.pieces[in.piece].block != block {
+			return Port{Block: block, Point: pc.ends[out], Heading: roundHeading(pc.outward[out])}, legs, nil
+		}
+		var err error
+		if l, err = n.enter(in, position); err != nil {
+			return Port{}, legs, err
+		}
+		legs = append(legs, l)
+	}
+	return Port{}, legs, fmt.Errorf("block %s goes round with no end", block)
+}
+
+// Diverges reports whether a leg turns off the straight way where a train
+// has a choice: the thrown route through a junction, come to by an end
+// that leads two ways. A train that joins from a branch has no choice,
+// so that doesn't count.
+func (n *Network) Diverges(l Leg) bool {
+	i, ok := n.piece(l)
+	if !ok || !l.Junction {
+		return false
+	}
+	pc := n.g.pieces[i]
+	if pc.routes[l.Route].position != Thrown {
+		return false
+	}
+	from, _ := n.ends(i, l)
+	ways := 0
+	for _, r := range pc.routes {
+		if r.from == from || r.to == from {
+			ways++
+		}
+	}
+	return ways > 1
+}
+
 // Fouls reports whether two legs share track, so that two trains can't
 // be on them at once: the same track either way, or one junction on two
 // routes, other than a crossover's two straight tracks.

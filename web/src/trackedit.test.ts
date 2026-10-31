@@ -4,6 +4,7 @@ import type { TrackPlan } from "./api.ts";
 import {
   addJunction,
   addMarker,
+  addSignal,
   addTrack,
   allRefs,
   alongTrack,
@@ -229,6 +230,34 @@ test("turning about a selection's middle and back puts it back", () => {
     const q = back.points.find((x) => x.id === p.id)!;
     assert.ok(Math.abs(q.x - p.x) < 0.05 && Math.abs(q.y - p.y) < 0.05, `${p.id} back at ${p.x}, ${p.y}, not ${q.x}, ${q.y}`);
   }
+});
+
+test("a signal faces the nearer end of its track, and goes with the track", () => {
+  const added = addTrack(empty, indexPlan(empty), { x: 0, y: 0 }, { x: 500, y: 0 }, 0);
+  const near = addSignal(added, "t1", 480, 500);
+  assert.deepEqual(near.plan.signals, [{ id: "sig1", track: "t1", at: 480 }]);
+  const both = addSignal(near.plan, "t1", 20, 500);
+  assert.deepEqual(both.plan.signals![1], { id: "sig2", track: "t1", at: 20, reverse: true });
+  const index = indexPlan(both.plan);
+  assert.equal(markerPlace(index, both.plan.signals![1])!.heading % 360, 180);
+
+  const linked = updateElement(both.plan, { kind: "signal", id: "sig1" }, { upper: "head.1", lower: "head.2" });
+  assert.equal(linked.signals![0].lower, "head.2");
+  assert.equal(updateElement(linked, { kind: "signal", id: "sig1" }, { lower: undefined }).signals![0].lower, undefined);
+
+  assert.deepEqual(
+    allRefs(both.plan).filter((r) => r.kind === "signal"),
+    [
+      { kind: "signal", id: "sig1" },
+      { kind: "signal", id: "sig2" },
+    ],
+  );
+  assert.deepEqual(
+    removeElements(both.plan, [{ kind: "signal", id: "sig1" }]).signals!.map((s) => s.id),
+    ["sig2"],
+  );
+  assert.deepEqual(removeElements(both.plan, [{ kind: "track", id: "t1" }]).signals, []);
+  assert.equal(setLayer(both.plan, [{ kind: "signal", id: "sig1" }], undefined).signals![0].id, "sig1");
 });
 
 test("a stop marker stands where it is put along its track, and goes with it", () => {

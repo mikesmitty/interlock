@@ -272,3 +272,30 @@ func TestParseEntity(t *testing.T) {
 		}
 	}
 }
+
+func TestTestLayoutSignals(t *testing.T) {
+	plan := TestLayout().Normalize()
+	if err := plan.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	net := plan.Network()
+	closed := func(string) trackplan.Position { return trackplan.Closed }
+	heads := map[string]int{}
+	for _, sg := range plan.Signals {
+		port, _, err := net.BlockEnd(trackplan.Leg{Piece: sg.Track, Reverse: sg.Reverse}, closed)
+		if err != nil {
+			t.Errorf("%s: %v", sg.ID, err)
+			continue
+		}
+		if want := sg.ID[:len(sg.ID)-len("-signal")]; port.Block != want {
+			t.Errorf("%s governs the end of %s", sg.ID, port.Block)
+		}
+		heads[sg.Upper]++
+		if sg.Lower != "" {
+			heads[sg.Lower]++
+		}
+	}
+	if len(plan.Signals) != 9 || len(heads) != TestHeads(1)+TestHeads(2)+TestHeads(3) {
+		t.Errorf("%d signals, %d heads", len(plan.Signals), len(heads))
+	}
+}

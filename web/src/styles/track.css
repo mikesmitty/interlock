@@ -430,6 +430,16 @@
   fill: var(--lamp-green);
 }
 
+/* Signals: a post beside the track and a dark case of lamps. */
+.trk-signal__post {
+  stroke: var(--ivory-dim);
+}
+
+.trk-signal__case {
+  stroke: var(--enamel-deep);
+  stroke-linecap: round;
+}
+
 /* What a train being driven is doing. */
 .trk-drive {
   color: var(--lamp-green);

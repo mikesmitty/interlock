@@ -937,12 +937,23 @@ since its result could change the model.
   lamps on its outputs, a bi-color LED's sides giving yellow together). One aspect holds at a time, so an Identified
   Invalid says nothing and only Valid sets the state. The simulated
   outpost has them too. Verified end to end against the simulated
-  outpost; not yet on a board. Signals on the plan, made of heads, come
-  next.
+  outpost; not yet on a board.
+- Signals (2026-10-31): signals on the plan, each standing on a track
+  for trains running one way and governing the way out of its block
+  (`Network.BlockEnd`). `internal/signals` works out what they show
+  from the routes, tracking and the detectors, and sets their heads. The
+  track ahead makes a signal home (a junction, so it needs a route) or
+  automatic (plain track, so it follows the trains), so there is nothing
+  to set up. Aspects are the subway's: the upper head stop, approach or
+  clear from the next signal, the lower head the route. They show what
+  the interlocking has decided and stop no train. A head on a signal
+  belongs to it and is put back if anything else sets it. The S, D and
+  number lamps and call-on aren't used. Verified against the simulated
+  layout through the bus; not yet on a board.
 - Next: the rest of Phase 7, hardware verification against
-  canbus-outpost and simple-dcc, Phase 8's timetable, and signals,
-  approach locking and a trip stop to round out interlocking. Stopping
-  precision should be tried on the bench with a real decoder.
+  canbus-outpost and simple-dcc, Phase 8's timetable, and approach
+  locking and a trip stop to round out interlocking. Stopping precision
+  should be tried on the bench with a real decoder.
 
 ## References
 

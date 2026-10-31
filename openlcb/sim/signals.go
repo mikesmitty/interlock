@@ -130,6 +130,21 @@ func (o *Outpost) headEvent(ev openlcb.EventID) {
 	}
 }
 
+// EnableHeads enables the first n heads, with the firmware's default
+// lamps, as a board set up that way would come up.
+func (o *Outpost) EnableHeads(n int) error {
+	for h := range min(n, OutpostHeads) {
+		v, ok := o.vars[headPath(h, "Enabled")]
+		if !ok {
+			return fmt.Errorf("no variable %s", headPath(h, "Enabled"))
+		}
+		if err := o.Config.Write(v.Address, []byte{1}); err != nil {
+			return fmt.Errorf("enabling head %d: %w", h+1, err)
+		}
+	}
+	return nil
+}
+
 // Head returns the aspect a head shows, named as in the CDI.
 func (o *Outpost) Head(h int) string {
 	o.mu.Lock()

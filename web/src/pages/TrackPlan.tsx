@@ -12,11 +12,13 @@ import {
   type TrackBlock,
   type TrackPlan,
   type TrackPlanState,
+  type SignalState,
   type TrackedTrain,
   type Train,
   type Vec,
 } from "../api";
-import { type LampColor, Status } from "../components/Lamp";
+import { aspectState, aspectWord, signalAspects, signalKind, signalMeaning } from "../aspects";
+import { Lamp, type LampColor, Status } from "../components/Lamp";
 import { Empty, Page } from "../components/Page";
 import { TrackDiagram, ZOOM_STEP, blockState, compassWord, trainsIn } from "../components/TrackDiagram";
 import { driveActive, driveText, stepsUpTo } from "../driving";
@@ -27,10 +29,12 @@ import {
   type ElementRef,
   type End,
   KATO_RADII,
+  type PlanIndex,
   KINDS,
   PIECES,
   addJunction,
   addMarker,
+  addSignal,
   addTrack,
   allRefs,
   alongTrack,
@@ -49,10 +53,12 @@ import {
   junctionCenter,
   layerRefs,
   makeID,
+  markerPlace,
   mergeTrack,
   moveSelection,
   nearestAlong,
   normalizeDegrees,
+  onTrack,
   openEnds,
   placePiece,
   planBounds,
@@ -65,6 +71,7 @@ import {
   setBlock,
   setLayer,
   snap,
+  standsOn,
   straightFrom,
   sub,
   tangentAngle,
@@ -77,7 +84,7 @@ import {
 } from "../trackgeom";
 import { MAX_ZOOM, MIN_ZOOM, type View, zoomBy } from "../trackview";
 
-type Tool = "select" | "track" | "curve" | "piece" | "platform" | "marker" | "label" | "block" | "erase" | "background";
+type Tool = "select" | "track" | "curve" | "piece" | "platform" | "marker" | "signal" | "label" | "block" | "erase" | "background";
 
 const TOOLS: { tool: Tool; label: string; key: string; hint: string }[] = [
   {
@@ -111,9 +118,15 @@ const TOOLS: { tool: Tool; label: string; key: string; hint: string }[] = [
     key: "m",
     hint: "Click on track to put a stop marker there: where a train stopping in that block brings its leading end to a stand. Set the way the trains run and how long they are on the right.",
   },
+  {
+    tool: "signal",
+    label: "Signal",
+    key: "s",
+    hint: "Click on track near the end of a block to put a signal there, for trains leaving the block that way. Set the way the trains run and its heads on the right.",
+  },
   { tool: "label", label: "Label", key: "l", hint: "Click to write a label there; change the text on the right." },
   { tool: "block", label: "Block", key: "b", hint: "Drag over track to put it in the block chosen under Blocks. Hold Option or Alt to take track out of its block." },
-  { tool: "erase", label: "Erase", key: "e", hint: "Click or drag over track, platforms, markers and labels to remove them." },
+  { tool: "erase", label: "Erase", key: "e", hint: "Click or drag over track, platforms, markers, signals and labels to remove them." },
   { tool: "background", label: "Background", key: "g", hint: "Drag to move the background image. Set its size and how faint it is under Background." },
 ];
 
@@ -252,7 +265,7 @@ function LayerToggles({ plan, layers: [hidden, setHidden] }: { plan: TrackPlan; 
 
 function Viewer({ state, entities, layers, onEdit }: { state: TrackPlanState; entities: Record<string, Entity>; layers: ReturnType<typeof useHiddenLayers>; onEdit: () => void }) {
   const { plan } = state;
-  const { tracked, trains, routes, drives } = useBus();
+  const { tracked, trains, routes, drives, signals } = useBus();
   const trackedList = useMemo(() => Object.values(tracked), [tracked]);
   const routeList = useMemo(() => Object.values(routes), [routes]);
   const names = useMemo(() => namesFor(plan, entities, tracked), [plan, entities, tracked]);
@@ -333,6 +346,7 @@ function Viewer({ state, entities, layers, onEdit }: { state: TrackPlanState; en
           routes={routesSet}
           locked={locked}
           stops={stops}
+          signals={signals}
         />
       </div>
       <p className="trk-legend muted">
@@ -340,6 +354,7 @@ function Viewer({ state, entities, layers, onEdit }: { state: TrackPlanState; en
         has run from one block into the next, pointed the way it goes, with a dot where its decoder is. A route set is lit along the track it holds.
       </p>
       <RouteTable plan={plan} routes={routeList} set={routesSet} names={names} />
+      <SignalTable plan={plan} index={index} signals={signals} names={names} />
       <TrainTable plan={plan} tracked={trackedList} drives={drives} />
       <BlockTable state={state} entities={entities} tracked={trackedList} trains={trains} />
     </Page>
@@ -369,6 +384,54 @@ function namesFor(plan: TrackPlan, entities: Record<string, Entity>, tracked: Re
 const kindWord = (kind: PlanJunction["kind"]) => (kind === "double_crossover" ? "double crossover" : kind);
 
 const routeColor = (state?: Route["state"]): LampColor => (state === "setting" ? "amber" : state === "occupied" ? "red" : "green");
+
+/** What each signal shows and tells a train. */
+function SignalTable({ plan, index, signals, names }: { plan: TrackPlan; index: PlanIndex; signals: Record<string, SignalState>; names: Names }) {
+  const rows = (plan.signals ?? [])
+    .flatMap((s) => {
+      const view = signals[s.id];
+      const place = markerPlace(index, s);
+      if (!view || !place) return [];
+      const block = index.tracks.get(s.track)?.block;
+      return [{ id: s.id, view, where: `${block ? names.block(block) : "No block"}, running ${compassWord(place.heading)}` }];
+    })
+    .sort((x, y) => x.where.localeCompare(y.where));
+  if (rows.length === 0) return null;
+  return (
+    <>
+      <h2 className="trk-h2">Signals</h2>
+      <div className="panel">
+        <table className="table">
+          <thead>
+            <tr>
+              <th>Signal</th>
+              <th>Shows</th>
+              <th>Meaning</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(({ id, view, where }) => (
+              <tr key={id}>
+                <td>
+                  <div className="cell-title">{where}</div>
+                  <div className="cell-sub">{signalKind(view)}</div>
+                </td>
+                <td>
+                  <span className="status">
+                    <Lamp color={aspectState(view.upper).color} label={aspectWord(view.upper)} />
+                    {view.lower && <Lamp color={aspectState(view.lower).color} label={aspectWord(view.lower)} />}
+                    <span>{signalAspects(view)}</span>
+                  </span>
+                </td>
+                <td>{signalMeaning(view)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
 
 /** The routes set, and setting one: from a block to one it leads to. */
 function RouteTable({ plan, routes, set, names }: { plan: TrackPlan; routes: Route[]; set: Route[]; names: Names }) {
@@ -989,6 +1052,20 @@ function Editor({
       setSelection([{ kind: "marker", id: added.id }]);
       return;
     }
+    if (tool === "signal") {
+      const along = target?.kind === "track" ? nearestAlong(index, target.id, at) : undefined;
+      const t = target && index.tracks.get(target.id);
+      const a = t && index.points.get(t.a);
+      const b = t && index.points.get(t.b);
+      if (!target || along === undefined || !t || !a || !b) {
+        setNote("Click on a track: the signal goes where you click, beside it.");
+        return;
+      }
+      const added = addSignal(draft, target.id, along, arcInfo(a, b, t.angle).length);
+      commit(added.plan);
+      setSelection([{ kind: "signal", id: added.id }]);
+      return;
+    }
     if (tool === "label") {
       const p = snap(at, grid);
       const id = idMaker(draft)("l");
@@ -1023,8 +1100,8 @@ function Editor({
   function onPointerMove(at: Vec, _e: ReactPointerEvent<SVGSVGElement>, target?: ElementRef) {
     const s = stroke.current;
     if (!s) {
-      if (tool === "select" || tool === "erase" || tool === "block" || tool === "marker") {
-        if (!sameRef(hover, target)) setHover(tool === "marker" && target?.kind !== "track" ? undefined : target);
+      if (tool === "select" || tool === "erase" || tool === "block" || tool === "marker" || tool === "signal") {
+        if (!sameRef(hover, target)) setHover((tool === "marker" || tool === "signal") && target?.kind !== "track" ? undefined : target);
         return;
       }
       // Show where the track tools would start, and the piece where it
@@ -1422,8 +1499,8 @@ function Editor({
               }}
             />
           )}
-          {/* A marker moves with its track, not on its own. */}
-          {current.some((r) => r.kind !== "marker") && <MoveTurn refs={current} draft={draft} index={index} commit={commit} />}
+          {/* Markers and signals move with their track, not on their own. */}
+          {current.some((r) => !onTrack(r)) && <MoveTurn refs={current} draft={draft} index={index} commit={commit} />}
           <Blocks draft={draft} entities={entities} active={activeBlock} setActive={setActiveBlock} commit={commit} topology={dirty ? undefined : saved.topology} />
           <Stations draft={draft} commit={commit} />
           <Layers draft={draft} commit={commit} layers={layers} onSelect={(id) => select(layerRefs(draft, id))} />
@@ -1692,6 +1769,37 @@ function ElementDetails({
       </Section>
     );
   }
+  if (item.kind === "signal") {
+    const s = (draft.signals ?? []).find((x) => x.id === item.id)!;
+    const t = index.tracks.get(s.track);
+    const along = alongTrack(index, s.track, s.at);
+    const inBlock = t?.block ? draft.blocks.find((b) => b.id === t.block)?.name : undefined;
+    return (
+      <Section title="Signal">
+        <p className="trk-sub muted">
+          {inBlock ? `In ${inBlock}, ` : ""}
+          {Math.round(s.at)} mm along its track.
+          {!inBlock && " Put the track in a block for it to govern the block's end."}
+        </p>
+        {along && (
+          <label className="trk-field">
+            <span>For trains running</span>
+            <select className="input input--select" value={s.reverse ? "reverse" : "forward"} onChange={(e) => change({ reverse: e.target.value === "reverse" || undefined })}>
+              <option value="forward">{compass(along.heading)}</option>
+              <option value="reverse">{compass(along.heading + 180)}</option>
+            </select>
+          </label>
+        )}
+        <EntitySelect label="Upper head" kind="signal_head" value={s.upper} entities={entities} onChange={(id) => change({ upper: id })} />
+        <EntitySelect label="Lower head" kind="signal_head" value={s.lower} entities={entities} onChange={(id) => change({ lower: id })} />
+        <p className="trk-sub muted">
+          With a junction ahead it is a home signal, which needs a route set and two heads: the lower one shows the route. With plain track ahead it is an automatic signal, which
+          needs one. Without heads it shows on the plan alone.
+        </p>
+        {remove}
+      </Section>
+    );
+  }
   if (item.kind === "platform") {
     const p = draft.platforms.find((x) => x.id === item.id)!;
     const num = (v: string) => Math.max(1, Math.round(Number(v) || 0));
@@ -1720,6 +1828,7 @@ const KIND_WORDS: Record<ElementRef["kind"], [string, string]> = {
   platform: ["platform", "platforms"],
   label: ["label", "labels"],
   marker: ["stop marker", "stop markers"],
+  signal: ["signal", "signals"],
 };
 
 /** What a selection of many elements holds, and what can be done to all of them at once. */
@@ -1730,10 +1839,10 @@ function SelectionDetails({ refs, draft, commit, onRemove }: { refs: ElementRef[
     .map(([k, n]) => `${n} ${KIND_WORDS[k][n === 1 ? 0 : 1]}`);
   const trackRefs = refs.filter((r) => r.kind === "track" || r.kind === "junction");
   const valueOf = (r: ElementRef, key: "block" | "layer"): string => {
-    if (r.kind === "marker") {
-      // A marker is where its track is.
-      const m = draft.markers?.find((x) => x.id === r.id);
-      return draft.tracks.find((t) => t.id === m?.track)?.[key] ?? "";
+    if (r.kind === "marker" || r.kind === "signal") {
+      // A marker or signal is where its track is.
+      const track = standsOn(draft, r);
+      return draft.tracks.find((t) => t.id === track)?.[key] ?? "";
     }
     const list: { id: string; block?: string; layer?: string }[] = { track: draft.tracks, junction: draft.junctions, platform: draft.platforms, label: draft.labels }[r.kind];
     return list.find((x) => x.id === r.id)?.[key] ?? "";

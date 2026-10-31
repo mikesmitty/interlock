@@ -74,6 +74,9 @@ another, like lunar under a red, takes a head of its own, and a signal
 with two heads is two entities. Every chip on the cable has to be
 connected for the ones after it to work, enabled or not.
 
+Put a head on a [signal](./signals.md) on the track plan and the signal
+sets it from the routes and trains.
+
 ## Live state
 
 Interlock follows the bus. When a node reports an event, every entity

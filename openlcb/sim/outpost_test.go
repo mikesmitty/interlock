@@ -205,6 +205,20 @@ func TestOutpostBehavior(t *testing.T) {
 	box.wait(t, "clear", withEvent(openlcb.MTIEventReport, clearEv))
 }
 
+func TestOutpostEnableHeads(t *testing.T) {
+	_, _, peer, _, _ := simOutpost(t)
+	if err := peer.EnableHeads(2); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for peer.Head(1) != "Red" || peer.Head(2) != "Dark" {
+		if time.Now().After(deadline) {
+			t.Fatalf("heads show %s and %s", peer.Head(1), peer.Head(2))
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+}
+
 func TestOutpostBiColorHead(t *testing.T) {
 	local, _, peer, _, ctx := simOutpost(t)
 	for name, value := range map[string]byte{"OUTR Lamp": 8, "OUTG Lamp": 9, "OUTB Lamp": 0, "Enabled": 1} {

@@ -166,3 +166,74 @@ func TestFouls(t *testing.T) {
 		}
 	}
 }
+
+func TestBlockEnd(t *testing.T) {
+	// The block's turnout decides which way a train leaves it.
+	p := Plan{
+		Grid: DefaultGrid,
+		Points: []Point{
+			{ID: "a", X: 0, Bumper: true}, {ID: "b", X: 100}, {ID: "c", X: 200}, {ID: "d", X: 200, Y: 20},
+			{ID: "e", X: 300}, {ID: "f", X: 300, Y: 20, Bumper: true},
+		},
+		Tracks: []Track{
+			{ID: "t1", A: "a", B: "b", Block: "b1"},
+			{ID: "t2", A: "c", B: "e", Block: "b2"},
+			{ID: "t3", A: "d", B: "f", Block: "b1"},
+		},
+		Junctions: []Junction{{ID: "j", Kind: KindTurnout, Ends: []string{"b", "c", "d"}, At: &Vec{X: 150}, Block: "b1"}},
+		Blocks:    []Block{{ID: "b1", Name: "One"}, {ID: "b2", Name: "Two"}},
+	}
+	n := p.Network()
+	set := func(pos Position) func(string) Position { return func(string) Position { return pos } }
+
+	port, legs, err := n.BlockEnd(Leg{Piece: "t1"}, set(Closed))
+	if err != nil || port.Block != "b1" || port.Point != "c" || port.Heading != 0 || len(legs) != 2 {
+		t.Errorf("closed: port %+v, legs %+v, err %v", port, legs, err)
+	}
+	if _, legs, err = n.BlockEnd(Leg{Piece: "t1"}, set(Thrown)); !errors.Is(err, ErrTrackEnds) || len(legs) != 3 {
+		t.Errorf("thrown: legs %+v, err %v", legs, err)
+	}
+	var against *SetAgainstError
+	if _, _, err = n.BlockEnd(Leg{Piece: "t1"}, set("")); !errors.As(err, &against) {
+		t.Errorf("moving: err %v", err)
+	}
+	if _, _, err = n.BlockEnd(Leg{Piece: "t1", Reverse: true}, set(Closed)); !errors.Is(err, ErrTrackEnds) {
+		t.Errorf("toward the bumper: err %v", err)
+	}
+	leg, err := n.Into(Port{Block: "b2", Point: "c"}, set(Closed))
+	if err != nil || leg != (Leg{Piece: "t2"}) {
+		t.Errorf("into b2: %+v, %v", leg, err)
+	}
+	if _, err = n.Into(Port{Block: "b2", Point: "a"}, set(Closed)); err == nil {
+		t.Error("into a block by a point it doesn't end at")
+	}
+}
+
+func TestDiverges(t *testing.T) {
+	p := Plan{
+		Points: []Point{{ID: "a"}, {ID: "b", X: 100}, {ID: "c", X: 100, Y: 20}, {ID: "d", X: 200}, {ID: "e", X: 300}, {ID: "f", X: 200, Y: 33}, {ID: "g", X: 300, Y: 33}},
+		Junctions: []Junction{
+			{ID: "t", Kind: KindTurnout, Ends: []string{"a", "b", "c"}, At: &Vec{X: 50}},
+			{ID: "x", Kind: KindCrossover, Ends: []string{"d", "e", "f", "g"}},
+		},
+	}
+	n := p.Network()
+	tests := []struct {
+		name string
+		leg  Leg
+		want bool
+	}{
+		{"a turnout's branch from the points", Leg{Piece: "t", Junction: true, Route: 1}, true},
+		{"joining from the branch", Leg{Piece: "t", Junction: true, Route: 1, Reverse: true}, false},
+		{"a turnout straight on", Leg{Piece: "t", Junction: true, Route: 0}, false},
+		{"across a crossover", Leg{Piece: "x", Junction: true, Route: 2}, true},
+		{"across a crossover the other way", Leg{Piece: "x", Junction: true, Route: 2, Reverse: true}, true},
+		{"along a crossover", Leg{Piece: "x", Junction: true, Route: 1}, false},
+		{"plain track", Leg{Piece: "nothing"}, false},
+	}
+	for _, tt := range tests {
+		if got := n.Diverges(tt.leg); got != tt.want {
+			t.Errorf("%s: Diverges = %v, want %v", tt.name, got, tt.want)
+		}
+	}
+}

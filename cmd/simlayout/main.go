@@ -154,6 +154,9 @@ func run(o options, logger *slog.Logger) error {
 		if err != nil {
 			return err
 		}
+		if err := outpost.EnableHeads(layoutsim.TestHeads(i)); err != nil {
+			return err
+		}
 		boards[len(boards)-1].node = outpost
 		hw.outposts[id] = outpost
 	}

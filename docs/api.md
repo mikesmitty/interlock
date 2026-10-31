@@ -31,6 +31,8 @@ is a server-sent event stream; the default is every topic. Events:
 | `tracked`                                              | tracking     | a tracked train, when it moves (a few times a second), is seen or is lost, or with `removed` when it is no longer followed                                      |
 | `route`                                                | interlocking | a route that was set, changed or was released                                                                                                                   |
 | `routes`                                               | interlocking | `{"routes": [...]}`, every route, when a save of the track plan changed them                                                                                    |
+| `signal`                                               | signals      | a signal changed what it shows                                                                                                                                  |
+| `signals`                                              | signals      | `{"signals": [...]}`, every signal, when a save of the track plan changed them                                                                                  |
 | `drive`                                                | driving      | a drive that began, moved on (a few times a second) or ended                                                                                                    |
 | `lagged`                                               |              | the client fell behind and missed events                                                                                                                        |
 
@@ -331,6 +333,7 @@ GET    /api/v1/routes                        {routes: [...]} every route of the 
 GET    /api/v1/routes/{id}                   one route
 POST   /api/v1/routes/{id}/set               set it; 409 {error} saying what stands in the way
 POST   /api/v1/routes/{id}/cancel            {force?} release it; 409 with a train on it unless force
+GET    /api/v1/signals                       {signals: [...]} what every signal on the plan shows
 ```
 
 A route is a way from the end of one block into another over track in no

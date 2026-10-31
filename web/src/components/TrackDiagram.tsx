@@ -4,6 +4,7 @@ import {
   type PlanJunction,
   type PlanTrack,
   type Route,
+  type SignalState,
   type TrackBackground,
   type TrackBlock,
   type TrackLeg,
@@ -13,6 +14,7 @@ import {
   type Vec,
   backgroundURL,
 } from "../api";
+import { aspectState, signalAspects, signalKind, signalMeaning } from "../aspects";
 import { heldLegs } from "../routes";
 import { leadArrow, lineMiddle, locomotiveName } from "../tracking";
 import {
@@ -87,6 +89,8 @@ interface DiagramProps {
   locked?: Map<string, string>;
   /** The stop markers trains being driven are making for. */
   stops?: ReadonlySet<string>;
+  /** What the signals show while operating, by ID. */
+  signals?: Record<string, SignalState>;
 }
 
 /** Line widths in pixels, whatever the zoom. */
@@ -139,6 +143,11 @@ const COMPASS = ["east", "southeast", "south", "southwest", "west", "northwest",
 export const compassWord = (heading: number) => COMPASS[Math.round((((heading % 360) + 360) % 360) / 45) % 8];
 
 /** What is drawn at a place on the screen, from its data attributes. */
+const lampColor = (aspect?: string) => {
+  const color = aspect ? aspectState(aspect).color : "off";
+  return color === "amber" ? "var(--lamp-amber)" : `var(--lamp-${color})`;
+};
+
 function targetAt(x: number, y: number): ElementRef | undefined {
   const el = document.elementFromPoint(x, y)?.closest("[data-id]");
   const kind = el?.getAttribute("data-kind") as ElementKind | null;
@@ -512,6 +521,21 @@ export function TrackDiagram(props: DiagramProps) {
     return [{ m, at: place.at, flag, line, triangle, word: compassWord(place.heading) }];
   });
 
+  // Each signal: a post out from the track on the right of the trains it
+  // is for, and a case of one or two lamps along the track from there,
+  // the upper head nearest the post.
+  const signalMarks = (plan.signals ?? []).flatMap((s) => {
+    const place = markerPlace(index, s);
+    if (!place || !shown(index.tracks.get(s.track)?.layer)) return [];
+    const view = editing ? undefined : props.signals?.[s.id];
+    const across = unit(place.heading + 90);
+    const ahead = unit(place.heading);
+    const foot = add(place.at, scale(across, px(10)));
+    const upper = add(foot, scale(ahead, -px(5)));
+    const lower = view?.lower || s.lower ? add(foot, scale(ahead, -px(14))) : undefined;
+    return [{ s, view, at: place.at, foot, upper, lower, hub: lower ? add(foot, scale(ahead, -px(9))) : upper, word: compassWord(place.heading) }];
+  });
+
   function pathOf(ref: ElementRef): string | undefined {
     if (ref.kind === "track") {
       const t = index.tracks.get(ref.id);
@@ -539,6 +563,11 @@ export function TrackDiagram(props: DiagramProps) {
       const mk = markers.find((x) => x.m.id === ref.id);
       const r = px(9);
       return mk && `M${mk.flag.x - r} ${mk.flag.y}a${r} ${r} 0 1 0 ${2 * r} 0a${r} ${r} 0 1 0 ${-2 * r} 0`;
+    }
+    if (ref.kind === "signal") {
+      const mk = signalMarks.find((x) => x.s.id === ref.id);
+      const r = px(mk?.lower ? 15 : 9);
+      return mk && `M${mk.hub.x - r} ${mk.hub.y}a${r} ${r} 0 1 0 ${2 * r} 0a${r} ${r} 0 1 0 ${-2 * r} 0`;
     }
     const l = plan.labels.find((x) => x.id === ref.id);
     return l && `M${l.x} ${l.y - px(9)}h${px(l.text.length * 7 + 4)}v${px(18)}h${-px(l.text.length * 7 + 4)}Z`;
@@ -656,6 +685,18 @@ export function TrackDiagram(props: DiagramProps) {
         ))}
       </g>
 
+      <g className="trk-signals">
+        {signalMarks.map(({ s, view, at, foot, upper, lower, word }) => (
+          <g key={s.id} className="trk-signal">
+            <title>{`${signalKind(view)} for trains running ${word}${view ? `: ${signalAspects(view)}. ${signalMeaning(view)}` : ""}`}</title>
+            <path className="trk-signal__post" d={`M${at.x} ${at.y}L${foot.x} ${foot.y}`} strokeWidth={2} vectorEffect="non-scaling-stroke" />
+            <path className="trk-signal__case" d={`M${upper.x} ${upper.y}L${(lower ?? upper).x} ${(lower ?? upper).y}`} strokeWidth={11} vectorEffect="non-scaling-stroke" />
+            <circle cx={upper.x} cy={upper.y} r={px(3.5)} fill={lampColor(view?.upper)} />
+            {lower && <circle cx={lower.x} cy={lower.y} r={px(3.5)} fill={lampColor(view?.lower)} />}
+          </g>
+        ))}
+      </g>
+
       <g className="trk-trains">
         {placed.map((t) => {
           const points = t.line!.map((p) => `${p.x},${p.y}`).join(" ");
@@ -740,6 +781,10 @@ export function TrackDiagram(props: DiagramProps) {
               );
             })}
           {editing && markers.map(({ m, flag }) => <circle key={m.id} data-kind="marker" data-id={m.id} cx={flag.x} cy={flag.y} r={px(8)} fill="transparent" stroke="none" />)}
+          {editing &&
+            signalMarks.map(({ s, hub, lower }) => (
+              <circle key={s.id} data-kind="signal" data-id={s.id} cx={hub.x} cy={hub.y} r={px(lower ? 13 : 8)} fill="transparent" stroke="none" />
+            ))}
           {editing &&
             plan.labels
               .filter((l) => shown(l.layer))

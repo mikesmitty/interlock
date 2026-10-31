@@ -37,6 +37,7 @@ import (
 	"github.com/mikesmitty/interlock/internal/registry"
 	"github.com/mikesmitty/interlock/internal/replace"
 	"github.com/mikesmitty/interlock/internal/server"
+	"github.com/mikesmitty/interlock/internal/signals"
 	"github.com/mikesmitty/interlock/internal/store"
 	"github.com/mikesmitty/interlock/internal/tracking"
 	"github.com/mikesmitty/interlock/internal/trackplan"
@@ -266,6 +267,14 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	tracker.Subscribe(interlock.HandleTrain)
 	trackPlan.Subscribe(interlock.HandlePlan)
 
+	// The signals: what the plan's signals show, from the routes and the
+	// trains, set on their heads.
+	aspects := signals.New(signals.Options{Entities: entities, Plan: trackPlan, Tracking: tracker, Interlocking: interlock, Logger: logger})
+	entities.Subscribe(aspects.HandleEntity)
+	tracker.Subscribe(aspects.HandleTrain)
+	trackPlan.Subscribe(aspects.HandlePlan)
+	interlock.Subscribe(aspects.HandleRoutes)
+
 	// Driving: trains run to their stops over the routes the interlocking
 	// sets, at the speeds tracking has measured.
 	driver := driving.New(driving.Options{Tracking: tracker, Interlocking: interlock, Trains: trains, Plan: trackPlan, Entities: entities, Logger: logger})
@@ -365,7 +374,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	}
 
 	var wg sync.WaitGroup
-	wg.Add(11)
+	wg.Add(12)
 	go func() {
 		defer wg.Done()
 		if err := decoders.Download(ctx); err != nil && ctx.Err() == nil {
@@ -426,6 +435,10 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	}()
 	go func() {
 		defer wg.Done()
+		_ = aspects.Run(ctx)
+	}()
+	go func() {
+		defer wg.Done()
 		_ = driver.Run(ctx)
 	}()
 
@@ -454,6 +467,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			TrackPlan:    trackPlan,
 			Tracking:     tracker,
 			Interlocking: interlock,
+			Signals:      aspects,
 			Driving:      driver,
 			Replace:      replacer,
 			Restart:      restart,

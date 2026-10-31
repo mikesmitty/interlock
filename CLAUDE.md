@@ -38,7 +38,8 @@ applied at the next start; the replaced files go to `before-restore-*/`.
   command and walks a locomotive around its tracks (`-pace`).
 - `cmd/simlayout/` — a simulated layout for an Interlock of its own: a
   command station, outposts and trains running on that Interlock's track
-  plan (`internal/layoutsim`). Seeds its test layout into an empty plan.
+  plan (`internal/layoutsim`). Seeds its test layout into an empty plan,
+  and enables the signal heads that layout's signals use.
 - `openlcb/` — public OpenLCB protocol packages. **Must not import
   `internal/`**; other Go programs should be able to use them.
   - `openlcb` core types (NodeID, EventID, MTI, Message, SNIP, PIP, errors)
@@ -114,7 +115,8 @@ applied at the next start; the replaced files go to `before-restore-*/`.
   turning by an angle), junctions (turnout, wye, crossing, crossover,
   double crossover; their ends in a fixed order and fixed routes),
   platforms, stop markers (a spot on a track, for trains running one way,
-  up to a length), labels, layers, blocks linked to their block and
+  up to a length), signals (the same, with their heads), labels, layers,
+  blocks linked to their block and
   reporter entities, stations. `Topology` works out open ends, kinks, each
   block's ends and length, and the links between block ends with their
   length and the junction positions on the way, which is what
@@ -146,6 +148,14 @@ applied at the next start; the replaced files go to `before-restore-*/`.
   client), released leg by leg behind the train by tracking's stretch
   with a clearance (`Network.Fouls` says which legs share track), and
   kept over a restart. One goroutine owns the state (`state.go`).
+- `internal/signals` — what the plan's signals show, and sets their
+  heads: the track ahead makes a signal home (a junction, needing a
+  route) or automatic (plain track), its upper head says stop, approach
+  or clear from the next signal and its lower head the route, in the
+  subway's aspects (`aspect.go`, a pure look at a snapshot of the plan,
+  routes, trains and entities). Shows only; stops no train. One
+  goroutine owns the state; a head on a signal is put back if anything
+  else sets it.
 - `internal/driving` — drives trains: a drive finds the way to a block
   over the interlocking's routes (`course.go`), sets them, and each tick
   sets the train's speed from tracking's estimate (`Tracker.Estimate`)

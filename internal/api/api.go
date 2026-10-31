@@ -91,6 +91,8 @@ type Deps struct {
 	Tracking Tracking
 	// Interlocking sets routes over the plan; nil disables it.
 	Interlocking Interlocking
+	// Signals are what the plan's signals show; nil disables them.
+	Signals Signals
 	// Driving drives trains on their own; nil disables it.
 	Driving Driving
 	// Replace moves what names one node over to another; nil disables it.
@@ -235,6 +237,7 @@ func New(deps Deps) *API {
 	a.mux.HandleFunc("GET /api/v1/routes/{id}", a.getRoute)
 	a.mux.HandleFunc("POST /api/v1/routes/{id}/set", a.setRoute)
 	a.mux.HandleFunc("POST /api/v1/routes/{id}/cancel", a.cancelRoute)
+	a.mux.HandleFunc("GET /api/v1/signals", a.listSignals)
 	a.mux.HandleFunc("GET /api/v1/driving", a.listDrives)
 	a.mux.HandleFunc("GET /api/v1/driving/{train}", a.getDrive)
 	a.mux.HandleFunc("POST /api/v1/driving/{train}", a.startDrive)

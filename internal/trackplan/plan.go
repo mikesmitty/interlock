@@ -50,6 +50,7 @@ type Plan struct {
 	Junctions []Junction `json:"junctions" yaml:"junctions,omitempty"`
 	Platforms []Platform `json:"platforms" yaml:"platforms,omitempty"`
 	Markers   []Marker   `json:"markers" yaml:"markers,omitempty"`
+	Signals   []Signal   `json:"signals" yaml:"signals,omitempty"`
 	Labels    []Label    `json:"labels" yaml:"labels,omitempty"`
 	Layers    []Layer    `json:"layers" yaml:"layers,omitempty"`
 	Blocks    []Block    `json:"blocks" yaml:"blocks,omitempty"`
@@ -128,6 +129,26 @@ type Marker struct {
 	Reverse bool `json:"reverse,omitempty" yaml:"reverse,omitempty"`
 	// Length is the longest train it is for, in millimeters; 0 for any.
 	Length float64 `json:"length,omitempty" yaml:"length,omitempty"`
+}
+
+// Signal is a signal for trains running one way past it, governing the
+// way out of the block its track is in. Whether it is a home signal,
+// which needs a route set, or an automatic one, which follows the trains,
+// comes from the track ahead (internal/signals works out what it shows).
+type Signal struct {
+	ID    string `json:"id" yaml:"id"`
+	Track string `json:"track" yaml:"track"`
+	// At is how far along the track it stands, in millimeters from the
+	// track's A end.
+	At float64 `json:"at" yaml:"at"`
+	// Reverse is a signal for trains running toward the track's A end;
+	// otherwise it is for those running toward its B end.
+	Reverse bool `json:"reverse,omitempty" yaml:"reverse,omitempty"`
+	// Upper is the signal head entity of its upper or only head, and
+	// Lower that of a home signal's lower head, which shows the route.
+	// Without them it is a signal on the plan alone.
+	Upper string `json:"upper,omitempty" yaml:"upper,omitempty"`
+	Lower string `json:"lower,omitempty" yaml:"lower,omitempty"`
 }
 
 // Label is text on the plan, such as a station's name.
@@ -212,6 +233,12 @@ func (m Marker) MarshalYAML() (any, error) {
 	return flow(plain(m))
 }
 
+// MarshalYAML writes the signal on one line.
+func (s Signal) MarshalYAML() (any, error) {
+	type plain Signal
+	return flow(plain(s))
+}
+
 // MarshalYAML writes the label on one line.
 func (l Label) MarshalYAML() (any, error) {
 	type plain Label
@@ -272,8 +299,8 @@ func (s idSet) add(id string) error {
 // no point joins more than two pieces of track, junctions have the ends
 // their kind needs, and every block, station and layer named exists.
 func (p Plan) Validate() error {
-	if n := len(p.Points) + len(p.Tracks) + len(p.Junctions) + len(p.Platforms) + len(p.Markers) + len(p.Labels); n > MaxElements {
-		return invalid("a plan can have at most %d points, tracks, junctions, platforms, markers and labels", MaxElements)
+	if n := len(p.Points) + len(p.Tracks) + len(p.Junctions) + len(p.Platforms) + len(p.Markers) + len(p.Signals) + len(p.Labels); n > MaxElements {
+		return invalid("a plan can have at most %d points, tracks, junctions, platforms, markers, signals and labels", MaxElements)
 	}
 	if !finite(p.Grid) || p.Grid <= 0 || p.Grid > MaxGrid {
 		return invalid("the grid spacing must be above 0 and at most %d mm", MaxGrid)
@@ -440,6 +467,28 @@ func (p Plan) Validate() error {
 			return invalid("marker %s needs a place along its track and a length between 0 and %d mm", m.ID, MaxLengthMM)
 		}
 	}
+	signals := newIDSet("signal", len(p.Signals))
+	heads := make(map[string]string, 2*len(p.Signals))
+	for _, sg := range p.Signals {
+		if err := signals.add(sg.ID); err != nil {
+			return err
+		}
+		if !tracks.seen[sg.Track] {
+			return invalid("signal %s is on track %q, which isn't in the plan", sg.ID, sg.Track)
+		}
+		if !finite(sg.At) || sg.At < 0 || sg.At > MaxCoord {
+			return invalid("signal %s needs a place along its track", sg.ID)
+		}
+		for _, head := range []string{sg.Upper, sg.Lower} {
+			if head == "" {
+				continue
+			}
+			if other, ok := heads[head]; ok {
+				return invalid("signals %s and %s can't both drive the head %s", other, sg.ID, head)
+			}
+			heads[head] = sg.ID
+		}
+	}
 	labels := newIDSet("label", len(p.Labels))
 	for _, l := range p.Labels {
 		if err := labels.add(l.ID); err != nil {
@@ -469,9 +518,9 @@ func checkName(what, id, name string) error {
 }
 
 // Normalize puts a plan in its saved form: points no track uses and
-// markers on track no longer there dropped, markers kept on their
-// track's length, elements in ID order, positions to a hundredth of a millimeter, names
-// trimmed and no nil lists.
+// markers and signals on track no longer there dropped, both kept on
+// their track's length, elements in ID order, positions to a hundredth of
+// a millimeter, names trimmed and no nil lists.
 func (p Plan) Normalize() Plan {
 	used := map[string]bool{}
 	for _, t := range p.Tracks {
@@ -488,6 +537,7 @@ func (p Plan) Normalize() Plan {
 		Junctions:  make([]Junction, len(p.Junctions)),
 		Platforms:  make([]Platform, len(p.Platforms)),
 		Markers:    []Marker{},
+		Signals:    []Signal{},
 		Labels:     make([]Label, len(p.Labels)),
 		Layers:     make([]Layer, len(p.Layers)),
 		Blocks:     make([]Block, len(p.Blocks)),
@@ -531,6 +581,14 @@ func (p Plan) Normalize() Plan {
 		m.At, m.Length = round2(min(max(m.At, 0), length)), round2(m.Length)
 		out.Markers = append(out.Markers, m)
 	}
+	for _, sg := range p.Signals {
+		length, ok := lengths[sg.Track]
+		if !ok {
+			continue
+		}
+		sg.At = round2(min(max(sg.At, 0), length))
+		out.Signals = append(out.Signals, sg)
+	}
 	for i, l := range p.Labels {
 		l.X, l.Y, l.Text = round2(l.X), round2(l.Y), strings.TrimSpace(l.Text)
 		out.Labels[i] = l
@@ -553,6 +611,7 @@ func (p Plan) Normalize() Plan {
 	slices.SortFunc(out.Junctions, func(a, b Junction) int { return byID(a.ID, b.ID) })
 	slices.SortFunc(out.Platforms, func(a, b Platform) int { return byID(a.ID, b.ID) })
 	slices.SortFunc(out.Markers, func(a, b Marker) int { return byID(a.ID, b.ID) })
+	slices.SortFunc(out.Signals, func(a, b Signal) int { return byID(a.ID, b.ID) })
 	slices.SortFunc(out.Labels, func(a, b Label) int { return byID(a.ID, b.ID) })
 	return out
 }

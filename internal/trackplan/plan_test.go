@@ -55,6 +55,14 @@ func TestValidate(t *testing.T) {
 			p.Tracks = append(p.Tracks, Track{ID: "t9", A: "u1", B: "z"})
 		}, "more than two"},
 		{"full circle", func(p *Plan) { p.Tracks[0].Angle = 360 }, "full circle"},
+		{"signal on no track", func(p *Plan) { p.Signals = []Signal{{ID: "s1", Track: "nowhere"}} }, "signal s1 is on track"},
+		{"signal off its track", func(p *Plan) { p.Signals = []Signal{{ID: "s1", Track: p.Tracks[0].ID, At: -1}} }, "place along its track"},
+		{"repeated signal", func(p *Plan) {
+			p.Signals = []Signal{{ID: "s1", Track: p.Tracks[0].ID}, {ID: "s1", Track: p.Tracks[0].ID}}
+		}, "two of the plan's signals"},
+		{"a head on two signals", func(p *Plan) {
+			p.Signals = []Signal{{ID: "s1", Track: p.Tracks[0].ID, Upper: "h"}, {ID: "s2", Track: p.Tracks[0].ID, Lower: "h"}}
+		}, "can't both drive"},
 		{"unknown kind", func(p *Plan) { p.Junctions[0].Kind = "slip" }, "kinds are"},
 		{"too few ends", func(p *Plan) { p.Junctions[0].Ends = p.Junctions[0].Ends[:3] }, "needs 4 ends"},
 		{"turnout without its middle", func(p *Plan) {

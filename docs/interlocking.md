@@ -102,8 +102,8 @@ it again when a detector next sees it run into a block.
 
 ## What it doesn't do yet
 
-- **Signals.** Nothing shows a driver that a route is set, other than
-  the Track page.
+- **Stopping a train at a signal.** [Signals](./signals.md) show the
+  routes set, but a train on a throttle can run past a red one.
 - **Approach locking.** A route can be canceled while a train is about
   to run onto it.
 - **A trip stop.** A train that runs into a block without a route isn't

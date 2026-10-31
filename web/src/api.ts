@@ -317,6 +317,21 @@ export interface PlanMarker {
   length?: number;
 }
 
+/** A signal for trains running one way past it, governing the way out of
+ * the block its track is in. */
+export interface PlanSignal {
+  id: string;
+  track: string;
+  /** Millimeters along the track from its A end. */
+  at: number;
+  /** For trains running toward the track's A end; else toward its B end. */
+  reverse?: boolean;
+  /** The signal head entity of its upper or only head. */
+  upper?: string;
+  /** The signal head entity of a home signal's lower head. */
+  lower?: string;
+}
+
 export interface PlanLabel extends Vec {
   id: string;
   text: string;
@@ -367,6 +382,7 @@ export interface TrackPlan {
   junctions: PlanJunction[];
   platforms: PlanPlatform[];
   markers?: PlanMarker[];
+  signals?: PlanSignal[];
   labels: PlanLabel[];
   layers: PlanLayer[];
   blocks: TrackBlock[];
@@ -497,6 +513,24 @@ export interface Route {
   /** How many of its legs, from the first, have been released behind the train. */
   released?: number;
   since?: string;
+}
+
+/** What a signal on the plan shows. */
+export interface SignalState {
+  id: string;
+  /** Absent for a signal with no block end ahead of it to govern. */
+  kind?: "home" | "automatic";
+  indication: "stop" | "approach" | "clear";
+  /** A home signal clearing a train off the straight way. */
+  diverging?: boolean;
+  /** The way on, by route ID, when it doesn't say stop. */
+  route?: string;
+  /** The aspect of its upper or only head. */
+  upper: string;
+  /** The aspect of a lower head. */
+  lower?: string;
+  /** Why it is at stop. */
+  reason?: string;
 }
 
 /** How a drive stands: going (starting, running, braking, stopping) or ended. */
@@ -1204,6 +1238,7 @@ export const api = {
   routes: () => request<{ routes: Route[] }>("/api/v1/routes"),
   setRoute: (id: string) => request<Route>(`/api/v1/routes/${encodeURIComponent(id)}/set`, { method: "POST" }),
   cancelRoute: (id: string, force = false) => request<Route>(`/api/v1/routes/${encodeURIComponent(id)}/cancel`, { method: "POST", body: JSON.stringify({ force }) }),
+  signals: () => request<{ signals: SignalState[] }>("/api/v1/signals"),
   drives: () => request<{ drives: Drive[] }>("/api/v1/driving"),
   drive: (train: string, req: DriveRequest) => request<Drive>(`/api/v1/driving/${encodeURIComponent(train)}`, { method: "POST", body: JSON.stringify(req) }),
   measureSpeeds: (train: string, steps: number[]) => request<Drive>(`/api/v1/driving/${encodeURIComponent(train)}/measure`, { method: "POST", body: JSON.stringify({ steps }) }),

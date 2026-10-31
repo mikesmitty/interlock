@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/mikesmitty/interlock/internal/interlocking"
+	"github.com/mikesmitty/interlock/internal/signals"
 	"github.com/mikesmitty/interlock/internal/tracking"
 )
 
@@ -92,6 +93,26 @@ func TestRouteEndpoints(t *testing.T) {
 	}
 	if rec, _ := ta.do(t, http.MethodPost, "/api/v1/routes/a~b/cancel", `{"force": `); rec.Code != http.StatusBadRequest {
 		t.Errorf("cancel with a broken body = %d", rec.Code)
+	}
+}
+
+type fakeSignals struct{}
+
+func (fakeSignals) List() []signals.Signal {
+	return []signals.Signal{{ID: "s1", Kind: signals.KindHome, Indication: signals.Stop, Upper: "red", Lower: "red", Reason: "No route is set."}}
+}
+func (fakeSignals) Subscribe(signals.Subscriber) func() { return func() {} }
+
+func TestSignalEndpoint(t *testing.T) {
+	ta := newTestAPI()
+	if rec, _ := ta.do(t, http.MethodGet, "/api/v1/signals", ""); rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("without signals = %d", rec.Code)
+	}
+	ta.api.deps.Signals = fakeSignals{}
+	rec, body := ta.do(t, http.MethodGet, "/api/v1/signals", "")
+	list, _ := body["signals"].([]any)
+	if rec.Code != http.StatusOK || len(list) != 1 || list[0].(map[string]any)["kind"] != "home" {
+		t.Errorf("GET signals = %d %v", rec.Code, body)
 	}
 }
 

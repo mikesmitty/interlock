@@ -18,6 +18,7 @@ import (
 	"github.com/mikesmitty/interlock/internal/monitor"
 	"github.com/mikesmitty/interlock/internal/programmer"
 	"github.com/mikesmitty/interlock/internal/registry"
+	"github.com/mikesmitty/interlock/internal/signals"
 	"github.com/mikesmitty/interlock/internal/tracking"
 	"github.com/mikesmitty/interlock/internal/trackplan"
 	"github.com/mikesmitty/interlock/internal/train"
@@ -47,13 +48,15 @@ import (
 //	tracked      tracking.Train     a tracked train moved, was seen or was lost (topic "tracking")
 //	route        interlocking.Route a route was set, changed or released (topic "interlocking")
 //	routes       {"routes": [...]}  the plan changed the routes (topic "interlocking")
+//	signal       signals.Signal     a signal changed what it shows (topic "signals")
+//	signals      {"signals": [...]} the plan changed the signals (topic "signals")
 //	drive        driving.Drive      a drive began, moved on or ended (topic "driving")
 //	lagged       {}                 the client fell behind and entries were skipped
 //
 // The topics query parameter selects a comma separated subset of
 // nodes, links, monitor, entities, automations, trains, clock,
-// trackplan, tracking, interlocking and driving; the default is all of
-// them.
+// trackplan, tracking, interlocking, signals and driving; the default
+// is all of them.
 
 const (
 	sseQueue     = 1024
@@ -71,7 +74,7 @@ func (a *API) events(w http.ResponseWriter, r *http.Request) {
 	flush := func() bool {
 		return rc.Flush() == nil
 	}
-	topics := map[string]bool{"nodes": true, "links": true, "monitor": true, "entities": true, "automations": true, "trains": true, "clock": true, "trackplan": true, "tracking": true, "interlocking": true, "driving": true}
+	topics := map[string]bool{"nodes": true, "links": true, "monitor": true, "entities": true, "automations": true, "trains": true, "clock": true, "trackplan": true, "tracking": true, "interlocking": true, "signals": true, "driving": true}
 	if s := r.URL.Query().Get("topics"); s != "" {
 		topics = map[string]bool{}
 		for _, t := range strings.Split(s, ",") {
@@ -144,6 +147,16 @@ func (a *API) events(w http.ResponseWriter, r *http.Request) {
 				push(sseEvent{"route", u.Route})
 			} else {
 				push(sseEvent{"routes", map[string]any{"routes": u.Routes}})
+			}
+		})
+		defer unsubscribe()
+	}
+	if topics["signals"] && a.deps.Signals != nil {
+		unsubscribe := a.deps.Signals.Subscribe(func(u signals.Update) {
+			if u.Signal != nil {
+				push(sseEvent{"signal", u.Signal})
+			} else {
+				push(sseEvent{"signals", map[string]any{"signals": u.Signals}})
 			}
 		})
 		defer unsubscribe()

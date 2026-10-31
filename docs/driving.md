@@ -145,8 +145,9 @@ of date; measure them again.
 - **A train of two locomotives** with their own addresses.
 - **Reversing at the end of a drive.** A drive takes a train one way, to
   one block; a drive back is a second drive.
-- **Signals.** A train driven by hand isn't stopped by Interlock if it
-  runs into a block without a route.
+- **A trip stop.** A train driven by hand isn't stopped by Interlock if
+  it runs past a red [signal](./signals.md) or into a block without a
+  route.
 
 ## Trying it without hardware
 

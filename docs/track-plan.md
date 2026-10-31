@@ -102,7 +102,10 @@ Ctrl+Z) and **Redo** step back and forth through your changes.
 - **Block** (B): drag over track to put it in the block chosen under
   Blocks. Hold Option or Alt while dragging to take track out of its
   block.
-- **Erase** (E): click or drag over track, platforms, markers and
+- **Signal** (S): click on track near the end of a block to put a
+  signal there; set the way its trains run and its heads on the right.
+  See [Signals](./signals.md).
+- **Erase** (E): click or drag over track, platforms, markers, signals and
   labels to remove them.
 - **Select** (V): click track, a platform or a label to see what it is
   and change it: a curve's radius and length, a turnout's switch

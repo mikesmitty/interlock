@@ -10,7 +10,8 @@ import (
 const area = "Track plan"
 
 // Rewrite renames the entities the plan links: its turnouts' switch
-// machines and its blocks' detectors and reporters. With apply false it
+// machines, its blocks' detectors and reporters and its signals' heads.
+// With apply false it
 // only reports what would change; with apply true it saves the changed
 // plan as a new revision.
 func (f *File) Rewrite(rw refs.Rewrite, apply bool) ([]refs.Change, error) {
@@ -18,6 +19,7 @@ func (f *File) Rewrite(rw refs.Rewrite, apply bool) ([]refs.Change, error) {
 	plan := st.Plan
 	plan.Junctions = slices.Clone(plan.Junctions)
 	plan.Blocks = slices.Clone(plan.Blocks)
+	plan.Signals = slices.Clone(plan.Signals)
 	var changes []refs.Change
 	points := make(map[string]Point, len(plan.Points))
 	for _, pt := range plan.Points {
@@ -36,6 +38,15 @@ func (f *File) Rewrite(rw refs.Rewrite, apply bool) ([]refs.Change, error) {
 		}
 		if c, ok := rw.RenameEntity(&b.Reporter); ok {
 			changes = append(changes, c.In(area, "Block "+b.Name, "reporter"))
+		}
+	}
+	for i := range plan.Signals {
+		sg := &plan.Signals[i]
+		if c, ok := rw.RenameEntity(&sg.Upper); ok {
+			changes = append(changes, c.In(area, "Signal "+sg.ID, "upper head"))
+		}
+		if c, ok := rw.RenameEntity(&sg.Lower); ok {
+			changes = append(changes, c.In(area, "Signal "+sg.ID, "lower head"))
 		}
 	}
 	if !apply || len(changes) == 0 {
