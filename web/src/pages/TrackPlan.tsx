@@ -45,6 +45,7 @@ import {
   corners,
   crossoverSide,
   dist,
+  endLayer,
   endNear,
   exists,
   freeEnds,
@@ -1463,7 +1464,7 @@ function Editor({
               selected={current}
               box={box}
               hover={hover}
-              marks={ends}
+              marks={ends.filter((p) => !hidden.has(endLayer(index, p.id) ?? ""))}
               snapTo={preview.snapTo}
               preview={preview.paths}
               background={draft.background}

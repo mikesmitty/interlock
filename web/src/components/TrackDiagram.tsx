@@ -26,6 +26,7 @@ import {
   add,
   arcInfo,
   corners,
+  endLayer,
   junctionCenter,
   markerPlace,
   outward,
@@ -504,7 +505,7 @@ export function TrackDiagram(props: DiagramProps) {
     if (at) tags.push({ id: `train-${t.id}`, at, text: t.name, train: true });
   }
 
-  const bumpers = plan.points.filter((p) => p.bumper && index.at.get(p.id)?.length === 1);
+  const bumpers = plan.points.filter((p) => p.bumper && index.at.get(p.id)?.length === 1 && shown(endLayer(index, p.id)));
 
   // Each stop marker: a line across the track and, beside it on the
   // right of the trains it is for, a flag pointing the way they run.

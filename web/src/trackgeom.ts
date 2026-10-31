@@ -212,6 +212,12 @@ export function indexPlan(plan: Pick<TrackPlan, "points" | "tracks" | "junctions
   return index;
 }
 
+/** The layer of the piece ending at a point; a point has none of its own. */
+export function endLayer(index: PlanIndex, point: string): string | undefined {
+  const a = index.at.get(point)?.[0];
+  return a && (a.kind === "track" ? index.tracks.get(a.id) : index.junctions.get(a.id))?.layer;
+}
+
 /** The heading the track at a piece's end leaves by. */
 export function outward(index: PlanIndex, a: Attach): number | undefined {
   if (a.kind === "track") {

@@ -6,6 +6,7 @@ import {
   arcFrom,
   arcInfo,
   backgroundBounds,
+  endLayer,
   indexPlan,
   idMaker,
   junctionCenter,
@@ -148,6 +149,17 @@ test("open ends and the way track leaves them", () => {
   );
   near(outward(index, index.at.get("p3")![0])!, 90);
   near(normalizeDegrees(outward(index, index.at.get("p1")![0])!), 180);
+});
+
+test("an end is on the layer of its piece", () => {
+  const index = indexPlan({
+    points: line.points,
+    tracks: [{ ...line.tracks[0], layer: "lower" }, line.tracks[1]],
+    junctions: [],
+  });
+  assert.equal(endLayer(index, "p1"), "lower");
+  assert.equal(endLayer(index, "p3"), undefined);
+  assert.equal(endLayer(index, "nowhere"), undefined);
 });
 
 test("idMaker and mergeTrack give imported track IDs of its own", () => {
