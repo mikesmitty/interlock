@@ -44,17 +44,16 @@ entities:
       flashing_yellow: Flashing Yellow Event
       flashing_green: Flashing Green Event
     # Only the aspects a head has a lamp for are on the bus; dark always is.
-    # The sides of a bi-color LED, 8 and 9, light together for yellow.
     needs:
       variables: [OUTR Lamp, OUTG Lamp, OUTB Lamp]
       values:
-        red: ["1", "8"]
-        flashing_red: ["1", "8"]
-        yellow: ["2", "8", "9"]
-        flashing_yellow: ["2", "8", "9"]
-        green: ["3", "9"]
-        flashing_green: ["3", "9"]
-        lunar: ["4"]
-        s: ["5"]
-        d: ["6"]
-        number: ["7"]
+        red: "1"
+        flashing_red: "1"
+        yellow: "2"
+        flashing_yellow: "2"
+        green: "3"
+        flashing_green: "3"
+        lunar: "4"
+        s: "5"
+        d: "6"
+        number: "7"

@@ -2,7 +2,6 @@ package profile
 
 import (
 	"regexp"
-	"slices"
 	"strconv"
 	"strings"
 
@@ -195,7 +194,7 @@ func (n *Needs) met(role string, vars []cdi.Variable, values map[string]string) 
 		return true
 	}
 	for _, name := range n.Variables {
-		if v, ok := findVariable(vars, Binding{Match: name}, nil, ""); ok && slices.Contains(want, strings.TrimSpace(values[v.Key()])) {
+		if v, ok := findVariable(vars, Binding{Match: name}, nil, ""); ok && strings.TrimSpace(values[v.Key()]) == want {
 			return true
 		}
 	}

@@ -203,11 +203,9 @@ func TestOutpostSignalHeads(t *testing.T) {
 		lunar          = "signal_head.0a0000000042.head_2"
 		noLamps        = "signal_head.0a0000000042.head_3"
 		disabled       = "signal_head.0a0000000042.head_4"
-		biColor        = "signal_head.0a0000000042.head_5"
 	)
 	// Head 1 keeps the default red, green and yellow; head 2 is a lunar
-	// lamp on its own, wired twice; head 3 has no lamps; head 5 is a
-	// bi-color LED, which makes yellow from both its sides.
+	// lamp on its own, wired twice; head 3 has no lamps.
 	put("Signal Heads/Head 1/Enabled", "1")
 	put("Signal Heads/Head 1/Description", "Times Sq home")
 	put("Signal Heads/Head 2/Enabled", "1")
@@ -218,10 +216,6 @@ func TestOutpostSignalHeads(t *testing.T) {
 	put("Signal Heads/Head 3/OUTR Lamp", "0")
 	put("Signal Heads/Head 3/OUTG Lamp", "0")
 	put("Signal Heads/Head 3/OUTB Lamp", "0")
-	put("Signal Heads/Head 5/Enabled", "1")
-	put("Signal Heads/Head 5/OUTR Lamp", "8")
-	put("Signal Heads/Head 5/OUTG Lamp", "9")
-	put("Signal Heads/Head 5/OUTB Lamp", "0")
 
 	ids := byID(set.Build(outpostNode(), doc, values))
 	if _, ok := ids[disabled]; ok {
@@ -238,10 +232,6 @@ func TestOutpostSignalHeads(t *testing.T) {
 		}},
 		{lunar, "Yard Head 2", map[string]openlcb.EventID{"dark": nodeID.Event(0x110), "lunar": nodeID.Event(0x114)}},
 		{noLamps, "Yard Head 3", map[string]openlcb.EventID{"dark": nodeID.Event(0x120)}},
-		{biColor, "Yard Head 5", map[string]openlcb.EventID{
-			"dark": nodeID.Event(0x140), "red": nodeID.Event(0x141), "yellow": nodeID.Event(0x142), "green": nodeID.Event(0x143),
-			"flashing_red": nodeID.Event(0x148), "flashing_yellow": nodeID.Event(0x149), "flashing_green": nodeID.Event(0x14A),
-		}},
 	}
 	for _, tt := range tests {
 		spec, ok := ids[tt.id]
@@ -363,8 +353,8 @@ entities:
 		"events as list": "name: x\nmatch: {any: true}\nentities: [{kind: block, events: [occupied, clear]}]\n",
 		"no entities":    "name: x\nmatch: {any: true}\n",
 		"no events":      "name: x\nmatch: {any: true}\nentities: [{kind: signal_head, group: Head}]\n",
-		"needs nothing":  "name: x\nmatch: {any: true}\nentities: [{kind: signal_head, events: {red: a}, needs: {values: {red: ['1']}}}]\n",
-		"needs a role":   "name: x\nmatch: {any: true}\nentities: [{kind: signal_head, events: {red: a}, needs: {variables: [b], values: {green: ['1']}}}]\n",
+		"needs nothing":  "name: x\nmatch: {any: true}\nentities: [{kind: signal_head, events: {red: a}, needs: {values: {red: '1'}}}]\n",
+		"needs a role":   "name: x\nmatch: {any: true}\nentities: [{kind: signal_head, events: {red: a}, needs: {variables: [b], values: {green: '1'}}}]\n",
 	}
 	for name, text := range bad {
 		if _, err := Parse([]byte(text), name); err == nil {

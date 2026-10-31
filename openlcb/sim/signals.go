@@ -14,18 +14,8 @@ const (
 	aspectRed  = 1
 )
 
-// The lamps a head's outputs can have, by their values in the CDI, where
-// an aspect's own lamp isn't enough to say.
-const (
-	lampRed         = 1
-	lampYellow      = 2
-	lampGreen       = 3
-	lampRedYellow   = 8
-	lampGreenYellow = 9
-)
-
 // headAspects are a head's aspects in the firmware's order, each named as
-// its event is in the CDI, with the lamp it lights.
+// its event is in the CDI, with the lamp it lights by its value there.
 var headAspects = [...]struct {
 	name string
 	lamp int
@@ -52,26 +42,13 @@ func headPath(h int, name string) string {
 	return fmt.Sprintf("Signal Heads/Head %d/%s", h+1, name)
 }
 
-// outputLights reports whether an output with one lamp lights for an
-// aspect's lamp. The sides of a bi-color LED light for their own color and
-// together for yellow.
-func outputLights(output, lamp int) bool {
-	switch output {
-	case lampRedYellow:
-		return lamp == lampRed || lamp == lampYellow
-	case lampGreenYellow:
-		return lamp == lampGreen || lamp == lampYellow
-	}
-	return output == lamp
-}
-
 // canShow reports whether a head has a lamp for an aspect.
 func (o *Outpost) canShow(h, a int) bool {
 	if a == aspectDark {
 		return true
 	}
 	for _, output := range []string{"OUTR Lamp", "OUTG Lamp", "OUTB Lamp"} {
-		if outputLights(o.intValue(headPath(h, output)), headAspects[a].lamp) {
+		if o.intValue(headPath(h, output)) == headAspects[a].lamp {
 			return true
 		}
 	}

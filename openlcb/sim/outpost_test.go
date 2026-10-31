@@ -219,30 +219,6 @@ func TestOutpostEnableHeads(t *testing.T) {
 	}
 }
 
-func TestOutpostBiColorHead(t *testing.T) {
-	local, _, peer, _, ctx := simOutpost(t)
-	for name, value := range map[string]byte{"OUTR Lamp": 8, "OUTG Lamp": 9, "OUTB Lamp": 0, "Enabled": 1} {
-		for _, v := range peer.Doc.Variables() {
-			if strings.Join(v.Path, "/") == "Signal Heads/Head 1/"+name {
-				if err := peer.Config.Write(v.Address, []byte{value}); err != nil {
-					t.Fatal(err)
-				}
-			}
-		}
-	}
-	// Yellow is on the bus though no output has a yellow lamp of its own.
-	deadline := time.Now().Add(2 * time.Second)
-	for peer.Head(0) != "Yellow" {
-		if time.Now().After(deadline) {
-			t.Fatalf("head 1 = %s, want Yellow", peer.Head(0))
-		}
-		if err := local.Send(ctx, openlcb.Message{MTI: openlcb.MTIEventReport, Payload: peerID.Event(0x102).AsSlice()}); err != nil {
-			t.Fatal(err)
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-}
-
 func TestOutpostSignalHeads(t *testing.T) {
 	local, _, peer, box, ctx := simOutpost(t)
 	darkEv, red, yellow, lunar := peerID.Event(0x100), peerID.Event(0x101), peerID.Event(0x102), peerID.Event(0x104)

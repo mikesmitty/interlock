@@ -294,7 +294,7 @@
 <string size='3'/>
 <group replication='16'>
 <name>Head</name>
-<description>A head is one chip with a lamp on each of its three outputs, and it lights one kind of lamp at a time. A light that shows alongside another, like lunar under a red, needs a chip of its own: use the next head for it. A bi-color LED makes yellow from red and green: choose Red and Yellow on its red output and Green and Yellow on its green one. Only the events for lamps this head has are on the bus.</description>
+<description>A head is one chip with a lamp on each of its three outputs, and it lights one kind of lamp at a time. A light that shows alongside another, like lunar under a red, needs a chip of its own: use the next head for it. Only the events for lamps this head has are on the bus.</description>
 <repname>Head 1</repname>
 <repname>Head 2</repname>
 <repname>Head 3</repname>
@@ -448,14 +448,6 @@
 <property>7</property>
 <value>Number</value>
 </relation>
-<relation>
-<property>8</property>
-<value>Red and Yellow</value>
-</relation>
-<relation>
-<property>9</property>
-<value>Green and Yellow</value>
-</relation>
 </map>
 </int>
 <int size='1'>
@@ -494,14 +486,6 @@
 <property>7</property>
 <value>Number</value>
 </relation>
-<relation>
-<property>8</property>
-<value>Red and Yellow</value>
-</relation>
-<relation>
-<property>9</property>
-<value>Green and Yellow</value>
-</relation>
 </map>
 </int>
 <int size='1'>
@@ -539,14 +523,6 @@
 <relation>
 <property>7</property>
 <value>Number</value>
-</relation>
-<relation>
-<property>8</property>
-<value>Red and Yellow</value>
-</relation>
-<relation>
-<property>9</property>
-<value>Green and Yellow</value>
 </relation>
 </map>
 </int>

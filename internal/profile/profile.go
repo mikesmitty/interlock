@@ -95,12 +95,12 @@ type Rule struct {
 }
 
 // Needs ties roles to the configuration: a role in Values is bound only
-// where one of Variables holds one of its values, as a signal head has an
-// aspect only if a lamp for it is on one of its outputs. Other roles
-// aren't affected.
+// where one of Variables holds its value, as a signal head has an aspect
+// only if a lamp for it is on one of its outputs. Other roles aren't
+// affected.
 type Needs struct {
-	Variables []string            `yaml:"variables" json:"variables"`
-	Values    map[string][]string `yaml:"values" json:"values"`
+	Variables []string          `yaml:"variables" json:"variables"`
+	Values    map[string]string `yaml:"values" json:"values"`
 }
 
 // Templates is one name template or several alternatives.

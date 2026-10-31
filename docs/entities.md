@@ -65,10 +65,6 @@ the entity. The head appears on the Entities page once the configuration
 is written, and has an aspect for each lamp it has, as well as dark. A
 red, yellow or green lamp can flash too.
 
-A bi-color LED makes yellow from red and green: choose **Red and Yellow**
-on its red output and **Green and Yellow** on its green one, and the head
-has all three colors.
-
 A head lights one kind of lamp at a time, so a light that shows alongside
 another, like lunar under a red, takes a head of its own, and a signal
 with two heads is two entities. Every chip on the cable has to be

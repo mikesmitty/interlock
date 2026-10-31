@@ -83,7 +83,7 @@ Entities page or an automation, the signal puts it back. A head can be on
 one signal only.
 
 Heads need red, yellow and green lamps, which is how a canbus-outpost
-head comes, and a bi-color head has all three too. A head without a lamp shows the next most restrictive aspect
+head comes. A head without a lamp shows the next most restrictive aspect
 it has: yellow for green, red for yellow. A head that is offline is set
 when it comes back.
 
