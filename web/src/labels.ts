@@ -16,6 +16,9 @@ const ROLE_WORDS: Record<string, string> = {
   off: "off",
   press: "press",
   range: "reporter",
+  flashing_red: "flashing red",
+  flashing_yellow: "flashing yellow",
+  flashing_green: "flashing green",
 };
 
 /** Decodes the low two bytes of a DCC detector event: who entered or left. */

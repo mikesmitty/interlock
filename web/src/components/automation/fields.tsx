@@ -4,7 +4,7 @@ import { nodeName, type Entity, type EntityKind } from "../../api";
 import { KIND_STATES, WEEKDAYS } from "../../automation";
 import { useBus } from "../../store";
 
-const KIND_ORDER: EntityKind[] = ["turnout", "block", "reporter", "sensor", "switch", "button"];
+const KIND_ORDER: EntityKind[] = ["turnout", "block", "reporter", "sensor", "switch", "button", "signal_head"];
 const KIND_LABEL: Record<EntityKind, string> = {
   turnout: "Turnouts",
   block: "Blocks",
@@ -12,6 +12,7 @@ const KIND_LABEL: Record<EntityKind, string> = {
   sensor: "Sensors",
   switch: "Switches",
   button: "Buttons",
+  signal_head: "Signal heads",
 };
 
 export function Field({ label, children, wide }: { label: string; children: ReactNode; wide?: boolean }) {
@@ -85,7 +86,7 @@ export function StatePicker({ entity, value, onChange, label, any }: { entity?: 
         {value && !states.includes(value) && <option value={value}>{value}</option>}
         {states.map((s) => (
           <option key={s} value={s}>
-            {s}
+            {s.replaceAll("_", " ")}
           </option>
         ))}
       </select>
@@ -110,7 +111,7 @@ export function CommandPicker({ entity, value, onChange }: { entity?: string; va
         {value && !commands.includes(value) && <option value={value}>{value} (not available)</option>}
         {commands.map((c) => (
           <option key={c} value={c}>
-            {c}
+            {c.replaceAll("_", " ")}
           </option>
         ))}
       </select>

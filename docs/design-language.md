@@ -21,6 +21,7 @@ Color, dark (default; layout rooms are dim):
 | lamp-green    | #35B873 | lit: online, connected, closed, clear            |
 | lamp-red      | #E0493D | lit: fault, offline after being online, occupied |
 | lamp-amber    | #E9A23B | lit: in between, checking, unknown               |
+| lamp-lunar    | #DCE6EE | lit: a signal's lunar white, letters and numbers |
 | lamp-off      | #3A463F | unlit                                            |
 
 Color, light ("drawing sheet", for daylight and printing): background

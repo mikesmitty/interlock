@@ -2,6 +2,7 @@ package profile
 
 import (
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -112,6 +113,9 @@ func (p *Profile) build(rule Rule, node entity.NodeInfo, inst instance, all []cd
 	keys := make(map[string]string)
 	used := make(map[string]bool)
 	for _, b := range rule.Events {
+		if !rule.Needs.met(b.Role, inst.vars, values) {
+			continue
+		}
 		if b.literal != 0 {
 			events[b.Role] = b.literal
 			continue
@@ -132,7 +136,7 @@ func (p *Profile) build(rule Rule, node entity.NodeInfo, inst instance, all []cd
 	for role := range events {
 		bound[role] = true
 	}
-	if len(def.Missing(bound)) > 0 {
+	if len(def.Missing(bound)) > 0 || len(bound) == 0 {
 		return entity.Spec{}, false
 	}
 	if rule.Enabled != "" {
@@ -179,6 +183,23 @@ func findVariable(vars []cdi.Variable, b Binding, used map[string]bool, kind cdi
 		}
 	}
 	return cdi.Variable{}, false
+}
+
+// met reports whether the configuration has what a role needs.
+func (n *Needs) met(role string, vars []cdi.Variable, values map[string]string) bool {
+	if n == nil {
+		return true
+	}
+	want, ok := n.Values[role]
+	if !ok {
+		return true
+	}
+	for _, name := range n.Variables {
+		if v, ok := findVariable(vars, Binding{Match: name}, nil, ""); ok && slices.Contains(want, strings.TrimSpace(values[v.Key()])) {
+			return true
+		}
+	}
+	return false
 }
 
 func truthy(value string) bool {

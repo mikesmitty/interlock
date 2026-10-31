@@ -1,6 +1,7 @@
-# canbus-outpost: four servo switch machines and four RailCom detectors.
+# canbus-outpost: four servo switch machines, four RailCom detectors and up
+# to sixteen signal heads.
 name: canbus-outpost
-description: Servo switch machines and RailCom detectors
+description: Servo switch machines, RailCom detectors and signal heads
 match:
   manufacturer: mikesmitty
   model: CAN Bus Outpost
@@ -26,3 +27,34 @@ entities:
     name: ["{Description}", "{node} {group}"]
     events:
       range: Reporter ID
+  - kind: signal_head
+    group: Head
+    name: ["{Description}", "{node} {group}"]
+    enabled: Enabled
+    events:
+      dark: Dark Event
+      red: Red Event
+      yellow: Yellow Event
+      green: Green Event
+      lunar: Lunar Event
+      s: S Event
+      d: D Event
+      number: Number Event
+      flashing_red: Flashing Red Event
+      flashing_yellow: Flashing Yellow Event
+      flashing_green: Flashing Green Event
+    # Only the aspects a head has a lamp for are on the bus; dark always is.
+    # The sides of a bi-color LED, 8 and 9, light together for yellow.
+    needs:
+      variables: [OUTR Lamp, OUTG Lamp, OUTB Lamp]
+      values:
+        red: ["1", "8"]
+        flashing_red: ["1", "8"]
+        yellow: ["2", "8", "9"]
+        flashing_yellow: ["2", "8", "9"]
+        green: ["3", "9"]
+        flashing_green: ["3", "9"]
+        lunar: ["4"]
+        s: ["5"]
+        d: ["6"]
+        number: ["7"]

@@ -19,6 +19,7 @@
   --lamp-green: #35b873;
   --lamp-red: #e0493d;
   --lamp-amber: #e9a23b;
+  --lamp-lunar: #dce6ee;
   --lamp-off: #3a463f;
   --lamp-rim: rgba(0, 0, 0, 0.45);
 
@@ -59,6 +60,7 @@
     --lamp-green: #1f9a5c;
     --lamp-red: #c93b30;
     --lamp-amber: #c7851b;
+    --lamp-lunar: #7f9bb3;
     --lamp-off: #c3cac1;
     --lamp-rim: rgba(0, 0, 0, 0.18);
   }
@@ -80,6 +82,7 @@
   --lamp-green: #1f9a5c;
   --lamp-red: #c93b30;
   --lamp-amber: #c7851b;
+  --lamp-lunar: #7f9bb3;
   --lamp-off: #c3cac1;
   --lamp-rim: rgba(0, 0, 0, 0.18);
 }

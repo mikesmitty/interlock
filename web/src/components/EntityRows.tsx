@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { api, type Entity } from "../api";
+import { aspectState, aspectWord } from "../aspects";
 import { relativeTime, useNow } from "../format";
 import { useBus } from "../store";
 import { locomotiveName } from "../tracking";
@@ -39,6 +40,8 @@ export function lampState(e: Entity): LampState {
       return { color: "off", word: "Unknown" };
     case "button":
       return { color: "off", word: "" };
+    case "signal_head":
+      return aspectState(e.state);
   }
 }
 
@@ -79,6 +82,28 @@ function Lever({ entity, busy, onCommand }: { entity: Entity; busy: boolean; onC
         </button>
       ))}
     </span>
+  );
+}
+
+/** The aspects a signal head has: a list, since it can have eleven. */
+function AspectSelect({ entity, busy, onCommand }: { entity: Entity; busy: boolean; onCommand: (command: string) => void }) {
+  const aspects = entity.commands ?? [];
+  const known = aspects.includes(entity.state);
+  return (
+    <select
+      className="input input--select ent-aspect"
+      aria-label={`${entity.name} aspect`}
+      value={known ? entity.state : ""}
+      disabled={!entity.available || busy}
+      onChange={(ev) => onCommand(ev.target.value)}
+    >
+      {!known && <option value="">{aspectWord(entity.state)}</option>}
+      {aspects.map((a) => (
+        <option key={a} value={a}>
+          {aspectWord(a)}
+        </option>
+      ))}
+    </select>
   );
 }
 
@@ -167,6 +192,7 @@ export function EntityRows({ entities, compact = false, editing, onEdit, editor,
               </td>
               <td className="ent-controls">
                 <Lever entity={e} busy={isBusy} onCommand={(c) => void command(e, c)} />
+                {e.kind === "signal_head" && <AspectSelect entity={e} busy={isBusy} onCommand={(c) => void command(e, c)} />}
                 {e.kind === "turnout" && e.commands?.includes("center") && !compact && (
                   <button type="button" className="btn btn--quiet btn--sm" disabled={!e.available || isBusy} onClick={() => void command(e, "center")}>
                     Center

@@ -26,11 +26,11 @@ func load(t *testing.T, name string) *CDI {
 // check against the same XML.
 func TestOutpostLayout(t *testing.T) {
 	doc := load(t, "canbus-outpost.cdi.xml")
-	if doc.Identification == nil || doc.Identification.Model != "CAN Bus Outpost" || doc.Identification.SoftwareVersion != "0.2.1" {
+	if doc.Identification == nil || doc.Identification.Model != "CAN Bus Outpost" || doc.Identification.SoftwareVersion != "0.3.1" {
 		t.Errorf("identification = %+v", doc.Identification)
 	}
-	if len(doc.Segments) != 4 {
-		t.Fatalf("segments = %d, want 4", len(doc.Segments))
+	if len(doc.Segments) != 5 {
+		t.Fatalf("segments = %d, want 5", len(doc.Segments))
 	}
 	wantSeg := []struct {
 		name   string
@@ -41,12 +41,17 @@ func TestOutpostLayout(t *testing.T) {
 		{"Identify", 128, 2},
 		{"Switch Machines", 132, 480},
 		{"RailCom Detectors", 612, 384},
+		{"Signal Heads", 996, 2180},
 	}
 	for i, w := range wantSeg {
 		seg := doc.Segments[i]
 		if seg.Space != 253 || seg.Name != w.name || seg.Origin != w.origin || seg.Size != w.size {
 			t.Errorf("segment %d = %s space %d origin %d size %d, want %+v", i, seg.Name, seg.Space, seg.Origin, seg.Size, w)
 		}
+	}
+	heads := doc.Segments[4].Items[2]
+	if heads.Kind != KindGroup || heads.Replication != 16 || heads.Size != 136 || heads.Address != 1000 || heads.RepName(15) != "Head 16" {
+		t.Errorf("head group = %+v", heads)
 	}
 	servos := doc.Segments[2].Items[0]
 	if servos.Kind != KindGroup || servos.Replication != 4 || servos.Size != 120 || servos.Address != 132 {
@@ -63,8 +68,8 @@ func TestOutpostLayout(t *testing.T) {
 	}
 
 	index := doc.Lookup()
-	if len(index) != 2+2+4*17+4*6 {
-		t.Errorf("variables = %d, want %d", len(index), 2+2+4*17+4*6)
+	if want := 2 + 2 + 4*17 + 4*6 + 2 + 16*21; len(index) != want {
+		t.Errorf("variables = %d, want %d", len(index), want)
 	}
 	wantVar := map[string]string{
 		"253:0":   "Node Identity/User Name",

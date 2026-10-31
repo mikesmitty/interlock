@@ -221,7 +221,7 @@ func TestEntityEndpoints(t *testing.T) {
 		t.Errorf("entities = %v", body)
 	}
 	rec, body = ta.do(t, http.MethodGet, "/api/v1/entities/kinds", "")
-	if kinds, _ := body["kinds"].([]any); rec.Code != 200 || len(kinds) != 6 {
+	if kinds, _ := body["kinds"].([]any); rec.Code != 200 || len(kinds) != 7 {
 		t.Errorf("kinds: %d %v", rec.Code, body)
 	}
 	rec, body = ta.do(t, http.MethodGet, "/api/v1/entities/"+turnout, "")

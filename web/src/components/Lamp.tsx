@@ -1,4 +1,4 @@
-export type LampColor = "green" | "red" | "amber" | "off";
+export type LampColor = "green" | "red" | "amber" | "lunar" | "off";
 
 interface LampProps {
   color: LampColor;

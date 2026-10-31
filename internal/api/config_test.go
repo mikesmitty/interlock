@@ -85,7 +85,7 @@ func TestCDIEndpoints(t *testing.T) {
 	}
 	layout, _ := body["layout"].(map[string]any)
 	segments, _ := layout["segments"].([]any)
-	if len(segments) != 4 {
+	if len(segments) != 5 {
 		t.Errorf("segments = %d", len(segments))
 	}
 	ident, _ := layout["identification"].(map[string]any)

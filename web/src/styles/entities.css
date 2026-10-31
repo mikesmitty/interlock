@@ -96,6 +96,10 @@
   text-align: right;
 }
 
+.ent-aspect {
+  width: auto;
+}
+
 .ent-controls .btn + .btn,
 .ent-controls .lever + .btn {
   margin-left: 0.5rem;

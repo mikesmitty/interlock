@@ -90,6 +90,17 @@ type Rule struct {
 	// Enabled names a variable that must be non-zero for the entity to
 	// exist.
 	Enabled string `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+	// Needs leaves out roles the node's configuration has nothing behind.
+	Needs *Needs `yaml:"needs,omitempty" json:"needs,omitempty"`
+}
+
+// Needs ties roles to the configuration: a role in Values is bound only
+// where one of Variables holds one of its values, as a signal head has an
+// aspect only if a lamp for it is on one of its outputs. Other roles
+// aren't affected.
+type Needs struct {
+	Variables []string            `yaml:"variables" json:"variables"`
+	Values    map[string][]string `yaml:"values" json:"values"`
 }
 
 // Templates is one name template or several alternatives.
@@ -209,6 +220,19 @@ func (p *Profile) compile() error {
 		}
 		if missing := def.Missing(bound); len(missing) > 0 {
 			return fmt.Errorf("profile %s: entities[%d]: a %s needs its %s event", p.Name, i, def.Label, missing[0])
+		}
+		if len(bound) == 0 {
+			return fmt.Errorf("profile %s: entities[%d]: a %s needs at least one event", p.Name, i, def.Label)
+		}
+		if n := rule.Needs; n != nil {
+			if len(n.Variables) == 0 {
+				return fmt.Errorf("profile %s: entities[%d]: needs names no variables", p.Name, i)
+			}
+			for role := range n.Values {
+				if !bound[role] {
+					return fmt.Errorf("profile %s: entities[%d]: needs names %q, which isn't one of its events", p.Name, i, role)
+				}
+			}
 		}
 	}
 	return nil

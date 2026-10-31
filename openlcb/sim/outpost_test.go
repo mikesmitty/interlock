@@ -3,6 +3,7 @@ package sim_test
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -202,4 +203,134 @@ func TestOutpostBehavior(t *testing.T) {
 	peer.SetTrack(0, nil)
 	box.wait(t, "exit report", withEvent(openlcb.MTIEventReport, detector.Report{Kind: detector.Exit, Address: loco.Address}.Event(rng)))
 	box.wait(t, "clear", withEvent(openlcb.MTIEventReport, clearEv))
+}
+
+func TestOutpostBiColorHead(t *testing.T) {
+	local, _, peer, _, ctx := simOutpost(t)
+	for name, value := range map[string]byte{"OUTR Lamp": 8, "OUTG Lamp": 9, "OUTB Lamp": 0, "Enabled": 1} {
+		for _, v := range peer.Doc.Variables() {
+			if strings.Join(v.Path, "/") == "Signal Heads/Head 1/"+name {
+				if err := peer.Config.Write(v.Address, []byte{value}); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+	}
+	// Yellow is on the bus though no output has a yellow lamp of its own.
+	deadline := time.Now().Add(2 * time.Second)
+	for peer.Head(0) != "Yellow" {
+		if time.Now().After(deadline) {
+			t.Fatalf("head 1 = %s, want Yellow", peer.Head(0))
+		}
+		if err := local.Send(ctx, openlcb.Message{MTI: openlcb.MTIEventReport, Payload: peerID.Event(0x102).AsSlice()}); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestOutpostSignalHeads(t *testing.T) {
+	local, _, peer, box, ctx := simOutpost(t)
+	darkEv, red, yellow, lunar := peerID.Event(0x100), peerID.Event(0x101), peerID.Event(0x102), peerID.Event(0x104)
+	flashingRed := peerID.Event(0x108)
+	second := peerID.Event(0x111)
+
+	set := func(path string, value byte) {
+		t.Helper()
+		for _, v := range peer.Doc.Variables() {
+			if strings.Join(v.Path, "/") == path {
+				if err := peer.Config.Write(v.Address, []byte{value}); err != nil {
+					t.Fatal(err)
+				}
+				return
+			}
+		}
+		t.Fatalf("no variable %s", path)
+	}
+	identify := func() {
+		t.Helper()
+		box.clear()
+		if err := local.Send(ctx, openlcb.Message{MTI: openlcb.MTIIdentifyEventsAddressed, Dest: openlcb.NodeHandle{ID: peerID}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	send := func(ev openlcb.EventID) {
+		t.Helper()
+		if err := local.Send(ctx, openlcb.Message{MTI: openlcb.MTIEventReport, Payload: ev.AsSlice()}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	waitHead := func(want string) {
+		t.Helper()
+		deadline := time.Now().Add(2 * time.Second)
+		for peer.Head(0) != want {
+			if time.Now().After(deadline) {
+				t.Fatalf("head 1 = %s, want %s", peer.Head(0), want)
+			}
+			time.Sleep(2 * time.Millisecond)
+		}
+	}
+
+	// Heads start disabled: dark, deaf and off the bus.
+	send(red)
+	identify()
+	box.wait(t, "the track events", withEvent(openlcb.MTIProducerIdentifiedUnknown, peerID.Event(0x27)))
+	if n := box.count(withEvent(openlcb.MTIConsumerIdentifiedInvalid, red)); n != 0 {
+		t.Error("a disabled head is on the bus")
+	}
+	if peer.Head(0) != "Dark" {
+		t.Errorf("disabled head = %s", peer.Head(0))
+	}
+
+	// Enabled, it starts on its power-on aspect.
+	set("Signal Heads/Head 1/Enabled", 1)
+	waitHead("Red")
+
+	// Identify gives the aspect it shows as valid, the others invalid, and
+	// leaves out those it has no lamp for.
+	identify()
+	box.wait(t, "red valid", withEvent(openlcb.MTIConsumerIdentifiedValid, red))
+	box.wait(t, "yellow invalid", withEvent(openlcb.MTIConsumerIdentifiedInvalid, yellow))
+	box.wait(t, "dark invalid", withEvent(openlcb.MTIConsumerIdentifiedInvalid, darkEv))
+	if n := box.count(withEvent(openlcb.MTIConsumerIdentifiedInvalid, lunar)); n != 0 {
+		t.Error("the lunar event is on the bus with no lunar lamp")
+	}
+	if n := box.count(withEvent(openlcb.MTIConsumerIdentifiedInvalid, second)); n != 0 {
+		t.Error("a disabled head's events are on the bus")
+	}
+
+	// Aspect events choose the aspect; one it can't show does nothing.
+	send(yellow)
+	waitHead("Yellow")
+	send(lunar)
+	send(flashingRed)
+	waitHead("Flashing Red")
+
+	// Asked about one event, it answers for that event.
+	box.clear()
+	if err := local.Send(ctx, openlcb.Message{MTI: openlcb.MTIIdentifyConsumer, Payload: flashingRed.AsSlice()}); err != nil {
+		t.Fatal(err)
+	}
+	box.wait(t, "flashing red valid", withEvent(openlcb.MTIConsumerIdentifiedValid, flashingRed))
+
+	// A lamp moved onto an output brings its aspect onto the bus.
+	set("Signal Heads/Head 1/OUTB Lamp", 4)
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		send(lunar)
+		if peer.Head(0) == "Lunar" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("head 1 after adding a lunar lamp = %s", peer.Head(0))
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	// Disabling it puts it dark, and enabling it again starts it over.
+	set("Signal Heads/Head 1/Enabled", 0)
+	waitHead("Dark")
+	set("Signal Heads/Head 1/Power-On Aspect", 3)
+	set("Signal Heads/Head 1/Enabled", 1)
+	waitHead("Green")
 }

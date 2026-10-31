@@ -3,7 +3,7 @@
 An entity is one thing on the layout with a state and, often, commands:
 a turnout that is thrown or closed, a block that is occupied or clear, a
 reporter that knows which locomotives are on its track, a sensor, a
-switch or a button. Entities are what automations watch and act on, so
+switch, a button or a signal head. Entities are what automations watch and act on, so
 the Entities page is where the layout stops being event IDs and starts
 being things.
 
@@ -51,6 +51,29 @@ was last told: Interlock asks the command station when it starts, and
 something reports the points' position, such as a sensor on an outpost,
 add its events as the turnout's thrown and closed feedback.
 
+## Signal heads
+
+A signal head is a set of lamps that shows one aspect at a time. A
+canbus-outpost drives up to sixteen on its signal chain, one WS2811 chip
+to a head, each output with a lamp of its own.
+
+Heads start disabled, since the board can't tell which are fitted. To
+use one, open the outpost on the Nodes page, and under **Signal Heads**
+set the head's **Enabled**, then the lamp on each of its outputs:
+**OUTR Lamp**, **OUTG Lamp** and **OUTB Lamp**. Its **Description** names
+the entity. The head appears on the Entities page once the configuration
+is written, and has an aspect for each lamp it has, as well as dark. A
+red, yellow or green lamp can flash too.
+
+A bi-color LED makes yellow from red and green: choose **Red and Yellow**
+on its red output and **Green and Yellow** on its green one, and the head
+has all three colors.
+
+A head lights one kind of lamp at a time, so a light that shows alongside
+another, like lunar under a red, takes a head of its own, and a signal
+with two heads is two entities. Every chip on the cable has to be
+connected for the ones after it to work, enabled or not.
+
 ## Live state
 
 Interlock follows the bus. When a node reports an event, every entity
@@ -66,21 +89,28 @@ is kept.
 ## Controls
 
 A turnout has a lever for throw and close (and center, where the node
-has it), a switch has on and off, a button can be pressed. Each sends the
+has it), a switch has on and off, a button can be pressed, and a signal
+head has a list of its aspects. Each sends the
 entity's command event from Interlock's node and the entity updates when
 the node reports the result, so the lever shows what the layout did, not
 what was asked.
 
 ## Kinds
 
-| Kind     | States                                        | Commands             |
-| -------- | --------------------------------------------- | -------------------- |
-| turnout  | thrown, closed, moving, unknown               | throw, close, center |
-| block    | occupied, clear, unknown                      |                      |
-| reporter | occupied, clear, plus the locomotives present |                      |
-| sensor   | active, inactive, unknown                     |                      |
-| switch   | on, off, unknown                              | on, off              |
-| button   | pressed, idle                                 | press                |
+| Kind        | States                                        | Commands                       |
+| ----------- | --------------------------------------------- | ------------------------------ |
+| turnout     | thrown, closed, moving, unknown               | throw, close, center           |
+| block       | occupied, clear, unknown                      |                                |
+| reporter    | occupied, clear, plus the locomotives present |                                |
+| sensor      | active, inactive, unknown                     |                                |
+| switch      | on, off, unknown                              | on, off                        |
+| button      | pressed, idle                                 | press                          |
+| signal_head | its aspects, unknown                          | the aspects its lamps can show |
+
+A signal head's aspects are `dark`, `red`, `yellow`, `green`, `lunar`,
+`s`, `d`, `number`, `flashing_red`, `flashing_yellow` and
+`flashing_green`. `s`, `d` and `number` are the lit letters and speed
+number of NYC subway time signals.
 
 Entity IDs read like `turnout.0a0000000042.servo_1`: the kind, the node
 and the group. Ones built by hand read like `sensor.manual.yard_door`,

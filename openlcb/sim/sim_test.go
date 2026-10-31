@@ -59,7 +59,7 @@ func TestSimulatedOutpost(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if snip.Manufacturer != "mikesmitty" || snip.Model != "CAN Bus Outpost" || snip.SoftwareVersion != "0.2.1" || snip.UserName != "Yard" {
+	if snip.Manufacturer != "mikesmitty" || snip.Model != "CAN Bus Outpost" || snip.SoftwareVersion != "0.3.1" || snip.UserName != "Yard" {
 		t.Errorf("SNIP = %+v", snip)
 	}
 	protocols, err := local.Protocols(ctx, peerID)
@@ -86,7 +86,7 @@ func TestSimulatedOutpost(t *testing.T) {
 	// Defaults are in place: Servo 1 thrown position 16384, closed 49152,
 	// enabled 1, LED timeout 5.
 	info, err := client.SpaceInfo(ctx, peerID, memconfig.SpaceConfig)
-	if err != nil || info.Size() != 996 {
+	if err != nil || info.Size() != 3176 {
 		t.Errorf("config space info = %+v, %v", info, err)
 	}
 	data, err := client.ReadAll(ctx, peerID, memconfig.SpaceConfig, 128, 60, nil)

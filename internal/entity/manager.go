@@ -446,6 +446,13 @@ func (m *Manager) apply(ent *Entity, role string, valid, report bool, now time.T
 			return true
 		}
 		return false
+	case KindSignalHead:
+		// One aspect holds at a time, so an invalid reply for another
+		// says nothing about which one does.
+		if !valid {
+			return false
+		}
+		ent.State = r.State
 	default:
 		// Two-state kinds: an invalid reply for one state means the other.
 		state := r.State

@@ -931,6 +931,14 @@ since its result could change the model.
   Verified against the simulated layout through the bus: with real
   tracking, trains stopped 1.0 and 1.9 mm from the marker; steps
   measured within 0.1 mm/s of the simulator's.
+- Signal heads (2026-10-31): canbus-outpost's heads on its WS2811 chain
+  are `signal_head` entities with a command event per aspect, for only
+  the aspects a head has a lamp for (a profile rule's `needs`, from the
+  lamps on its outputs, a bi-color LED's sides giving yellow together). One aspect holds at a time, so an Identified
+  Invalid says nothing and only Valid sets the state. The simulated
+  outpost has them too. Verified end to end against the simulated
+  outpost; not yet on a board. Signals on the plan, made of heads, come
+  next.
 - Next: the rest of Phase 7, hardware verification against
   canbus-outpost and simple-dcc, Phase 8's timetable, and signals,
   approach locking and a trip stop to round out interlocking. Stopping

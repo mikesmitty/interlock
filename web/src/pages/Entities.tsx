@@ -7,7 +7,7 @@ import { Empty, Page } from "../components/Page";
 import { plural } from "../format";
 import { useBus } from "../store";
 
-const KIND_ORDER: EntityKind[] = ["turnout", "block", "reporter", "sensor", "switch", "button"];
+const KIND_ORDER: EntityKind[] = ["turnout", "block", "reporter", "sensor", "switch", "button", "signal_head"];
 const EVENT_RE = /^([0-9a-f]{2}[.:]?){8}$/i;
 
 function matches(e: Entity, needle: string): boolean {

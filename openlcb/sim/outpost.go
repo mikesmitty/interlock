@@ -43,8 +43,9 @@ type trackState struct {
 // firmware in src/app does: its servos act on throw, close and center
 // events and report thrown or closed feedback once the configured throw
 // time has passed, its tracks produce occupied and clear events and DCC
-// detector reports for the locomotives placed on them, and it answers
-// Identify requests with its state. Event IDs come from the configuration
+// detector reports for the locomotives placed on them, its signal heads
+// show the aspects events choose, and it answers Identify requests with
+// its state. Event IDs come from the configuration
 // space, so writing them changes what the outpost listens for, and the
 // firmware's default IDs are filled in where the configuration has none.
 type Outpost struct {
@@ -55,6 +56,7 @@ type Outpost struct {
 	mu     sync.Mutex
 	servos [OutpostServos]servoState
 	tracks [OutpostTracks]trackState
+	heads  [OutpostHeads]headState
 	fw     firmwareState
 	work   chan func()
 	ctx    context.Context
@@ -74,6 +76,11 @@ func NewOutpost(cfg node.Config) (*Outpost, error) {
 		o.vars[strings.Join(v.Path, "/")] = v
 	}
 	o.seedDefaults()
+	written := n.Config.OnWrite
+	n.Config.OnWrite = func(address uint32, count int) {
+		written(address, count)
+		o.schedule(o.applyHeads)
+	}
 	reset := n.Server.OnFactoryReset
 	n.Server.OnFactoryReset = func() {
 		reset()
@@ -90,8 +97,8 @@ func NewOutpost(cfg node.Config) (*Outpost, error) {
 
 // seedDefaults fills in the firmware's default event IDs where the
 // configuration holds zeros: the node ID followed by an index for servo
-// events (five per servo) and track events (0x20 on), and the next node
-// IDs as reporter ranges.
+// events (five per servo), track events (0x20 on) and signal head events
+// (0x100 on, sixteen per head), and the next node IDs as reporter ranges.
 func (o *Outpost) seedDefaults() {
 	id := o.ID()
 	set := func(path string, ev openlcb.EventID) {
@@ -115,6 +122,11 @@ func (o *Outpost) seedDefaults() {
 		set(trackPath(t, "Occupied Event"), id.Event(uint16(0x20+2*t)))
 		set(trackPath(t, "Clear Event"), id.Event(uint16(0x21+2*t)))
 		set(trackPath(t, "Reporter ID"), ((id + 1 + openlcb.NodeID(t)) & openlcb.NodeIDMax).Event(0))
+	}
+	for h := range OutpostHeads {
+		for a, aspect := range headAspects {
+			set(headPath(h, aspect.name+" Event"), id.Event(uint16(0x100+16*h+a)))
+		}
 	}
 }
 
@@ -193,6 +205,7 @@ func (o *Outpost) observe(ev node.Event) {
 	case node.EventStateChanged:
 		if ev.State == node.StateInitialized {
 			o.schedule(o.initialPositions)
+			o.schedule(o.powerOnHeads)
 		}
 	case node.EventMessage:
 		msg := ev.Message
@@ -255,6 +268,7 @@ func (o *Outpost) initialPositions() {
 }
 
 func (o *Outpost) onEvent(ev openlcb.EventID) {
+	o.headEvent(ev)
 	for i := range OutpostServos {
 		if o.intValue(servoPath(i, "Enabled")) == 0 {
 			continue
@@ -543,6 +557,7 @@ func (o *Outpost) identifyAll() {
 			o.send(openlcb.Message{MTI: openlcb.MTIProducerRangeIdentified, Payload: rng.Encode().AsSlice()})
 		}
 	}
+	o.identifyHeads()
 }
 
 func (o *Outpost) identifyProducer(ev openlcb.EventID) {
@@ -575,6 +590,7 @@ func (o *Outpost) identifyConsumer(ev openlcb.EventID) {
 			}
 		}
 	}
+	o.identifyHead(ev)
 }
 
 // reporterIdentify answers Identify Producer for an event in a track's

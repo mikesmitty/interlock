@@ -1,11 +1,11 @@
 <?xml version='1.0' encoding='UTF-8'?>
-<cdi xmlns:xsi='http://www.w3.org/2001/XMLSchema-instance' xsi:noNamespaceSchemaLocation='https://openlcb.org/schema/cdi/1/1/cdi.xsd'>
+<cdi xmlns:xsi='http://www.w3.org/2001/XMLSchema-instance' xsi:noNamespaceSchemaLocation='https://openlcb.org/schema/cdi/1/4/cdi.xsd'>
 <identification>
 <manufacturer>mikesmitty</manufacturer>
 <model>CAN Bus Outpost</model>
 <hardwareVersion>Rev A</hardwareVersion>
 <!-- x-release-please-start-version -->
-<softwareVersion>0.2.1</softwareVersion>
+<softwareVersion>0.3.1</softwareVersion>
 <!-- x-release-please-end -->
 </identification>
 <segment space='253' origin='0'>
@@ -21,6 +21,7 @@
 <name>Identify</name>
 <int size='1'>
 <name>Enabled</name>
+<default>0</default>
 <map>
 <relation>
 <property>0</property>
@@ -31,11 +32,11 @@
 <value>Enabled</value>
 </relation>
 </map>
-<default>0</default>
 </int>
 <int size='1'>
 <name>LED Timeout</name>
 <description>How long the identify LED flashes before turning off</description>
+<default>5</default>
 <map>
 <relation>
 <property>0</property>
@@ -58,7 +59,6 @@
 <value>15 minutes</value>
 </relation>
 </map>
-<default>5</default>
 </int>
 </segment>
 <segment space='253' origin='132'>
@@ -121,6 +121,7 @@
 </int>
 <int size='1'>
 <name>Enabled</name>
+<default>1</default>
 <map>
 <relation>
 <property>0</property>
@@ -131,11 +132,11 @@
 <value>Enabled</value>
 </relation>
 </map>
-<default>1</default>
 </int>
 <int size='1'>
 <name>Default State</name>
 <description>Position at power-on</description>
+<default>1</default>
 <map>
 <relation>
 <property>0</property>
@@ -150,11 +151,11 @@
 <value>No Change</value>
 </relation>
 </map>
-<default>1</default>
 </int>
 <int size='1'>
 <name>Reversed</name>
 <description>Swap thrown/closed direction</description>
+<default>0</default>
 <map>
 <relation>
 <property>0</property>
@@ -165,11 +166,11 @@
 <value>Reversed</value>
 </relation>
 </map>
-<default>0</default>
 </int>
 <int size='1'>
 <name>Frog Output</name>
 <description>GP Output to toggle for frog polarity</description>
+<default>0</default>
 <map>
 <relation>
 <property>0</property>
@@ -192,11 +193,11 @@
 <value>Output 4 (GPIO 7)</value>
 </relation>
 </map>
-<default>0</default>
 </int>
 <int size='1'>
 <name>Fascia Input</name>
 <description>GP Input for local manual control</description>
+<default>0</default>
 <map>
 <relation>
 <property>0</property>
@@ -219,7 +220,6 @@
 <value>Input 4</value>
 </relation>
 </map>
-<default>0</default>
 </int>
 <string size='64'>
 <name>Description</name>
@@ -254,6 +254,7 @@
 <int size='1'>
 <name>Orientation</name>
 <description>Whether reports say which way a locomotive faces. Rail A is positive in the first half of each DCC bit; the detector senses the TRACK_R rail. If JMRI shows locomotives facing the wrong way, choose the other rail.</description>
+<default>0</default>
 <map>
 <relation>
 <property>0</property>
@@ -268,9 +269,306 @@
 <value>TRACK_R is Rail B</value>
 </relation>
 </map>
-<default>0</default>
 </int>
 <string size='7'/>
+</group>
+</segment>
+<segment space='253' origin='996'>
+<name>Signal Heads</name>
+<description>The signal heads on the SSSB chain, one WS2811 chip per head. Head 1 is the first on the cable from the board. Every head on the cable needs to be there for the ones after it to work, enabled or not.</description>
+<int size='1'>
+<name>Chain Speed</name>
+<description>Must match the SET pin of every chip on the chain: 800 kHz when open, 400 kHz when tied to power</description>
+<default>0</default>
+<map>
+<relation>
+<property>0</property>
+<value>800 kHz</value>
+</relation>
+<relation>
+<property>1</property>
+<value>400 kHz</value>
+</relation>
+</map>
+</int>
+<string size='3'/>
+<group replication='16'>
+<name>Head</name>
+<description>A head is one chip with a lamp on each of its three outputs, and it lights one kind of lamp at a time. A light that shows alongside another, like lunar under a red, needs a chip of its own: use the next head for it. A bi-color LED makes yellow from red and green: choose Red and Yellow on its red output and Green and Yellow on its green one. Only the events for lamps this head has are on the bus.</description>
+<repname>Head 1</repname>
+<repname>Head 2</repname>
+<repname>Head 3</repname>
+<repname>Head 4</repname>
+<repname>Head 5</repname>
+<repname>Head 6</repname>
+<repname>Head 7</repname>
+<repname>Head 8</repname>
+<repname>Head 9</repname>
+<repname>Head 10</repname>
+<repname>Head 11</repname>
+<repname>Head 12</repname>
+<repname>Head 13</repname>
+<repname>Head 14</repname>
+<repname>Head 15</repname>
+<repname>Head 16</repname>
+<string size='32'>
+<name>Description</name>
+</string>
+<eventid>
+<name>Dark Event</name>
+</eventid>
+<eventid>
+<name>Red Event</name>
+</eventid>
+<eventid>
+<name>Yellow Event</name>
+</eventid>
+<eventid>
+<name>Green Event</name>
+</eventid>
+<eventid>
+<name>Lunar Event</name>
+</eventid>
+<eventid>
+<name>S Event</name>
+</eventid>
+<eventid>
+<name>D Event</name>
+</eventid>
+<eventid>
+<name>Number Event</name>
+</eventid>
+<eventid>
+<name>Flashing Red Event</name>
+</eventid>
+<eventid>
+<name>Flashing Yellow Event</name>
+</eventid>
+<eventid>
+<name>Flashing Green Event</name>
+</eventid>
+<int size='1'>
+<name>Enabled</name>
+<description>A disabled head stays dark and its events are off the bus</description>
+<default>0</default>
+<map>
+<relation>
+<property>0</property>
+<value>Disabled</value>
+</relation>
+<relation>
+<property>1</property>
+<value>Enabled</value>
+</relation>
+</map>
+</int>
+<int size='1'>
+<name>Power-On Aspect</name>
+<default>1</default>
+<map>
+<relation>
+<property>0</property>
+<value>Dark</value>
+</relation>
+<relation>
+<property>1</property>
+<value>Red</value>
+</relation>
+<relation>
+<property>2</property>
+<value>Yellow</value>
+</relation>
+<relation>
+<property>3</property>
+<value>Green</value>
+</relation>
+<relation>
+<property>4</property>
+<value>Lunar</value>
+</relation>
+<relation>
+<property>5</property>
+<value>S</value>
+</relation>
+<relation>
+<property>6</property>
+<value>D</value>
+</relation>
+<relation>
+<property>7</property>
+<value>Number</value>
+</relation>
+<relation>
+<property>8</property>
+<value>Flashing Red</value>
+</relation>
+<relation>
+<property>9</property>
+<value>Flashing Yellow</value>
+</relation>
+<relation>
+<property>10</property>
+<value>Flashing Green</value>
+</relation>
+</map>
+</int>
+<int size='1'>
+<name>OUTR Lamp</name>
+<default>1</default>
+<map>
+<relation>
+<property>0</property>
+<value>None</value>
+</relation>
+<relation>
+<property>1</property>
+<value>Red</value>
+</relation>
+<relation>
+<property>2</property>
+<value>Yellow</value>
+</relation>
+<relation>
+<property>3</property>
+<value>Green</value>
+</relation>
+<relation>
+<property>4</property>
+<value>Lunar</value>
+</relation>
+<relation>
+<property>5</property>
+<value>S</value>
+</relation>
+<relation>
+<property>6</property>
+<value>D</value>
+</relation>
+<relation>
+<property>7</property>
+<value>Number</value>
+</relation>
+<relation>
+<property>8</property>
+<value>Red and Yellow</value>
+</relation>
+<relation>
+<property>9</property>
+<value>Green and Yellow</value>
+</relation>
+</map>
+</int>
+<int size='1'>
+<name>OUTG Lamp</name>
+<default>3</default>
+<map>
+<relation>
+<property>0</property>
+<value>None</value>
+</relation>
+<relation>
+<property>1</property>
+<value>Red</value>
+</relation>
+<relation>
+<property>2</property>
+<value>Yellow</value>
+</relation>
+<relation>
+<property>3</property>
+<value>Green</value>
+</relation>
+<relation>
+<property>4</property>
+<value>Lunar</value>
+</relation>
+<relation>
+<property>5</property>
+<value>S</value>
+</relation>
+<relation>
+<property>6</property>
+<value>D</value>
+</relation>
+<relation>
+<property>7</property>
+<value>Number</value>
+</relation>
+<relation>
+<property>8</property>
+<value>Red and Yellow</value>
+</relation>
+<relation>
+<property>9</property>
+<value>Green and Yellow</value>
+</relation>
+</map>
+</int>
+<int size='1'>
+<name>OUTB Lamp</name>
+<default>2</default>
+<map>
+<relation>
+<property>0</property>
+<value>None</value>
+</relation>
+<relation>
+<property>1</property>
+<value>Red</value>
+</relation>
+<relation>
+<property>2</property>
+<value>Yellow</value>
+</relation>
+<relation>
+<property>3</property>
+<value>Green</value>
+</relation>
+<relation>
+<property>4</property>
+<value>Lunar</value>
+</relation>
+<relation>
+<property>5</property>
+<value>S</value>
+</relation>
+<relation>
+<property>6</property>
+<value>D</value>
+</relation>
+<relation>
+<property>7</property>
+<value>Number</value>
+</relation>
+<relation>
+<property>8</property>
+<value>Red and Yellow</value>
+</relation>
+<relation>
+<property>9</property>
+<value>Green and Yellow</value>
+</relation>
+</map>
+</int>
+<int size='1'>
+<name>OUTR Brightness</name>
+<min>0</min>
+<max>255</max>
+<default>128</default>
+</int>
+<int size='1'>
+<name>OUTG Brightness</name>
+<min>0</min>
+<max>255</max>
+<default>128</default>
+</int>
+<int size='1'>
+<name>OUTB Brightness</name>
+<min>0</min>
+<max>255</max>
+<default>128</default>
+</int>
+<string size='8'/>
 </group>
 </segment>
 </cdi>

@@ -22,6 +22,7 @@ export const KIND_STATES: Record<EntityKind, string[]> = {
   sensor: ["on", "off", "unknown"],
   switch: ["on", "off", "unknown"],
   button: [],
+  signal_head: ["dark", "red", "yellow", "green", "lunar", "s", "d", "number", "flashing_red", "flashing_yellow", "flashing_green", "unknown"],
 };
 
 export const WEEKDAYS: [string, string][] = [

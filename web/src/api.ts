@@ -156,7 +156,7 @@ export interface WriteResult {
 
 // Entities: the layout as things with a state and commands.
 
-export type EntityKind = "turnout" | "block" | "reporter" | "sensor" | "switch" | "button";
+export type EntityKind = "turnout" | "block" | "reporter" | "sensor" | "switch" | "button" | "signal_head";
 export type EntitySource = "profile" | "guess" | "manual";
 
 export interface Locomotive {

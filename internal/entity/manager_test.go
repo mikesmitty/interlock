@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -390,6 +391,57 @@ func TestManagerFollowsTheBus(t *testing.T) {
 	}
 }
 
+func TestSignalHead(t *testing.T) {
+	const id = "signal_head.0a0000000042.head_1"
+	red, green, lunar := nodeID.Event(0x101), nodeID.Event(0x103), nodeID.Event(0x104)
+	h := newHarness(t, t.TempDir())
+	h.builder.mu.Lock()
+	h.builder.specs = append(h.builder.specs, Spec{ID: id, Kind: KindSignalHead, Name: "Yard Head 1", Node: nodeID, Group: "Head 1", Source: SourceProfile,
+		Events: map[string]openlcb.EventID{AspectRed: red, AspectGreen: green}})
+	h.builder.mu.Unlock()
+	h.m.Rebuild(nodeID)
+
+	waitFor(t, "signal head", func() bool { _, ok := h.m.Get(id); return ok })
+	if e := h.get(t, id); e.State != StateUnknown || !slices.Equal(e.Commands, []string{AspectRed, AspectGreen}) {
+		t.Errorf("new head = %+v", e)
+	}
+
+	// The node says which aspect holds, whichever order the replies come
+	// in: an Invalid for another aspect doesn't move the head off it.
+	h.identified(openlcb.MTIConsumerIdentifiedInvalid, green)
+	if e := h.get(t, id); e.State != StateUnknown {
+		t.Errorf("after invalid = %s", e.State)
+	}
+	h.identified(openlcb.MTIConsumerIdentifiedValid, red)
+	h.identified(openlcb.MTIConsumerIdentifiedInvalid, green)
+	if e := h.get(t, id); e.State != AspectRed {
+		t.Errorf("after valid red = %s", e.State)
+	}
+
+	// Another node sets it.
+	h.report(green)
+	if e := h.get(t, id); e.State != AspectGreen || e.LastEvent.IsZero() {
+		t.Errorf("after report = %+v", e)
+	}
+
+	// A command sends the aspect's event; one the head doesn't have is
+	// refused.
+	e, err := h.m.Command(context.Background(), id, AspectRed)
+	if err != nil || e.State != AspectRed {
+		t.Fatalf("command = %+v, %v", e, err)
+	}
+	if events, _ := h.bus.sent(); !slices.Contains(events, red) {
+		t.Errorf("sent = %v", events)
+	}
+	if _, err := h.m.Command(context.Background(), id, AspectLunar); !errors.Is(err, ErrUnknownCommand) {
+		t.Errorf("command for a missing aspect = %v", err)
+	}
+	h.report(lunar) // not one of its events
+	if e := h.get(t, id); e.State != AspectRed {
+		t.Errorf("after an unrelated event = %s", e.State)
+	}
+}
+
 func TestManualEntities(t *testing.T) {
 	dir := t.TempDir()
 	h := newHarness(t, dir)
@@ -410,6 +462,9 @@ func TestManualEntities(t *testing.T) {
 	}
 	if _, err := h.m.Create(Manual{Kind: "lamp", Name: "x"}); !errors.As(err, &invalid) {
 		t.Errorf("unknown kind = %v", err)
+	}
+	if _, err := h.m.Create(Manual{Kind: KindSignalHead, Name: "No aspects"}); !errors.As(err, &invalid) {
+		t.Errorf("signal head with no events = %v", err)
 	}
 	if _, err := h.m.Create(Manual{Kind: KindBlock, Name: "x", Events: map[string]openlcb.EventID{"press": on, "occupied": on, "clear": off}}); !errors.As(err, &invalid) {
 		t.Errorf("wrong role = %v", err)

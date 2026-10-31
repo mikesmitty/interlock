@@ -93,7 +93,7 @@ func outpostImage(t *testing.T) (*cdi.CDI, []byte) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	data := make([]byte, 996)
+	data := make([]byte, 3176)
 	n := 0
 	for _, v := range doc.Variables() {
 		switch {
@@ -157,8 +157,8 @@ func TestTable(t *testing.T) {
 	table.HandleNode(info(true))
 	waitFor(t, "first read", func() bool { return len(table.NodeEntries(nodeID)) > 0 })
 	entries := table.NodeEntries(nodeID)
-	if len(entries) != 32 {
-		t.Fatalf("entries = %d, want 32", len(entries))
+	if len(entries) != 208 {
+		t.Fatalf("entries = %d, want 208", len(entries))
 	}
 	first := entries[0]
 	if first.Name != "Switch Machines / Servo 1 / Throw Command Event" || first.Key != "253:132" || first.Event != nodeID.Event(1) || first.NodeName != "Yard" {
@@ -174,7 +174,7 @@ func TestTable(t *testing.T) {
 	if got := table.Lookup(nodeID.Event(3)); len(got) != 1 || got[0].Name != "Switch Machines / Servo 1 / Thrown Feedback Event" {
 		t.Errorf("Lookup = %+v", got)
 	}
-	if all := table.Entries(); len(all) != 32 {
+	if all := table.Entries(); len(all) != 208 {
 		t.Errorf("Entries = %d", len(all))
 	}
 
@@ -208,8 +208,8 @@ func TestTable(t *testing.T) {
 	table.HandleMessage(&openlcb.Message{MTI: openlcb.MTIDatagram, Dest: openlcb.NodeHandle{ID: nodeID}, Payload: write})
 	waitFor(t, "re-read after write", func() bool { return table.NodeEntries(nodeID)[0].Event == nodeID.Event(0x99) })
 	mem.mu.Lock()
-	if mem.reads != reads+2 {
-		t.Errorf("reads after write = %d, want %d (one per segment)", mem.reads, reads+2)
+	if mem.reads != reads+3 {
+		t.Errorf("reads after write = %d, want %d (one per segment)", mem.reads, reads+3)
 	}
 	mem.mu.Unlock()
 
@@ -239,7 +239,7 @@ func TestTable(t *testing.T) {
 	}
 	fresh := New(reader, layouts, st, slog.New(slog.DiscardHandler))
 	fresh.Restore(ctx, []registry.Info{info(false)})
-	if entries := fresh.NodeEntries(nodeID); len(entries) != 32 || entries[0].Event != nodeID.Event(0x99) {
+	if entries := fresh.NodeEntries(nodeID); len(entries) != 208 || entries[0].Event != nodeID.Event(0x99) {
 		t.Errorf("restored entries = %d", len(entries))
 	}
 	if values, ok := fresh.Values(nodeID); !ok || !values.Cached {

@@ -1,6 +1,7 @@
 package profile
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,7 +17,8 @@ const nodeID = openlcb.NodeID(0x0A0000000042)
 
 // outpostValues builds the values the event table would hold for an
 // outpost with default event IDs: node ID then an index, servo events
-// 0x00-0x13, occupied and clear 0x20-0x27, reporters the next node IDs.
+// 0x00-0x13, occupied and clear 0x20-0x27, reporters the next node IDs,
+// sixteen aspect events per signal head from 0x100, every head disabled.
 func outpostValues(t *testing.T) (*cdi.CDI, map[string]string) {
 	t.Helper()
 	doc, err := cdi.Parse(sim.OutpostCDI)
@@ -24,7 +26,7 @@ func outpostValues(t *testing.T) (*cdi.CDI, map[string]string) {
 		t.Fatal(err)
 	}
 	values := make(map[string]string)
-	servo, track := 0, 0
+	servo, track, aspect := 0, 0, 0
 	for _, v := range doc.Variables() {
 		path := strings.Join(v.Path, "/")
 		switch {
@@ -57,6 +59,16 @@ func outpostValues(t *testing.T) (*cdi.CDI, map[string]string) {
 			default:
 				values[v.Key()] = v.Element.Default
 			}
+		case strings.HasPrefix(path, "Signal Heads/"):
+			if v.Element.Kind == cdi.KindEventID {
+				values[v.Key()] = nodeID.Event(uint16(0x100 + aspect)).String()
+				aspect++
+				if aspect%16 == 11 {
+					aspect += 5
+				}
+				continue
+			}
+			values[v.Key()] = v.Element.Default
 		}
 	}
 	return doc, values
@@ -170,6 +182,82 @@ func TestOutpostProfile(t *testing.T) {
 	}
 }
 
+func TestOutpostSignalHeads(t *testing.T) {
+	set, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, values := outpostValues(t)
+	put := func(path, value string) {
+		t.Helper()
+		for _, v := range doc.Variables() {
+			if strings.Join(v.Path, "/") == path {
+				values[v.Key()] = value
+				return
+			}
+		}
+		t.Fatalf("no variable %s", path)
+	}
+	const (
+		redGreenYellow = "signal_head.0a0000000042.head_1"
+		lunar          = "signal_head.0a0000000042.head_2"
+		noLamps        = "signal_head.0a0000000042.head_3"
+		disabled       = "signal_head.0a0000000042.head_4"
+		biColor        = "signal_head.0a0000000042.head_5"
+	)
+	// Head 1 keeps the default red, green and yellow; head 2 is a lunar
+	// lamp on its own, wired twice; head 3 has no lamps; head 5 is a
+	// bi-color LED, which makes yellow from both its sides.
+	put("Signal Heads/Head 1/Enabled", "1")
+	put("Signal Heads/Head 1/Description", "Times Sq home")
+	put("Signal Heads/Head 2/Enabled", "1")
+	put("Signal Heads/Head 2/OUTR Lamp", "4")
+	put("Signal Heads/Head 2/OUTG Lamp", "4")
+	put("Signal Heads/Head 2/OUTB Lamp", "0")
+	put("Signal Heads/Head 3/Enabled", "1")
+	put("Signal Heads/Head 3/OUTR Lamp", "0")
+	put("Signal Heads/Head 3/OUTG Lamp", "0")
+	put("Signal Heads/Head 3/OUTB Lamp", "0")
+	put("Signal Heads/Head 5/Enabled", "1")
+	put("Signal Heads/Head 5/OUTR Lamp", "8")
+	put("Signal Heads/Head 5/OUTG Lamp", "9")
+	put("Signal Heads/Head 5/OUTB Lamp", "0")
+
+	ids := byID(set.Build(outpostNode(), doc, values))
+	if _, ok := ids[disabled]; ok {
+		t.Error("a disabled head became an entity")
+	}
+	tests := []struct {
+		id     string
+		name   string
+		events map[string]openlcb.EventID
+	}{
+		{redGreenYellow, "Times Sq home", map[string]openlcb.EventID{
+			"dark": nodeID.Event(0x100), "red": nodeID.Event(0x101), "yellow": nodeID.Event(0x102), "green": nodeID.Event(0x103),
+			"flashing_red": nodeID.Event(0x108), "flashing_yellow": nodeID.Event(0x109), "flashing_green": nodeID.Event(0x10A),
+		}},
+		{lunar, "Yard Head 2", map[string]openlcb.EventID{"dark": nodeID.Event(0x110), "lunar": nodeID.Event(0x114)}},
+		{noLamps, "Yard Head 3", map[string]openlcb.EventID{"dark": nodeID.Event(0x120)}},
+		{biColor, "Yard Head 5", map[string]openlcb.EventID{
+			"dark": nodeID.Event(0x140), "red": nodeID.Event(0x141), "yellow": nodeID.Event(0x142), "green": nodeID.Event(0x143),
+			"flashing_red": nodeID.Event(0x148), "flashing_yellow": nodeID.Event(0x149), "flashing_green": nodeID.Event(0x14A),
+		}},
+	}
+	for _, tt := range tests {
+		spec, ok := ids[tt.id]
+		if !ok {
+			t.Errorf("no %s among %v", tt.id, ids)
+			continue
+		}
+		if spec.Kind != entity.KindSignalHead || spec.Name != tt.name {
+			t.Errorf("%s = %+v", tt.id, spec)
+		}
+		if !maps.Equal(spec.Events, tt.events) {
+			t.Errorf("%s events = %v, want %v", tt.id, spec.Events, tt.events)
+		}
+	}
+}
+
 func TestCommandStationProfile(t *testing.T) {
 	set, err := Load("")
 	if err != nil {
@@ -274,6 +362,9 @@ entities:
 		"zero event":     "name: x\nmatch: {any: true}\nentities: [{kind: block, events: {occupied: 00.00.00.00.00.00.00.00, clear: b}}]\n",
 		"events as list": "name: x\nmatch: {any: true}\nentities: [{kind: block, events: [occupied, clear]}]\n",
 		"no entities":    "name: x\nmatch: {any: true}\n",
+		"no events":      "name: x\nmatch: {any: true}\nentities: [{kind: signal_head, group: Head}]\n",
+		"needs nothing":  "name: x\nmatch: {any: true}\nentities: [{kind: signal_head, events: {red: a}, needs: {values: {red: ['1']}}}]\n",
+		"needs a role":   "name: x\nmatch: {any: true}\nentities: [{kind: signal_head, events: {red: a}, needs: {variables: [b], values: {green: ['1']}}}]\n",
 	}
 	for name, text := range bad {
 		if _, err := Parse([]byte(text), name); err == nil {

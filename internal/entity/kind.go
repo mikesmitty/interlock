@@ -1,5 +1,6 @@
 // Package entity models the layout as things with a state and commands:
-// turnouts, blocks, reporters, sensors, switches and buttons. Entities are
+// turnouts, blocks, reporters, sensors, switches, buttons and signal heads.
+// Entities are
 // built from node profiles over the named event table, or by hand from
 // any events, and follow the bus: an Event Report or an Identified reply
 // for one of their events changes their state, and a command sends one.
@@ -21,6 +22,9 @@ const (
 	KindSensor   Kind = "sensor"
 	KindSwitch   Kind = "switch"
 	KindButton   Kind = "button"
+	// KindSignalHead is one head of a signal: a set of lamps that shows
+	// one aspect at a time, each chosen by an event of its own.
+	KindSignalHead Kind = "signal_head"
 )
 
 // States.
@@ -34,6 +38,22 @@ const (
 	StateOn       = "on"
 	StateOff      = "off"
 	StateIdle     = "idle"
+)
+
+// A signal head's aspects, which are its states too. S, D and Number are
+// the lit letters and speed number of NYC subway time signals.
+const (
+	AspectDark           = "dark"
+	AspectRed            = "red"
+	AspectYellow         = "yellow"
+	AspectGreen          = "green"
+	AspectLunar          = "lunar"
+	AspectS              = "s"
+	AspectD              = "d"
+	AspectNumber         = "number"
+	AspectFlashingRed    = "flashing_red"
+	AspectFlashingYellow = "flashing_yellow"
+	AspectFlashingGreen  = "flashing_green"
 )
 
 // Role is the part an event plays in an entity: the turnout's throw
@@ -113,10 +133,30 @@ var definitions = map[Kind]Definition{
 		},
 		States: []string{StateIdle},
 	},
+	KindSignalHead: {
+		Kind: KindSignalHead, Label: "Signal head", Plural: "Signal heads",
+		Roles: []Role{
+			{Name: AspectDark, Command: true, State: AspectDark, Label: "Dark"},
+			{Name: AspectRed, Command: true, State: AspectRed, Label: "Red"},
+			{Name: AspectYellow, Command: true, State: AspectYellow, Label: "Yellow"},
+			{Name: AspectGreen, Command: true, State: AspectGreen, Label: "Green"},
+			{Name: AspectLunar, Command: true, State: AspectLunar, Label: "Lunar"},
+			{Name: AspectS, Command: true, State: AspectS, Label: "S"},
+			{Name: AspectD, Command: true, State: AspectD, Label: "D"},
+			{Name: AspectNumber, Command: true, State: AspectNumber, Label: "Number"},
+			{Name: AspectFlashingRed, Command: true, State: AspectFlashingRed, Label: "Flashing red"},
+			{Name: AspectFlashingYellow, Command: true, State: AspectFlashingYellow, Label: "Flashing yellow"},
+			{Name: AspectFlashingGreen, Command: true, State: AspectFlashingGreen, Label: "Flashing green"},
+		},
+		States: []string{
+			AspectDark, AspectRed, AspectYellow, AspectGreen, AspectLunar, AspectS, AspectD, AspectNumber,
+			AspectFlashingRed, AspectFlashingYellow, AspectFlashingGreen, StateUnknown,
+		},
+	},
 }
 
 // kindOrder is how kinds are listed.
-var kindOrder = []Kind{KindTurnout, KindBlock, KindReporter, KindSensor, KindSwitch, KindButton}
+var kindOrder = []Kind{KindTurnout, KindBlock, KindReporter, KindSensor, KindSwitch, KindButton, KindSignalHead}
 
 // Definitions lists every kind in display order.
 func Definitions() []Definition {

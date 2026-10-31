@@ -173,6 +173,9 @@ func (m Manual) Spec() (Spec, error) {
 	if missing := def.Missing(bound); len(missing) > 0 {
 		return Spec{}, &InvalidError{Reason: fmt.Sprintf("a %s needs its %s event", def.Label, missing[0])}
 	}
+	if len(bound) == 0 {
+		return Spec{}, &InvalidError{Reason: fmt.Sprintf("a %s needs at least one event", def.Label)}
+	}
 	id := m.ID
 	switch {
 	case id != "":
