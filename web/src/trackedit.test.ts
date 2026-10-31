@@ -65,7 +65,7 @@ function place(plan: TrackPlan, id: string, pointer: { x: number; y: number }): 
   const index = indexPlan(plan);
   const end = endNear(index, pointer, 5)!;
   const shape = PIECES.find((p) => p.id === id)!;
-  const placed = placePiece(shape, end.point, end.heading, crossoverSide(index, end, pointer));
+  const placed = placePiece(shape, end.point, end.heading, crossoverSide(index, end, shape.across!, pointer));
   const ends = placed.ends.map((v) => (v.x === end.point.x && v.y === end.point.y ? end.point.id : v));
   return addJunction(plan, index, shape.kind, ends, placed.at);
 }
@@ -81,14 +81,30 @@ test("a crossover goes to the track beside the end clicked and joins it", () => 
   const plan = fourTracks();
   const index = indexPlan(plan);
   const end = (y: number) => endNear(index, { x: 100, y }, 5)!;
-  assert.equal(crossoverSide(index, end(0), { x: 100, y: -3 }), 1, "the only track beside is to the right, heading east");
-  assert.equal(crossoverSide(index, end(99), { x: 100, y: 102 }), -1);
-  assert.equal(crossoverSide(index, end(33), { x: 100, y: 31 }), -1, "track on both sides: the pointer's side");
-  assert.equal(crossoverSide(index, end(33), { x: 100, y: 35 }), 1);
+  assert.equal(crossoverSide(index, end(0), 33, { x: 100, y: -3 }), 1, "the only track beside is to the right, heading east");
+  assert.equal(crossoverSide(index, end(99), 33, { x: 100, y: 102 }), -1);
+  assert.equal(crossoverSide(index, end(33), 33, { x: 100, y: 31 }), -1, "track on both sides: the pointer's side");
+  assert.equal(crossoverSide(index, end(33), 33, { x: 100, y: 35 }), 1);
 
   const double = place(plan, "xd", { x: 100, y: 0 });
   assert.equal(double.junctions[0].kind, "double_crossover");
   assert.equal(double.points.length, plan.points.length + 2, "it joined both near ends; 310 mm runs past the far ones");
+});
+
+test("Peco's double crossover looks for the track 27 mm over and joins it at both ends", () => {
+  let plan = empty;
+  for (const y of [0, 27]) {
+    plan = addTrack(plan, indexPlan(plan), { x: 0, y }, { x: 100, y }, 0);
+    plan = addTrack(plan, indexPlan(plan), { x: 371, y }, { x: 471, y }, 0);
+  }
+  const index = indexPlan(plan);
+  const end = endNear(index, { x: 100, y: 27 }, 5)!;
+  assert.equal(crossoverSide(index, end, 27, { x: 100, y: 40 }), -1, "the track beside it, with the pointer on the other side");
+  assert.equal(crossoverSide(index, end, 33, { x: 100, y: 40 }), 1, "Kato's reach finds nothing there, so the pointer decides");
+
+  const double = place(plan, "pd", { x: 100, y: 27 });
+  assert.equal(double.junctions[0].kind, "double_crossover");
+  assert.equal(double.points.length, plan.points.length, "all four of its ends joined track already there");
 });
 
 test("a single crossover keeps its hand whichever end it goes on from", () => {

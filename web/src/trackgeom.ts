@@ -296,60 +296,120 @@ export function markerPlace(index: PlanIndex, m: Pick<PlanMarker, "track" | "at"
   return along && { at: along.at, heading: m.reverse ? along.heading + 180 : along.heading };
 }
 
-// Kato Unitrack N, the pieces that aren't plain track. Each is given
-// with its first end at the origin, the track leading off along +x and
-// +y to the right of it.
+// The pieces that aren't plain track, from Kato Unitrack N and Peco Code
+// 55. Each is given with its first end at the origin, the track leading
+// off along +x and +y to the right of it.
 
 export interface PieceShape {
   id: string;
   label: string;
+  /** The range of track it comes from. */
+  range: string;
   kind: JunctionKind;
   ends: Vec[];
   at?: Vec;
-  /** A crossover, drawn here to the track on the right; placePiece
-   * puts it to the track on the left instead when asked. */
-  across?: boolean;
+  /** How far apart a crossover puts its two tracks. It is drawn here to
+   * the track on the right; placePiece puts it to the track on the left
+   * instead when asked. */
+  across?: number;
 }
 
-/** How far apart Kato's double track and crossovers put two tracks. */
-export const TRACK_SPACING = 33;
+const KATO = "Kato Unitrack";
+const PECO = "Peco Code 55";
 
-function turnoutShape(id: string, label: string, kind: JunctionKind, closed: number, radius: number, deg: number, side: 1 | -1): PieceShape {
+// Kato's branches are one curve from the points to the end of the piece.
+function katoTurnout(id: string, label: string, kind: JunctionKind, closed: number, radius: number, deg: number, side: 1 | -1): PieceShape {
   const leg = (s: number): Vec => ({ x: radius * Math.sin(radians(deg)), y: s * radius * (1 - Math.cos(radians(deg))) });
   const at = { x: radius * Math.tan(radians(deg / 2)), y: 0 };
-  if (kind === "wye") return { id, label, kind, ends: [{ x: 0, y: 0 }, leg(-1), leg(1)], at };
-  return { id, label, kind, ends: [{ x: 0, y: 0 }, { x: closed, y: 0 }, leg(side)], at };
+  if (kind === "wye") return { id, label, range: KATO, kind, ends: [{ x: 0, y: 0 }, leg(-1), leg(1)], at };
+  return { id, label, range: KATO, kind, ends: [{ x: 0, y: 0 }, { x: closed, y: 0 }, leg(side)], at };
+}
+
+// Peco's turnouts differ in length, not in where they lead: every branch
+// ends 13.3 mm to the side, 10° off, so any two of them back to back make
+// a crossover about 27 mm across. The radius Peco quotes says how sharp
+// the curve is on the way there, which the plan doesn't need. Lengths are
+// Peco's; where the ends lie is from XTrackCAD's Code 55 library, since
+// Peco doesn't publish it.
+const PECO_BRANCH = 13.3;
+
+/** Where the line back along an end, off to the side by offset and
+ * turned by deg, meets the line the piece sets off along. */
+const parting = (length: number, offset: number, deg: number): Vec => ({ x: length - offset / Math.tan(radians(deg)), y: 0 });
+
+function pecoTurnout(id: string, label: string, length: number, side: 1 | -1): PieceShape {
+  const ends = [
+    { x: 0, y: 0 },
+    { x: length, y: 0 },
+    { x: length, y: side * PECO_BRANCH },
+  ];
+  return { id, label, range: PECO, kind: "turnout", ends, at: parting(length, PECO_BRANCH, 10) };
+}
+
+// A curved turnout's closed route curves too, a little under 10° to the
+// branch's 20°. Both part at the same place.
+function pecoCurved(id: string, label: string, side: 1 | -1): PieceShape {
+  const ends = [
+    { x: 0, y: 0 },
+    { x: 155.9, y: side * 13.4 },
+    { x: 153.6, y: side * 26.6 },
+  ];
+  return { id, label, range: PECO, kind: "turnout", ends, at: { x: 78.8, y: 0 } };
+}
+
+function pecoY(id: string, label: string): PieceShape {
+  const ends = [
+    { x: 0, y: 0 },
+    { x: 123.8, y: -6.6 },
+    { x: 123.8, y: 6.6 },
+  ];
+  return { id, label, range: PECO, kind: "wye", ends, at: parting(123.8, 6.6, 5) };
 }
 
 // A crossover's thrown route leads from the first end of its track a to
 // the far end of b. With b to the right, that turns a train off to the
 // right: a right hand crossover. A left hand one starts on the other
 // track, so it lists that one first.
-function crossoverShape(id: string, label: string, kind: JunctionKind, length: number, hand: "left" | "right"): PieceShape {
+function crossoverShape(id: string, label: string, range: string, kind: JunctionKind, length: number, across: number, hand: "left" | "right"): PieceShape {
   const near = [
     { x: 0, y: 0 },
     { x: length, y: 0 },
   ];
   const other = [
-    { x: 0, y: TRACK_SPACING },
-    { x: length, y: TRACK_SPACING },
+    { x: 0, y: across },
+    { x: length, y: across },
   ];
-  return { id, label, kind, ends: hand === "right" ? [...near, ...other] : [...other, ...near], across: true };
+  return { id, label, range, kind, ends: hand === "right" ? [...near, ...other] : [...other, ...near], across };
 }
 
-/** The junction pieces offered for placing, as Kato makes them: the
- * single crossovers are two #4 turnouts in 248 mm, the double crossover
- * 310 mm long. */
+/** The junction pieces offered for placing, as their makers make them.
+ * Kato's single crossovers are two #4 turnouts in 248 mm, its double
+ * crossover 310 mm long and 33 mm across; Peco's double crossover is 271
+ * mm long and 27 mm across. Peco makes no single crossover: use two
+ * turnouts. */
 export const PIECES: readonly PieceShape[] = [
-  turnoutShape("t4r", "#4 turnout, right", "turnout", 126, 481, 15, 1),
-  turnoutShape("t4l", "#4 turnout, left", "turnout", 126, 481, 15, -1),
-  turnoutShape("t6r", "#6 turnout, right", "turnout", 186, 718, 15, 1),
-  turnoutShape("t6l", "#6 turnout, left", "turnout", 186, 718, 15, -1),
-  turnoutShape("wye", "Wye", "wye", 0, 481, 15, 1),
-  crossoverShape("xsr", "Single crossover, right hand", "crossover", 248, "right"),
-  crossoverShape("xsl", "Single crossover, left hand", "crossover", 248, "left"),
-  crossoverShape("xd", "Double crossover", "double_crossover", 310, "right"),
+  katoTurnout("t4r", "#4 turnout, right", "turnout", 126, 481, 15, 1),
+  katoTurnout("t4l", "#4 turnout, left", "turnout", 126, 481, 15, -1),
+  katoTurnout("t6r", "#6 turnout, right", "turnout", 186, 718, 15, 1),
+  katoTurnout("t6l", "#6 turnout, left", "turnout", 186, 718, 15, -1),
+  katoTurnout("wye", "Wye", "wye", 0, 481, 15, 1),
+  crossoverShape("xsr", "Single crossover, right hand", KATO, "crossover", 248, 33, "right"),
+  crossoverShape("xsl", "Single crossover, left hand", KATO, "crossover", 248, 33, "left"),
+  crossoverShape("xd", "Double crossover", KATO, "double_crossover", 310, 33, "right"),
+  pecoTurnout("psr", "Small turnout, right (SL-E391F)", 123, 1),
+  pecoTurnout("psl", "Small turnout, left (SL-E392F)", 123, -1),
+  pecoTurnout("pmr", "Medium turnout, right (SL-E395F)", 137, 1),
+  pecoTurnout("pml", "Medium turnout, left (SL-E396F)", 137, -1),
+  pecoTurnout("plr", "Large turnout, right (SL-E388F)", 164, 1),
+  pecoTurnout("pll", "Large turnout, left (SL-E389F)", 164, -1),
+  pecoCurved("pcr", "Curved turnout, right (SL-E386F)", 1),
+  pecoCurved("pcl", "Curved turnout, left (SL-E387F)", -1),
+  pecoY("py", "Y turnout (SL-E397F)"),
+  crossoverShape("pd", "Double crossover (SL-E383F)", PECO, "double_crossover", 271, 27, "right"),
 ];
+
+/** The ranges of track the pieces come from. */
+export const PIECE_RANGES: readonly string[] = [...new Set(PIECES.map((p) => p.range))];
 
 /** The curve radii of Kato Unitrack N, in millimeters. */
 export const KATO_RADII = [216, 249, 282, 315, 348, 381, 414, 481, 718];
@@ -516,12 +576,12 @@ const JOIN = 2;
 
 /** The side of the track at end that a crossover put there goes to, 1
  * for the right and -1 for the left: the side where another track ends
- * beside it, running the same way. With track on both sides or neither,
- * the side the pointer is on. */
-export function crossoverSide(index: PlanIndex, end: End, pointer: Vec): 1 | -1 {
+ * beside it, as far over as the crossover reaches and running the same
+ * way. With track on both sides or neither, the side the pointer is on. */
+export function crossoverSide(index: PlanIndex, end: End, across: number, pointer: Vec): 1 | -1 {
   const right = unit(end.heading + 90);
   const beside = ([1, -1] as const).filter((side) => {
-    const there = add(end.point, scale(right, side * TRACK_SPACING));
+    const there = add(end.point, scale(right, side * across));
     return freeEnds(index).some((p) => {
       if (p.id === end.point.id || dist(p, there) >= JOIN) return false;
       const heading = outward(index, index.at.get(p.id)![0]);

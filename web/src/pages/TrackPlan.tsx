@@ -31,6 +31,7 @@ import {
   KATO_RADII,
   type PlanIndex,
   KINDS,
+  PIECE_RANGES,
   PIECES,
   addJunction,
   addMarker,
@@ -1011,7 +1012,7 @@ function Editor({
   /** Where the piece tool would put its piece, at the end under the
    * pointer; a crossover goes to the track beside it. */
   function placeAt(end: End, pointer: Vec) {
-    return placePiece(shape, end.point, end.heading, shape.across ? crossoverSide(index, end, pointer) : 1);
+    return placePiece(shape, end.point, end.heading, shape.across ? crossoverSide(index, end, shape.across, pointer) : 1);
   }
 
   function onPointerDown(at: Vec, e: ReactPointerEvent<SVGSVGElement>, target?: ElementRef) {
@@ -1411,10 +1412,14 @@ function Editor({
             <label className="trk-option">
               <span>Piece</span>
               <select className="input input--select" value={shape.id} onChange={(e) => set({ piece: e.target.value })}>
-                {PIECES.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.label}
-                  </option>
+                {PIECE_RANGES.map((range) => (
+                  <optgroup key={range} label={range}>
+                    {PIECES.filter((p) => p.range === range).map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.label}
+                      </option>
+                    ))}
+                  </optgroup>
                 ))}
               </select>
             </label>

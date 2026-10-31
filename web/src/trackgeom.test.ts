@@ -15,6 +15,7 @@ import {
   normalizeDegrees,
   openEnds,
   outward,
+  PIECE_RANGES,
   PIECES,
   placePiece,
   routePath,
@@ -71,6 +72,53 @@ test("a placed turnout's branch leaves along its curve", () => {
   );
   assert.deepEqual(cross.ends[2], { x: 0, y: 33 });
   assert.match(routePath("double_crossover", cross.ends, junctionCenter({}, cross.ends), { from: 0, to: 3 }), /^M0 0C155 0 155 33 310 33$/);
+});
+
+test("every Peco turnout's branch ends in the same place beside it", () => {
+  const turnouts = [
+    ["psr", 123, 1],
+    ["psl", 123, -1],
+    ["pmr", 137, 1],
+    ["pml", 137, -1],
+    ["plr", 164, 1],
+    ["pll", 164, -1],
+  ] as const;
+  for (const [id, length, side] of turnouts) {
+    const placed = placePiece(
+      PIECES.find((p) => p.id === id)!,
+      { x: 0, y: 0 },
+      0,
+    );
+    const center = junctionCenter({ at: placed.at }, placed.ends);
+    assert.deepEqual(placed.ends[1], { x: length, y: 0 }, id);
+    assert.deepEqual(placed.ends[2], { x: length, y: side * 13.3 }, id);
+    near(turnDiff(junctionOutward("turnout", placed.ends, center, 2), side * 10), 0, `${id} branch`, 0.01);
+    near(turnDiff(junctionOutward("turnout", placed.ends, center, 1), 0), 0, `${id} closed`, 0.01);
+  }
+});
+
+test("Peco's curved turnouts and Y leave at their own angles", () => {
+  const curved = placePiece(
+    PIECES.find((p) => p.id === "pcl")!,
+    { x: 0, y: 0 },
+    0,
+  );
+  const center = junctionCenter({ at: curved.at }, curved.ends);
+  near(turnDiff(junctionOutward("turnout", curved.ends, center, 1), -9.8), 0, "closed", 0.1);
+  near(turnDiff(junctionOutward("turnout", curved.ends, center, 2), -19.6), 0, "branch", 0.1);
+  const y = placePiece(
+    PIECES.find((p) => p.id === "py")!,
+    { x: 0, y: 0 },
+    0,
+  );
+  const parts = junctionCenter({ at: y.at }, y.ends);
+  near(turnDiff(junctionOutward("wye", y.ends, parts, 1), -5), 0, "left", 0.01);
+  near(turnDiff(junctionOutward("wye", y.ends, parts, 2), 5), 0, "right", 0.01);
+});
+
+test("the pieces are offered by the range they come from", () => {
+  assert.deepEqual(PIECE_RANGES, ["Kato Unitrack", "Peco Code 55"]);
+  assert.equal(new Set(PIECES.map((p) => p.id)).size, PIECES.length);
 });
 
 const line: TrackPlan = {

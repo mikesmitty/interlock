@@ -40,7 +40,7 @@ points:
 - **Junctions** are where track branches or crosses: turnouts, wyes,
   crossings, and crossovers between two tracks side by side, single or
   double. A turnout's closed route is the straight way, thrown the
-  branch.
+  branch; on a curved turnout, closed is the wider curve.
 - A point joins at most two pieces of track end to end. Track that ends
   without a buffer stop is marked in amber while editing.
 
@@ -83,15 +83,19 @@ Ctrl+Z) and **Redo** step back and forth through your changes.
   millimeters), in steps of 45°, 15°, 7.5° or 1°. It bends the way you
   drag. Let go on another track end to join the two with the one curve
   that fits.
-- **Turnout** (W): click the end of a track to put a piece there: a #4
-  or #6 turnout to the left or right, a wye, a single crossover, left or
-  right hand (Kato's 248 mm pieces), or a double crossover (310 mm). The
-  piece carries on from the end you click, and its other ends join any
-  track already in place there, so a crossover put on the end of one of
-  two parallel tracks joins both. A crossover goes to the track whose end
-  is beside the one you click, 33 mm over. Where tracks end on both
-  sides, as in the middle of four, it goes to the side of the end the
-  pointer is on; the outline shows which before you click.
+- **Turnout** (W): click the end of a track to put a piece there. From
+  Kato Unitrack: a #4 or #6 turnout to the left or right, a wye, a single
+  crossover, left or right hand (248 mm), or a double crossover (310 mm).
+  From Peco Code 55: a small, medium, large or curved turnout to the left
+  or right, a Y turnout, or a double crossover (271 mm). Peco makes no
+  single crossover, so put two turnouts back to back. The piece carries
+  on from the end you click, and its other ends join any track already
+  in place there, so a crossover put on the end of one of two parallel
+  tracks joins both. A crossover goes to the track whose end is beside
+  the one you click, 33 mm over for Kato's and 27 mm for Peco's. Where
+  tracks end on both sides, as in the middle of four, it goes to the
+  side of the end the pointer is on; the outline shows which before you
+  click.
 - **Platform** (P): drag along where a platform goes, from one end to
   the other; set its width above the plan.
 - **Marker** (M): click on track to put a stop marker there; set the
