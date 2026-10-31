@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.3.0](https://github.com/mikesmitty/interlock/compare/v0.2.0...v0.3.0) (2026-10-31)
+
+
+### Features
+
+* **decoders:** count settings saved before the session as not checked ([a173f30](https://github.com/mikesmitty/interlock/commit/a173f30c88a5df31080d48fbbf65bf1ac4904ef9))
+* **entities:** add canbus-outpost's signal heads ([1078e36](https://github.com/mikesmitty/interlock/commit/1078e36b43e437a02ca04b61a6665e5afca7e9ab))
+* **entities:** drive turnouts on DCC accessory decoders by number ([79cc0a0](https://github.com/mikesmitty/interlock/commit/79cc0a0fd96e4dbea4b0e6b51c5aa1af7b9ecb33))
+* **signals:** put signals on the track plan ([79aa8c8](https://github.com/mikesmitty/interlock/commit/79aa8c89224cd0d22d38d1fc712797e22836a1cb))
+* **train:** hold trains at their speeds through the layout's emergency stop ([a7a1561](https://github.com/mikesmitty/interlock/commit/a7a156193c87b3a3daed666219a43802ff5cbd60))
+* **train:** keep consists in the decoders ([bbd85b5](https://github.com/mikesmitty/interlock/commit/bbd85b55b88387b866671865c7008dc70b6178e4))
+* **web:** add Peco Code 55 turnouts to the track plan editor ([167e447](https://github.com/mikesmitty/interlock/commit/167e4475032bf6a628af52840ca9a824d9cb3c38))
+* **web:** group the navigation rail by task and open on the track plan ([9562110](https://github.com/mikesmitty/interlock/commit/956211046d5e8364a96ad925122c1907338e0c33))
+
+
+### Bug Fixes
+
+* **entities:** drop bi-color signal lamps ([62ba0b4](https://github.com/mikesmitty/interlock/commit/62ba0b4724d9222122d493823cf47569bd46c695))
+
 ## [0.2.0](https://github.com/mikesmitty/interlock/compare/v0.1.0...v0.2.0) (2026-10-28)
 
 
