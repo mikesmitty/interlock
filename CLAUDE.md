@@ -72,7 +72,8 @@ applied at the next start; the replaced files go to `before-restore-*/`.
   - `openlcb/sim` simulated nodes built from the embedded copies of the
     canbus-outpost and simple-dcc CDI files (keep them in sync with the
     firmware repos); `Outpost` adds the firmware's behavior (servos,
-    detectors, signal heads, Identify replies) over the plain node;
+    detectors, signal heads and the signal test, a servo output that
+    carries the signal chain, Identify replies) over the plain node;
     `Station` behaves
     like simple-dcc (train search and train nodes, a programming track
     with a decoder on it, the emergency events (Emergency Stop holds
@@ -102,7 +103,9 @@ applied at the next start; the replaced files go to `before-restore-*/`.
   into entities; shipped ones live in `profiles/` (canbus-outpost,
   simple-dcc, generic guesser), user ones in `<data>/profiles/`. A rule's
   `needs` binds a role only where the configuration has something behind
-  it (a signal head's aspect, where a lamp for it is on an output).
+  it (a signal head's aspect, where a lamp for it is on an output), and
+  its `unless` leaves the entity out where another variable holds a value
+  (a servo whose output carries the signal chain).
 - `internal/entity` — kinds (turnout, block, reporter, sensor, switch,
   button, signal head), the manager that builds entities from profiles
   over the event

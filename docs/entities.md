@@ -68,7 +68,22 @@ red, yellow or green lamp can flash too.
 A head lights one kind of lamp at a time, so a light that shows alongside
 another, like lunar under a red, takes a head of its own, and a signal
 with two heads is two entities. Every chip on the cable has to be
-connected for the ones after it to work, enabled or not.
+connected for the ones after it to work, in use or not. Head 1 is the
+first chip on the cable unless its **Chain Position** says otherwise, so
+after adding a chip partway along, move the heads after it along by one
+there instead of setting them up again. **Lamp Fade** set to
+Incandescent makes a head's lamps warm up and cool down like bulbs.
+
+Each outpost also has a switch, such as `Yard signal test`, for its
+**Signal Test**: while it's on, every chip on the chain, set up or not,
+lights red, yellow and green in turn, a second each. The heads still
+follow their aspects, and show them again when it's turned off. To test
+every outpost's chain at once, give them all the same Start and Stop
+events.
+
+On boards made before the LED header, the chain can plug into a servo
+output instead (**Connected To** under **Signal Heads**). That servo's
+switch machine is then out of use, so it isn't a turnout entity.
 
 Put a head on a [signal](./signals.md) on the track plan and the signal
 sets it from the routes and trains.

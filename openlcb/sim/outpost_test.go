@@ -133,8 +133,9 @@ func TestOutpostBehavior(t *testing.T) {
 	box.wait(t, "producer range identified", withEvent(openlcb.MTIProducerRangeIdentified, rng.Encode()))
 	time.Sleep(50 * time.Millisecond)
 	identified := box.count(func(m *openlcb.Message) bool { return m.MTI != openlcb.MTIEventReport })
-	if identified != 4*5+4*2+4 {
-		t.Errorf("identified messages = %d, want 32", identified)
+	// Servo, track and reporter events, and the signal test's start and stop
+	if identified != 4*5+4*2+4+2 {
+		t.Errorf("identified messages = %d, want 34", identified)
 	}
 
 	// A throw with the default 3 s throw time: moving, then feedback.
@@ -323,4 +324,108 @@ func TestOutpostSignalHeads(t *testing.T) {
 	set("Signal Heads/Head 1/Power-On Aspect", 3)
 	set("Signal Heads/Head 1/Enabled", 1)
 	waitHead("Green")
+}
+
+// setConfig writes one byte of the outpost's configuration by path.
+func setConfig(t *testing.T, peer *sim.Outpost, path string, value byte) {
+	t.Helper()
+	for _, v := range peer.Doc.Variables() {
+		if strings.Join(v.Path, "/") == path {
+			if err := peer.Config.Write(v.Address, []byte{value}); err != nil {
+				t.Fatal(err)
+			}
+			return
+		}
+	}
+	t.Fatalf("no variable %s", path)
+}
+
+func TestOutpostSignalTest(t *testing.T) {
+	local, _, peer, box, ctx := simOutpost(t)
+	start, stop := peerID.Event(0x200), peerID.Event(0x201)
+	send := func(ev openlcb.EventID) {
+		t.Helper()
+		if err := local.Send(ctx, openlcb.Message{MTI: openlcb.MTIEventReport, Payload: ev.AsSlice()}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ask := func(ev openlcb.EventID) {
+		t.Helper()
+		box.clear()
+		if err := local.Send(ctx, openlcb.Message{MTI: openlcb.MTIIdentifyConsumer, Payload: ev.AsSlice()}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	waitTest := func(want bool) {
+		t.Helper()
+		deadline := time.Now().Add(2 * time.Second)
+		for peer.SignalTest() != want {
+			if time.Now().After(deadline) {
+				t.Fatalf("signal test running = %v, want %v", peer.SignalTest(), want)
+			}
+			time.Sleep(2 * time.Millisecond)
+		}
+	}
+
+	// On the bus with no head enabled, and not running.
+	box.clear()
+	if err := local.Send(ctx, openlcb.Message{MTI: openlcb.MTIIdentifyEventsAddressed, Dest: openlcb.NodeHandle{ID: peerID}}); err != nil {
+		t.Fatal(err)
+	}
+	box.wait(t, "start invalid", withEvent(openlcb.MTIConsumerIdentifiedInvalid, start))
+	box.wait(t, "stop valid", withEvent(openlcb.MTIConsumerIdentifiedValid, stop))
+
+	send(start)
+	waitTest(true)
+	ask(start)
+	box.wait(t, "start valid while running", withEvent(openlcb.MTIConsumerIdentifiedValid, start))
+	ask(stop)
+	box.wait(t, "stop invalid while running", withEvent(openlcb.MTIConsumerIdentifiedInvalid, stop))
+
+	send(stop)
+	waitTest(false)
+	ask(start)
+	box.wait(t, "start invalid after", withEvent(openlcb.MTIConsumerIdentifiedInvalid, start))
+}
+
+// A servo output that carries the signal chain leaves its switch machine
+// out of use: commands do nothing and its state is unknown.
+func TestOutpostChainOnServo(t *testing.T) {
+	local, _, peer, box, ctx := simOutpost(t)
+	throw, closedFB := peerID.Event(0), peerID.Event(3)
+	box.wait(t, "closed feedback at power on", withEvent(openlcb.MTIEventReport, closedFB))
+
+	setConfig(t, peer, "Switch Machines/Servo 1/Throw Time", 0)
+	setConfig(t, peer, "Signal Heads/Connected To", 1)
+	deadline := time.Now().Add(2 * time.Second)
+	for peer.Turnout(0) != "unknown" {
+		if time.Now().After(deadline) {
+			t.Fatalf("servo 1 with the chain on it = %s", peer.Turnout(0))
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	if err := local.SendEvent(ctx, throw); err != nil {
+		t.Fatal(err)
+	}
+	box.clear()
+	if err := local.Send(ctx, openlcb.Message{MTI: openlcb.MTIIdentifyConsumer, Payload: throw.AsSlice()}); err != nil {
+		t.Fatal(err)
+	}
+	box.wait(t, "throw unknown", withEvent(openlcb.MTIConsumerIdentifiedUnknown, throw))
+	if peer.Turnout(0) != "unknown" {
+		t.Errorf("servo 1 moved with the chain on it: %s", peer.Turnout(0))
+	}
+
+	// Back on the LED header, it works again.
+	setConfig(t, peer, "Signal Heads/Connected To", 0)
+	deadline = time.Now().Add(2 * time.Second)
+	for peer.Turnout(0) != "thrown" {
+		if err := local.SendEvent(ctx, throw); err != nil {
+			t.Fatal(err)
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("servo 1 back in service = %s", peer.Turnout(0))
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
 }

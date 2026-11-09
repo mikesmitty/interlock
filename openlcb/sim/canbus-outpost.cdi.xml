@@ -5,7 +5,7 @@
 <model>CAN Bus Outpost</model>
 <hardwareVersion>Rev A</hardwareVersion>
 <!-- x-release-please-start-version -->
-<softwareVersion>0.3.1</softwareVersion>
+<softwareVersion>0.6.0</softwareVersion>
 <!-- x-release-please-end -->
 </identification>
 <segment space='253' origin='0'>
@@ -275,7 +275,7 @@
 </segment>
 <segment space='253' origin='996'>
 <name>Signal Heads</name>
-<description>The signal heads on the SSSB chain, one WS2811 chip per head. Head 1 is the first on the cable from the board. Every head on the cable needs to be there for the ones after it to work, enabled or not.</description>
+<description>The signal heads on the SSSB chain, one WS2811 chip per head. Head 1 is the first on the cable from the board, unless its Chain Position says otherwise. Every chip on the cable needs to be there for the ones after it to work, in use or not.</description>
 <int size='1'>
 <name>Chain Speed</name>
 <description>Must match the SET pin of every chip on the chain: 800 kHz when open, 400 kHz when tied to power</description>
@@ -291,7 +291,34 @@
 </relation>
 </map>
 </int>
-<string size='3'/>
+<int size='1'>
+<name>Connected To</name>
+<description>Where the chain plugs into the board. Boards made before the LED header was added can use a servo output instead, with a 5 V buffer on the data line. That servo's switch machine is then out of use, as if disabled.</description>
+<default>0</default>
+<map>
+<relation>
+<property>0</property>
+<value>LED header</value>
+</relation>
+<relation>
+<property>1</property>
+<value>Servo 1</value>
+</relation>
+<relation>
+<property>2</property>
+<value>Servo 2</value>
+</relation>
+<relation>
+<property>3</property>
+<value>Servo 3</value>
+</relation>
+<relation>
+<property>4</property>
+<value>Servo 4</value>
+</relation>
+</map>
+</int>
+<string size='2'/>
 <group replication='16'>
 <name>Head</name>
 <description>A head is one chip with a lamp on each of its three outputs, and it lights one kind of lamp at a time. A light that shows alongside another, like lunar under a red, needs a chip of its own: use the next head for it. Only the events for lamps this head has are on the bus.</description>
@@ -544,7 +571,39 @@
 <max>255</max>
 <default>128</default>
 </int>
-<string size='8'/>
+<int size='1'>
+<name>Lamp Fade</name>
+<description>Incandescent: lamps warm up and cool down like ballasted bulbs, flashing included, instead of switching at once</description>
+<default>0</default>
+<map>
+<relation>
+<property>0</property>
+<value>None</value>
+</relation>
+<relation>
+<property>1</property>
+<value>Incandescent</value>
+</relation>
+</map>
+</int>
+<int size='1'>
+<name>Chain Position</name>
+<description>Which chip on the chain shows this head, 1 being the first from the board. 0 means the head's own number. After adding a chip partway along the chain, move the heads after it along by one here instead of setting them all up again. Two heads on one chip both show on it.</description>
+<min>0</min>
+<max>16</max>
+<default>0</default>
+</int>
+<string size='6'/>
+</group>
+<group>
+<name>Signal Test</name>
+<description>From Start until Stop, every chip on the chain, set up or not, lights red, yellow and green in turn and then none, a second each (OUTR, OUTB and OUTG, as SSSB heads are wired). The heads still follow their events, and go back to their aspects at Stop. Give every node the same pair to test all the chains on the layout at once.</description>
+<eventid>
+<name>Start Event</name>
+</eventid>
+<eventid>
+<name>Stop Event</name>
+</eventid>
 </group>
 </segment>
 </cdi>

@@ -143,6 +143,9 @@ func (p *Profile) build(rule Rule, node entity.NodeInfo, inst instance, all []cd
 			return entity.Spec{}, false
 		}
 	}
+	if rule.Unless.holds(inst, all, values) {
+		return entity.Spec{}, false
+	}
 
 	slug := inst.slug
 	if slug == "" {
@@ -196,6 +199,21 @@ func (n *Needs) met(role string, vars []cdi.Variable, values map[string]string) 
 	for _, name := range n.Variables {
 		if v, ok := findVariable(vars, Binding{Match: name}, nil, ""); ok && strings.TrimSpace(values[v.Key()]) == want {
 			return true
+		}
+	}
+	return false
+}
+
+// holds reports whether the variable Unless names has its value for this
+// instance.
+func (u *Unless) holds(inst instance, all []cdi.Variable, values map[string]string) bool {
+	if u == nil {
+		return false
+	}
+	want := strings.ReplaceAll(strings.TrimSpace(u.Value), "{n}", strconv.Itoa(inst.index))
+	for _, v := range all {
+		if strings.EqualFold(strings.Join(v.Path, "/"), strings.TrimSpace(u.Variable)) {
+			return strings.TrimSpace(values[v.Key()]) == want
 		}
 	}
 	return false

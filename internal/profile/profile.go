@@ -92,6 +92,18 @@ type Rule struct {
 	Enabled string `yaml:"enabled,omitempty" json:"enabled,omitempty"`
 	// Needs leaves out roles the node's configuration has nothing behind.
 	Needs *Needs `yaml:"needs,omitempty" json:"needs,omitempty"`
+	// Unless leaves the entity out where a variable elsewhere in the
+	// configuration holds a value, as a servo whose output carries the
+	// signal chain has no switch machine.
+	Unless *Unless `yaml:"unless,omitempty" json:"unless,omitempty"`
+}
+
+// Unless names a variable by its path, the segment and groups down to it
+// joined by "/" ("Signal Heads/Connected To"), and the value that leaves
+// an entity out. {n} in the value is the entity's replica number.
+type Unless struct {
+	Variable string `yaml:"variable" json:"variable"`
+	Value    string `yaml:"value" json:"value"`
 }
 
 // Needs ties roles to the configuration: a role in Values is bound only
@@ -223,6 +235,9 @@ func (p *Profile) compile() error {
 		}
 		if len(bound) == 0 {
 			return fmt.Errorf("profile %s: entities[%d]: a %s needs at least one event", p.Name, i, def.Label)
+		}
+		if u := rule.Unless; u != nil && (strings.TrimSpace(u.Variable) == "" || strings.TrimSpace(u.Value) == "") {
+			return fmt.Errorf("profile %s: entities[%d]: unless needs a variable and a value", p.Name, i)
 		}
 		if n := rule.Needs; n != nil {
 			if len(n.Variables) == 0 {

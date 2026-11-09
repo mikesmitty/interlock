@@ -1,6 +1,7 @@
 package profile
 
 import (
+	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
@@ -18,7 +19,8 @@ const nodeID = openlcb.NodeID(0x0A0000000042)
 // outpostValues builds the values the event table would hold for an
 // outpost with default event IDs: node ID then an index, servo events
 // 0x00-0x13, occupied and clear 0x20-0x27, reporters the next node IDs,
-// sixteen aspect events per signal head from 0x100, every head disabled.
+// sixteen aspect events per signal head from 0x100, every head disabled,
+// and the signal test's start and stop at 0x200 and 0x201.
 func outpostValues(t *testing.T) (*cdi.CDI, map[string]string) {
 	t.Helper()
 	doc, err := cdi.Parse(sim.OutpostCDI)
@@ -59,6 +61,10 @@ func outpostValues(t *testing.T) (*cdi.CDI, map[string]string) {
 			default:
 				values[v.Key()] = v.Element.Default
 			}
+		case path == "Signal Heads/Signal Test/Start Event":
+			values[v.Key()] = nodeID.Event(0x200).String()
+		case path == "Signal Heads/Signal Test/Stop Event":
+			values[v.Key()] = nodeID.Event(0x201).String()
 		case strings.HasPrefix(path, "Signal Heads/"):
 			if v.Element.Kind == cdi.KindEventID {
 				values[v.Key()] = nodeID.Event(uint16(0x100 + aspect)).String()
@@ -120,8 +126,8 @@ func TestOutpostProfile(t *testing.T) {
 	}
 	doc, values := outpostValues(t)
 	specs := set.Build(outpostNode(), doc, values)
-	if len(specs) != 12 {
-		t.Fatalf("specs = %d, want 4 turnouts, 4 blocks, 4 reporters", len(specs))
+	if len(specs) != 13 {
+		t.Fatalf("specs = %d, want 4 turnouts, 4 blocks, 4 reporters and the signal test", len(specs))
 	}
 	ids := byID(specs)
 	tn, ok := ids["turnout.0a0000000042.servo_2"]
@@ -148,6 +154,11 @@ func TestOutpostProfile(t *testing.T) {
 	if rep.Events["range"] != (nodeID + 1).Event(0) {
 		t.Errorf("reporter = %+v", rep)
 	}
+	test := ids["switch.0a0000000042.signal_test"]
+	if test.Name != "Yard signal test" || test.Kind != entity.KindSwitch ||
+		!maps.Equal(test.Events, map[string]openlcb.EventID{"on": nodeID.Event(0x200), "off": nodeID.Event(0x201)}) {
+		t.Errorf("signal test = %+v among %v", test, ids)
+	}
 
 	// A description names the entity; a disabled servo has none; a zero
 	// reporter ID turns the reporter off.
@@ -165,8 +176,8 @@ func TestOutpostProfile(t *testing.T) {
 	}
 	specs = set.Build(outpostNode(), doc, values)
 	ids = byID(specs)
-	if len(specs) != 10 {
-		t.Errorf("specs after changes = %d, want 10", len(specs))
+	if len(specs) != 11 {
+		t.Errorf("specs after changes = %d, want 11", len(specs))
 	}
 	if ids["turnout.0a0000000042.servo_1"].Name != "Yard lead" {
 		t.Errorf("servo 1 name = %q", ids["turnout.0a0000000042.servo_1"].Name)
@@ -179,6 +190,40 @@ func TestOutpostProfile(t *testing.T) {
 	}
 	if _, ok := ids["block.0a0000000042.track_4"]; !ok {
 		t.Error("track 4 block missing")
+	}
+}
+
+// A servo output that carries the signal chain has no switch machine,
+// whatever its Enabled says.
+func TestOutpostChainOnServo(t *testing.T) {
+	set, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, values := outpostValues(t)
+	connected := ""
+	for _, v := range doc.Variables() {
+		if strings.Join(v.Path, "/") == "Signal Heads/Connected To" {
+			connected = v.Key()
+		}
+	}
+	tests := []struct {
+		value string
+		gone  string
+	}{
+		{"0", ""},
+		{"2", "turnout.0a0000000042.servo_2"},
+		{"4", "turnout.0a0000000042.servo_4"},
+	}
+	for _, tt := range tests {
+		values[connected] = tt.value
+		ids := byID(set.Build(outpostNode(), doc, values))
+		for s := 1; s <= 4; s++ {
+			id := fmt.Sprintf("turnout.0a0000000042.servo_%d", s)
+			if _, ok := ids[id]; ok == (id == tt.gone) {
+				t.Errorf("chain on %s: %s present = %v", tt.value, id, ok)
+			}
+		}
 	}
 }
 
@@ -343,18 +388,19 @@ entities:
 	}
 
 	bad := map[string]string{
-		"no name":        "match: {any: true}\nentities: [{kind: block, events: {occupied: a, clear: b}}]\n",
-		"no match":       "name: x\nentities: [{kind: block, events: {occupied: a, clear: b}}]\n",
-		"unknown kind":   "name: x\nmatch: {any: true}\nentities: [{kind: lamp, events: {on: a}}]\n",
-		"unknown role":   "name: x\nmatch: {any: true}\nentities: [{kind: block, events: {occupied: a, clear: b, press: c}}]\n",
-		"missing role":   "name: x\nmatch: {any: true}\nentities: [{kind: block, events: {occupied: a}}]\n",
-		"bad regexp":     "name: x\nmatch: {any: true}\nentities: [{kind: block, events: {occupied: '~(', clear: b}}]\n",
-		"zero event":     "name: x\nmatch: {any: true}\nentities: [{kind: block, events: {occupied: 00.00.00.00.00.00.00.00, clear: b}}]\n",
-		"events as list": "name: x\nmatch: {any: true}\nentities: [{kind: block, events: [occupied, clear]}]\n",
-		"no entities":    "name: x\nmatch: {any: true}\n",
-		"no events":      "name: x\nmatch: {any: true}\nentities: [{kind: signal_head, group: Head}]\n",
-		"needs nothing":  "name: x\nmatch: {any: true}\nentities: [{kind: signal_head, events: {red: a}, needs: {values: {red: '1'}}}]\n",
-		"needs a role":   "name: x\nmatch: {any: true}\nentities: [{kind: signal_head, events: {red: a}, needs: {variables: [b], values: {green: '1'}}}]\n",
+		"no name":         "match: {any: true}\nentities: [{kind: block, events: {occupied: a, clear: b}}]\n",
+		"no match":        "name: x\nentities: [{kind: block, events: {occupied: a, clear: b}}]\n",
+		"unknown kind":    "name: x\nmatch: {any: true}\nentities: [{kind: lamp, events: {on: a}}]\n",
+		"unknown role":    "name: x\nmatch: {any: true}\nentities: [{kind: block, events: {occupied: a, clear: b, press: c}}]\n",
+		"missing role":    "name: x\nmatch: {any: true}\nentities: [{kind: block, events: {occupied: a}}]\n",
+		"bad regexp":      "name: x\nmatch: {any: true}\nentities: [{kind: block, events: {occupied: '~(', clear: b}}]\n",
+		"zero event":      "name: x\nmatch: {any: true}\nentities: [{kind: block, events: {occupied: 00.00.00.00.00.00.00.00, clear: b}}]\n",
+		"events as list":  "name: x\nmatch: {any: true}\nentities: [{kind: block, events: [occupied, clear]}]\n",
+		"no entities":     "name: x\nmatch: {any: true}\n",
+		"no events":       "name: x\nmatch: {any: true}\nentities: [{kind: signal_head, group: Head}]\n",
+		"needs nothing":   "name: x\nmatch: {any: true}\nentities: [{kind: signal_head, events: {red: a}, needs: {values: {red: '1'}}}]\n",
+		"needs a role":    "name: x\nmatch: {any: true}\nentities: [{kind: signal_head, events: {red: a}, needs: {variables: [b], values: {green: '1'}}}]\n",
+		"unless no value": "name: x\nmatch: {any: true}\nentities: [{kind: block, events: {occupied: a, clear: b}, unless: {variable: c}}]\n",
 	}
 	for name, text := range bad {
 		if _, err := Parse([]byte(text), name); err == nil {

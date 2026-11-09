@@ -42,6 +42,14 @@ func headPath(h int, name string) string {
 	return fmt.Sprintf("Signal Heads/Head %d/%s", h+1, name)
 }
 
+// The signal test's events: from Start until Stop every chip on the chain
+// lights red, yellow and green in turn. The firmware keeps them on the bus
+// whether or not any head is enabled.
+const (
+	testStartPath = "Signal Heads/Signal Test/Start Event"
+	testStopPath  = "Signal Heads/Signal Test/Stop Event"
+)
+
 // canShow reports whether a head has a lamp for an aspect.
 func (o *Outpost) canShow(h, a int) bool {
 	if a == aspectDark {
@@ -64,10 +72,12 @@ func (o *Outpost) aspectEvent(h, a int) openlcb.EventID {
 	return o.event(headPath(h, headAspects[a].name+" Event"))
 }
 
-// powerOnHeads starts every enabled head on its power-on aspect.
+// powerOnHeads starts every enabled head on its power-on aspect, with no
+// signal test running.
 func (o *Outpost) powerOnHeads() {
 	o.mu.Lock()
 	o.heads = [OutpostHeads]headState{}
+	o.signalTest = false
 	o.mu.Unlock()
 	o.applyHeads()
 }
@@ -92,8 +102,16 @@ func (o *Outpost) applyHeads() {
 	}
 }
 
-// headEvent shows the aspect an event chooses, if any.
+// headEvent shows the aspect an event chooses, if any, or starts or stops
+// the signal test.
 func (o *Outpost) headEvent(ev openlcb.EventID) {
+	if ev != 0 && (ev == o.event(testStartPath) || ev == o.event(testStopPath)) {
+		start := ev == o.event(testStartPath)
+		o.log.Info("sim: signal test", "running", start)
+		o.mu.Lock()
+		o.signalTest = start
+		o.mu.Unlock()
+	}
 	for h := range OutpostHeads {
 		for a := range headAspects {
 			if ev != o.aspectEvent(h, a) {
@@ -129,6 +147,24 @@ func (o *Outpost) Head(h int) string {
 	return headAspects[o.heads[h].aspect].name
 }
 
+// SignalTest reports whether the signal test is running.
+func (o *Outpost) SignalTest() bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.signalTest
+}
+
+// testState is a test event's state: Start is valid while the test runs,
+// Stop while it doesn't.
+func (o *Outpost) testState(start bool) eventState {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.signalTest == start {
+		return stateValid
+	}
+	return stateInvalid
+}
+
 func (o *Outpost) aspectState(h, a int) eventState {
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -144,9 +180,12 @@ func (o *Outpost) identifyHeads() {
 			o.sendIdentified(o.aspectEvent(h, a), false, o.aspectState(h, a))
 		}
 	}
+	o.sendIdentified(o.event(testStartPath), false, o.testState(true))
+	o.sendIdentified(o.event(testStopPath), false, o.testState(false))
 }
 
-// identifyHead answers Identify Consumer for a head's aspect event.
+// identifyHead answers Identify Consumer for a head's aspect event or a
+// signal test event.
 func (o *Outpost) identifyHead(ev openlcb.EventID) {
 	for h := range OutpostHeads {
 		for a := range headAspects {
@@ -154,5 +193,11 @@ func (o *Outpost) identifyHead(ev openlcb.EventID) {
 				o.sendIdentified(ev, false, o.aspectState(h, a))
 			}
 		}
+	}
+	if ev == o.event(testStartPath) {
+		o.sendIdentified(ev, false, o.testState(true))
+	}
+	if ev == o.event(testStopPath) {
+		o.sendIdentified(ev, false, o.testState(false))
 	}
 }

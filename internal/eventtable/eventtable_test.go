@@ -93,9 +93,11 @@ func outpostImage(t *testing.T) (*cdi.CDI, []byte) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	data := make([]byte, 3176)
+	vars := doc.Variables()
+	last := vars[len(vars)-1]
+	data := make([]byte, last.Address+uint32(last.Size))
 	n := 0
-	for _, v := range doc.Variables() {
+	for _, v := range vars {
 		switch {
 		case v.Element.Kind == cdi.KindEventID:
 			n++
@@ -157,8 +159,9 @@ func TestTable(t *testing.T) {
 	table.HandleNode(info(true))
 	waitFor(t, "first read", func() bool { return len(table.NodeEntries(nodeID)) > 0 })
 	entries := table.NodeEntries(nodeID)
-	if len(entries) != 208 {
-		t.Fatalf("entries = %d, want 208", len(entries))
+	// 20 servo, 12 track, 176 signal head and 2 signal test events
+	if len(entries) != 210 {
+		t.Fatalf("entries = %d, want 210", len(entries))
 	}
 	first := entries[0]
 	if first.Name != "Switch Machines / Servo 1 / Throw Command Event" || first.Key != "253:132" || first.Event != nodeID.Event(1) || first.NodeName != "Yard" {
@@ -174,7 +177,7 @@ func TestTable(t *testing.T) {
 	if got := table.Lookup(nodeID.Event(3)); len(got) != 1 || got[0].Name != "Switch Machines / Servo 1 / Thrown Feedback Event" {
 		t.Errorf("Lookup = %+v", got)
 	}
-	if all := table.Entries(); len(all) != 208 {
+	if all := table.Entries(); len(all) != 210 {
 		t.Errorf("Entries = %d", len(all))
 	}
 
@@ -239,7 +242,7 @@ func TestTable(t *testing.T) {
 	}
 	fresh := New(reader, layouts, st, slog.New(slog.DiscardHandler))
 	fresh.Restore(ctx, []registry.Info{info(false)})
-	if entries := fresh.NodeEntries(nodeID); len(entries) != 208 || entries[0].Event != nodeID.Event(0x99) {
+	if entries := fresh.NodeEntries(nodeID); len(entries) != 210 || entries[0].Event != nodeID.Event(0x99) {
 		t.Errorf("restored entries = %d", len(entries))
 	}
 	if values, ok := fresh.Values(nodeID); !ok || !values.Cached {

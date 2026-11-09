@@ -1,5 +1,5 @@
-# canbus-outpost: four servo switch machines, four RailCom detectors and up
-# to sixteen signal heads.
+# canbus-outpost: four servo switch machines, four RailCom detectors, up
+# to sixteen signal heads and the signal test.
 name: canbus-outpost
 description: Servo switch machines, RailCom detectors and signal heads
 match:
@@ -10,6 +10,10 @@ entities:
     group: Servo
     name: ["{Description}", "{node} {group}"]
     enabled: Enabled
+    # A servo output that carries the signal chain has no switch machine.
+    unless:
+      variable: Signal Heads/Connected To
+      value: "{n}"
     events:
       throw: Throw Command Event
       close: Close Command Event
@@ -57,3 +61,11 @@ entities:
         s: "5"
         d: "6"
         number: "7"
+  # From on until off, every chip on the signal chain lights red, yellow and
+  # green in turn, whether a head is set up on it or not.
+  - kind: switch
+    group: Signal Test
+    name: "{node} signal test"
+    events:
+      on: Start Event
+      off: Stop Event

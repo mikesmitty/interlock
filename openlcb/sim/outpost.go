@@ -44,8 +44,9 @@ type trackState struct {
 // events and report thrown or closed feedback once the configured throw
 // time has passed, its tracks produce occupied and clear events and DCC
 // detector reports for the locomotives placed on them, its signal heads
-// show the aspects events choose, and it answers Identify requests with
-// its state. Event IDs come from the configuration
+// show the aspects events choose, its signal test starts and stops, a
+// servo output carrying the signal chain leaves that switch machine out of
+// use, and it answers Identify requests with its state. Event IDs come from the configuration
 // space, so writing them changes what the outpost listens for, and the
 // firmware's default IDs are filled in where the configuration has none.
 type Outpost struct {
@@ -57,9 +58,11 @@ type Outpost struct {
 	servos [OutpostServos]servoState
 	tracks [OutpostTracks]trackState
 	heads  [OutpostHeads]headState
-	fw     firmwareState
-	work   chan func()
-	ctx    context.Context
+	// signalTest is whether the signal test is running.
+	signalTest bool
+	fw         firmwareState
+	work       chan func()
+	ctx        context.Context
 }
 
 // NewOutpost builds an outpost. cfg.Send must be set.
@@ -79,6 +82,7 @@ func NewOutpost(cfg node.Config) (*Outpost, error) {
 	written := n.Config.OnWrite
 	n.Config.OnWrite = func(address uint32, count int) {
 		written(address, count)
+		o.schedule(o.applyServos)
 		o.schedule(o.applyHeads)
 	}
 	reset := n.Server.OnFactoryReset
@@ -97,8 +101,9 @@ func NewOutpost(cfg node.Config) (*Outpost, error) {
 
 // seedDefaults fills in the firmware's default event IDs where the
 // configuration holds zeros: the node ID followed by an index for servo
-// events (five per servo), track events (0x20 on) and signal head events
-// (0x100 on, sixteen per head), and the next node IDs as reporter ranges.
+// events (five per servo), track events (0x20 on), signal head events
+// (0x100 on, sixteen per head) and the signal test's start and stop (0x200
+// and 0x201), and the next node IDs as reporter ranges.
 func (o *Outpost) seedDefaults() {
 	id := o.ID()
 	set := func(path string, ev openlcb.EventID) {
@@ -128,6 +133,8 @@ func (o *Outpost) seedDefaults() {
 			set(headPath(h, aspect.name+" Event"), id.Event(uint16(0x100+16*h+a)))
 		}
 	}
+	set(testStartPath, id.Event(0x200))
+	set(testStopPath, id.Event(0x201))
 }
 
 func servoPath(i int, name string) string {
@@ -251,11 +258,36 @@ func (o *Outpost) sendEvent(ev openlcb.EventID) {
 
 // --- servos ----------------------------------------------------------------
 
-// initialPositions moves every enabled servo to its default state, as the
-// firmware does at power on.
+// inService reports whether a servo's switch machine works: it's enabled,
+// and its output isn't carrying the signal chain.
+func (o *Outpost) inService(i int) bool {
+	return o.intValue(servoPath(i, "Enabled")) != 0 && o.intValue("Signal Heads/Connected To") != i+1
+}
+
+// applyServos follows a configuration write as the firmware does: a servo
+// taken out of service stops, and its position is unknown until it's
+// commanded again.
+func (o *Outpost) applyServos() {
+	for i := range OutpostServos {
+		if o.inService(i) {
+			continue
+		}
+		o.mu.Lock()
+		if s := &o.servos[i]; s.known || s.moving {
+			if s.timer != nil {
+				s.timer.Stop()
+			}
+			*s = servoState{}
+		}
+		o.mu.Unlock()
+	}
+}
+
+// initialPositions moves every servo in service to its default state, as
+// the firmware does at power on.
 func (o *Outpost) initialPositions() {
 	for i := range OutpostServos {
-		if o.intValue(servoPath(i, "Enabled")) == 0 {
+		if !o.inService(i) {
 			continue
 		}
 		switch o.intValue(servoPath(i, "Default State")) {
@@ -270,7 +302,7 @@ func (o *Outpost) initialPositions() {
 func (o *Outpost) onEvent(ev openlcb.EventID) {
 	o.headEvent(ev)
 	for i := range OutpostServos {
-		if o.intValue(servoPath(i, "Enabled")) == 0 {
+		if !o.inService(i) {
 			continue
 		}
 		throwTime := time.Duration(o.intValue(servoPath(i, "Throw Time"))) * 100 * time.Millisecond
