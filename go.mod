@@ -5,7 +5,7 @@ go 1.26.0
 require (
 	github.com/libp2p/zeroconf/v2 v2.2.0
 	go.bug.st/serial v1.8.0
-	golang.org/x/sys v0.49.0
+	golang.org/x/sys v0.50.0
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.60.1
 )
