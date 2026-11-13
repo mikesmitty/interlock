@@ -90,7 +90,7 @@ func New(cfg node.Config, cdiXML []byte) (*Node, error) {
 		cfg.Logger.Info("sim: reboot requested")
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		if err := s.Restart(ctx); err != nil {
+		if err := s.Reboot(ctx); err != nil {
 			cfg.Logger.Debug("sim: restart failed", "error", err)
 		}
 	}

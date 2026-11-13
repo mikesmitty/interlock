@@ -46,9 +46,49 @@ func (n *fakeNodes) RefreshNode(context.Context, openlcb.NodeID) error {
 	return nil
 }
 
+// link is the connection from the outpost to Interlock. Armed, it goes down
+// just after the outpost withdraws its alias to restart, as a USB link does
+// when the outpost is the board bridging it, and comes back once the
+// outpost is up again.
+type link struct {
+	mu       sync.Mutex
+	armed    bool
+	down     bool
+	lostInit bool // an Initialization Complete was lost
+	back     func()
+}
+
+func (l *link) arm(back func()) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.armed, l.back = true, back
+}
+
+// pass says whether a frame from the outpost gets through.
+func (l *link) pass(f can.Frame) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.down {
+		l.lostInit = l.lostInit || (f.IsOpenLCB() && f.MTI() == openlcb.MTIInitializationComplete)
+		return false
+	}
+	if l.armed && f.IsControl() && f.ControlField() == can.ControlAMR {
+		l.armed, l.down = false, true
+		time.AfterFunc(300*time.Millisecond, func() {
+			l.mu.Lock()
+			l.down = false
+			back := l.back
+			l.mu.Unlock()
+			back()
+		})
+	}
+	return true
+}
+
 type bench struct {
 	local   *node.Node
 	outpost *sim.Outpost
+	link    *link
 	nodes   *fakeNodes
 	up      *firmware.Upgrader
 	mu      sync.Mutex
@@ -61,12 +101,19 @@ func newBench(t *testing.T, settle time.Duration) *bench {
 	var mu sync.Mutex
 	var local *node.Node
 	var outpost *sim.Outpost
+	l := &link{}
 	local = node.New(node.Config{ID: localID, Logger: logger, CIDWait: 10 * time.Millisecond, ReplyTimeout: time.Second,
 		Send: func(f can.Frame) { mu.Lock(); defer mu.Unlock(); outpost.HandleFrame(f) }})
 	var err error
 	outpost, err = sim.NewOutpost(node.Config{ID: outpostID, Logger: logger, CIDWait: 10 * time.Millisecond, ReplyTimeout: time.Second,
 		SNIP: openlcb.SNIP{UserName: "Yard"},
-		Send: func(f can.Frame) { mu.Lock(); defer mu.Unlock(); local.HandleFrame(f) }})
+		Send: func(f can.Frame) {
+			if l.pass(f) {
+				mu.Lock()
+				defer mu.Unlock()
+				local.HandleFrame(f)
+			}
+		}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +130,7 @@ func newBench(t *testing.T, settle time.Duration) *bench {
 		time.Sleep(5 * time.Millisecond)
 	}
 	mem := memconfig.NewClient(local, memconfig.WithLogger(logger))
-	b := &bench{local: local, outpost: outpost, nodes: &fakeNodes{outpost: outpost}}
+	b := &bench{local: local, outpost: outpost, link: l, nodes: &fakeNodes{outpost: outpost}}
 	b.up = firmware.New(firmware.Options{Bus: local, Memory: mem, Nodes: b.nodes, Logger: logger,
 		RestartTimeout: 3 * time.Second, Settle: settle})
 	b.up.Subscribe(func(j firmware.Job) { b.mu.Lock(); b.seen = append(b.seen, j); b.mu.Unlock() })
@@ -161,6 +208,26 @@ func TestUpgrade(t *testing.T) {
 	}
 	if _, ok := b.local.Cache().LookupID(outpostID); !ok {
 		t.Error("the outpost should still be known by alias after its restart")
+	}
+}
+
+// The outpost is the link to Interlock, so its Initialization Complete is
+// lost while it restarts; it answers Verify Node ID once the link is back.
+func TestUpgradeThroughItsOwnLink(t *testing.T) {
+	b := newBench(t, 400*time.Millisecond)
+	b.link.arm(func() { _ = b.local.VerifyNodeIDGlobal(context.Background(), 0) })
+	if _, err := b.up.Start(context.Background(), outpostID, "outpost-9.9.9.bin", sim.FirmwareImage("9.9.9", false)); err != nil {
+		t.Fatal(err)
+	}
+	done := b.wait(t)
+	if done.Phase != firmware.PhaseDone || done.To != "9.9.9" {
+		t.Fatalf("finished job = %+v", done)
+	}
+	b.link.mu.Lock()
+	lost := b.link.lostInit
+	b.link.mu.Unlock()
+	if !lost {
+		t.Error("the restart's Initialization Complete got through, so this tested nothing")
 	}
 }
 

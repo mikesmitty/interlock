@@ -219,15 +219,15 @@ func (o *Outpost) SetFirmwareTiming(t FirmwareTiming) {
 	o.fw.timing = t
 }
 
-// restart reboots the simulated node: it rejoins the bus and announces
-// itself again, as the board does after a reset.
+// restart reboots the simulated node: it withdraws its alias, then rejoins
+// the bus and announces itself again, as the board does.
 func (o *Outpost) restart() {
 	o.mu.Lock()
 	ctx := o.ctx
 	o.mu.Unlock()
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
-	if err := o.Restart(ctx); err != nil {
+	if err := o.Reboot(ctx); err != nil {
 		o.log.Debug("sim: restart failed", "error", err)
 	}
 }

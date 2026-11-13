@@ -118,7 +118,10 @@ type job struct {
 	// announce carries the time of each Initialization Complete the node
 	// sent; waits ignore ones from before the step they follow.
 	announce chan time.Time
-	lastPub  int
+	// left says the node withdrew its alias, as it does to restart, and
+	// hasn't announced itself since.
+	left    bool
+	lastPub int
 }
 
 // Upgrader runs firmware upgrades.
@@ -163,24 +166,49 @@ func (u *Upgrader) Run(ctx context.Context) error {
 	return nil
 }
 
-// observe watches the bus for the upgraded node announcing itself.
+// observe watches the bus for the upgraded node announcing itself. A node
+// restarting withdraws its alias, then sends Initialization Complete. If the
+// link to it was down meanwhile, as when the node is itself the link (a USB
+// board bridging its CAN bus), that announcement is lost, so the node's first
+// Verified Node ID after it left stands in for it.
 func (u *Upgrader) observe(ev node.Event) {
-	if ev.Kind != node.EventMessage {
-		return
-	}
-	msg := ev.Message
-	if msg.MTI != openlcb.MTIInitializationComplete && msg.MTI != openlcb.MTIInitializationCompleteSimple {
-		return
-	}
-	id, ok := msg.PayloadNodeID()
-	if !ok {
+	var id openlcb.NodeID
+	verified := false
+	switch ev.Kind {
+	case node.EventAliasReset:
+		id = ev.NodeID
+	case node.EventMessage:
+		switch ev.Message.MTI {
+		case openlcb.MTIInitializationComplete, openlcb.MTIInitializationCompleteSimple:
+		case openlcb.MTIVerifiedNodeID, openlcb.MTIVerifiedNodeIDSimple:
+			verified = true
+		default:
+			return
+		}
+		var ok bool
+		if id, ok = ev.Message.PayloadNodeID(); !ok {
+			return
+		}
+	default:
 		return
 	}
 	u.mu.Lock()
 	j, ok := u.jobs[id]
-	active := ok && j.Phase.Active()
+	back := false
+	if ok && j.Phase.Active() {
+		switch {
+		case ev.Kind == node.EventAliasReset:
+			j.left = true
+		case verified:
+			back = j.left
+			j.left = false
+		default:
+			back = true
+			j.left = false
+		}
+	}
 	u.mu.Unlock()
-	if !active {
+	if !back {
 		return
 	}
 	select {

@@ -117,14 +117,25 @@ func (n *Node) request(ctx context.Context, key pendingKey, send func() error) (
 // Initialization Complete at the end. Requests in flight fail with
 // ErrRestarting.
 func (n *Node) Restart(ctx context.Context) error {
-	return n.do(ctx, func() {
-		n.cidTimer.Stop()
-		n.failPending(ErrRestarting)
-		n.setState(StateInhibited)
-		n.gen = can.NewAliasGenerator(n.cfg.ID)
-		n.log.Info("node restarting")
-		n.startChecking()
-	})
+	return n.do(ctx, func() { n.restart(false) })
+}
+
+// Reboot is Restart for a device that withdraws its alias (Alias Map
+// Reset) before it reboots, as canbus-outpost does.
+func (n *Node) Reboot(ctx context.Context) error {
+	return n.do(ctx, func() { n.restart(true) })
+}
+
+func (n *Node) restart(withdraw bool) {
+	if withdraw && n.state == StateInitialized {
+		n.send(can.AMRFrame(n.alias, n.cfg.ID))
+	}
+	n.cidTimer.Stop()
+	n.failPending(ErrRestarting)
+	n.setState(StateInhibited)
+	n.gen = can.NewAliasGenerator(n.cfg.ID)
+	n.log.Info("node restarting")
+	n.startChecking()
 }
 
 // Send transmits a message from this node. Dest may carry only a node ID;
