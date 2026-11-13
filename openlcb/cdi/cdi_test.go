@@ -41,7 +41,7 @@ func TestOutpostLayout(t *testing.T) {
 		{"Identify", 128, 2},
 		{"Switch Machines", 132, 480},
 		{"RailCom Detectors", 612, 384},
-		{"Signal Heads", 996, 2196},
+		{"Signal Heads", 996, 2964},
 	}
 	for i, w := range wantSeg {
 		seg := doc.Segments[i]
@@ -58,6 +58,11 @@ func TestOutpostLayout(t *testing.T) {
 	if test.Kind != KindGroup || test.Replication != 1 || test.Size != 16 || test.Address != 3176 || test.RepName(0) != "Signal Test" {
 		t.Errorf("signal test group = %+v", test)
 	}
+	// Replicas named apart from the heads, so their paths differ
+	own := doc.Segments[4].Items[5]
+	if own.Kind != KindGroup || own.Replication != 16 || own.Size != 48 || own.Address != 3192 || own.RepName(15) != "Head 16 Outputs" {
+		t.Errorf("own events group = %+v", own)
+	}
 	servos := doc.Segments[2].Items[0]
 	if servos.Kind != KindGroup || servos.Replication != 4 || servos.Size != 120 || servos.Address != 132 {
 		t.Errorf("servo group = %+v", servos)
@@ -73,7 +78,7 @@ func TestOutpostLayout(t *testing.T) {
 	}
 
 	index := doc.Lookup()
-	if want := 2 + 2 + 4*17 + 4*6 + 3 + 16*23 + 2; len(index) != want {
+	if want := 2 + 2 + 4*17 + 4*6 + 3 + 16*27 + 2 + 16*6; len(index) != want {
 		t.Errorf("variables = %d, want %d", len(index), want)
 	}
 	wantVar := map[string]string{
@@ -94,9 +99,15 @@ func TestOutpostLayout(t *testing.T) {
 		"253:997":  "Signal Heads/Connected To",
 		"253:1128": "Signal Heads/Head 1/Lamp Fade",
 		"253:1129": "Signal Heads/Head 1/Chain Position",
+		"253:1130": "Signal Heads/Head 1/Flash Rate",
+		"253:1131": "Signal Heads/Head 1/R Phase",
+		"253:1133": "Signal Heads/Head 1/Y Phase",
 		"253:3169": "Signal Heads/Head 16/Chain Position",
+		"253:3173": "Signal Heads/Head 16/Y Phase",
 		"253:3176": "Signal Heads/Signal Test/Start Event",
 		"253:3184": "Signal Heads/Signal Test/Stop Event",
+		"253:3192": "Signal Heads/Head 1 Outputs/R On",
+		"253:3952": "Signal Heads/Head 16 Outputs/Y Off",
 	}
 	for key, path := range wantVar {
 		v, ok := index[key]

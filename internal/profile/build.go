@@ -2,6 +2,7 @@ package profile
 
 import (
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -143,12 +144,20 @@ func (p *Profile) build(rule Rule, node entity.NodeInfo, inst instance, all []cd
 			return entity.Spec{}, false
 		}
 	}
-	if rule.Unless.holds(inst, all, values) {
+	if rule.Unless != nil && rule.Unless.holds(inst, all, values) {
 		return entity.Spec{}, false
+	}
+	for _, c := range rule.When {
+		if !c.holds(inst, all, values) {
+			return entity.Spec{}, false
+		}
 	}
 
 	slug := inst.slug
-	if slug == "" {
+	switch {
+	case slug != "" && rule.ID != "":
+		slug += "_" + entity.Slug(rule.ID)
+	case slug == "":
 		slug = rule.ID
 		if slug == "" {
 			slug = string(rule.Kind)
@@ -197,26 +206,45 @@ func (n *Needs) met(role string, vars []cdi.Variable, values map[string]string) 
 		return true
 	}
 	for _, name := range n.Variables {
-		if v, ok := findVariable(vars, Binding{Match: name}, nil, ""); ok && strings.TrimSpace(values[v.Key()]) == want {
+		v, ok := findVariable(vars, Binding{Match: name}, nil, "")
+		if ok && slices.Contains(want, strings.TrimSpace(values[v.Key()])) {
 			return true
 		}
 	}
 	return false
 }
 
-// holds reports whether the variable Unless names has its value for this
-// instance.
-func (u *Unless) holds(inst instance, all []cdi.Variable, values map[string]string) bool {
-	if u == nil {
-		return false
+func (c *Condition) complete() bool {
+	return strings.TrimSpace(c.Variable) != "" && strings.TrimSpace(c.Value) != ""
+}
+
+// holds reports whether the variable the condition names has its value for
+// this instance. A variable the node doesn't have holds nothing.
+func (c *Condition) holds(inst instance, all []cdi.Variable, values map[string]string) bool {
+	want := replicaNumber(strings.TrimSpace(c.Value), inst)
+	v, ok := variableAt(all, replicaNumber(c.Variable, inst))
+	return ok && strings.TrimSpace(values[v.Key()]) == want
+}
+
+// replicaNumber replaces {n} with the instance's replica number.
+func replicaNumber(s string, inst instance) string {
+	n := ""
+	if inst.index != 0 {
+		n = strconv.Itoa(inst.index)
 	}
-	want := strings.ReplaceAll(strings.TrimSpace(u.Value), "{n}", strconv.Itoa(inst.index))
+	return strings.ReplaceAll(s, "{n}", n)
+}
+
+// variableAt finds a variable by its path, the segment and groups down to
+// it joined by "/".
+func variableAt(all []cdi.Variable, path string) (cdi.Variable, bool) {
+	path = strings.TrimSpace(path)
 	for _, v := range all {
-		if strings.EqualFold(strings.Join(v.Path, "/"), strings.TrimSpace(u.Variable)) {
-			return strings.TrimSpace(values[v.Key()]) == want
+		if strings.EqualFold(strings.Join(v.Path, "/"), path) {
+			return v, true
 		}
 	}
-	return false
+	return cdi.Variable{}, false
 }
 
 func truthy(value string) bool {
@@ -235,24 +263,30 @@ func (p *Profile) name(rule Rule, node entity.NodeInfo, inst instance, all []cdi
 	templates := append(append(Templates(nil), rule.Name...), "{node} {group}", "{node} "+string(rule.Kind))
 	for _, tpl := range templates {
 		unresolved := false
-		out := placeholder.ReplaceAllStringFunc(tpl, func(m string) string {
+		variable := func(v cdi.Variable) string {
+			value := values[v.Key()]
+			if strings.TrimSpace(value) == "" {
+				unresolved = true
+			}
+			return value
+		}
+		// {n} first, so a variable's path can hold it
+		out := placeholder.ReplaceAllStringFunc(replicaNumber(tpl, inst), func(m string) string {
 			key := m[1 : len(m)-1]
 			switch key {
 			case "node":
 				return node.Name
 			case "group":
 				return inst.label
-			case "n":
-				if inst.index == 0 {
-					return ""
+			}
+			if strings.Contains(key, "/") {
+				if v, ok := variableAt(all, key); ok {
+					return variable(v)
 				}
-				return strconv.Itoa(inst.index)
-			}
-			if v, ok := findVariable(inst.vars, Binding{Match: key}, nil, ""); ok {
-				return values[v.Key()]
-			}
-			if v, ok := findVariable(all, Binding{Match: key}, nil, ""); ok {
-				return values[v.Key()]
+			} else if v, ok := findVariable(inst.vars, Binding{Match: key}, nil, ""); ok {
+				return variable(v)
+			} else if v, ok := findVariable(all, Binding{Match: key}, nil, ""); ok {
+				return variable(v)
 			}
 			unresolved = true
 			return ""

@@ -86,7 +86,7 @@ func TestSimulatedOutpost(t *testing.T) {
 	// Defaults are in place: Servo 1 thrown position 16384, closed 49152,
 	// enabled 1, LED timeout 5.
 	info, err := client.SpaceInfo(ctx, peerID, memconfig.SpaceConfig)
-	if err != nil || info.Size() != 3192 {
+	if err != nil || info.Size() != 3960 {
 		t.Errorf("config space info = %+v, %v", info, err)
 	}
 	data, err := client.ReadAll(ctx, peerID, memconfig.SpaceConfig, 128, 60, nil)

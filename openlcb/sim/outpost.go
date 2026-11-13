@@ -102,8 +102,9 @@ func NewOutpost(cfg node.Config) (*Outpost, error) {
 // seedDefaults fills in the firmware's default event IDs where the
 // configuration holds zeros: the node ID followed by an index for servo
 // events (five per servo), track events (0x20 on), signal head events
-// (0x100 on, sixteen per head) and the signal test's start and stop (0x200
-// and 0x201), and the next node IDs as reporter ranges.
+// (0x100 on, sixteen per head), the signal test's start and stop (0x200
+// and 0x201) and the heads' own-event outputs (0x300 on, eight per head),
+// and the next node IDs as reporter ranges.
 func (o *Outpost) seedDefaults() {
 	id := o.ID()
 	set := func(path string, ev openlcb.EventID) {
@@ -135,6 +136,12 @@ func (o *Outpost) seedDefaults() {
 	}
 	set(testStartPath, id.Event(0x200))
 	set(testStopPath, id.Event(0x201))
+	for h := range OutpostHeads {
+		for out := range headOutputs {
+			set(ownPath(h, out, true), id.Event(uint16(0x300+8*h+2*out)))
+			set(ownPath(h, out, false), id.Event(uint16(0x301+8*h+2*out)))
+		}
+	}
 }
 
 func servoPath(i int, name string) string {

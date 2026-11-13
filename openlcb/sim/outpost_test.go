@@ -305,7 +305,7 @@ func TestOutpostSignalHeads(t *testing.T) {
 	box.wait(t, "flashing red valid", withEvent(openlcb.MTIConsumerIdentifiedValid, flashingRed))
 
 	// A lamp moved onto an output brings its aspect onto the bus.
-	set("Signal Heads/Head 1/OUTB Lamp", 4)
+	set("Signal Heads/Head 1/Y Lamp", 4)
 	deadline := time.Now().Add(2 * time.Second)
 	for {
 		send(lunar)
@@ -427,5 +427,80 @@ func TestOutpostChainOnServo(t *testing.T) {
 			t.Fatalf("servo 1 back in service = %s", peer.Turnout(0))
 		}
 		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// An output set to Own Events (lamp 8) follows its On and Off events while
+// its head is enabled, and a head with only such outputs has no aspects on
+// the bus, dark included.
+func TestOutpostOwnEvents(t *testing.T) {
+	local, _, peer, box, ctx := simOutpost(t)
+	on, off := peerID.Event(0x304), peerID.Event(0x305) // head 1, output Y
+	send := func(ev openlcb.EventID) {
+		t.Helper()
+		if err := local.Send(ctx, openlcb.Message{MTI: openlcb.MTIEventReport, Payload: ev.AsSlice()}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ask := func(ev openlcb.EventID) {
+		t.Helper()
+		box.clear()
+		if err := local.Send(ctx, openlcb.Message{MTI: openlcb.MTIIdentifyConsumer, Payload: ev.AsSlice()}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	waitLamp := func(want bool) {
+		t.Helper()
+		deadline := time.Now().Add(2 * time.Second)
+		for peer.Lamp(0, 2) != want {
+			if time.Now().After(deadline) {
+				t.Fatalf("head 1 output Y lit = %v, want %v", peer.Lamp(0, 2), want)
+			}
+			time.Sleep(2 * time.Millisecond)
+		}
+	}
+
+	// Ignored while the head is disabled: by the time the signal test's
+	// start event is identified, the On event has been handled
+	setConfig(t, peer, "Signal Heads/Head 1/Y Lamp", 8)
+	send(on)
+	ask(peerID.Event(0x200))
+	box.wait(t, "signal test start identified", withEvent(openlcb.MTIConsumerIdentifiedInvalid, peerID.Event(0x200)))
+	if peer.Lamp(0, 2) {
+		t.Error("a disabled head's output followed its On event")
+	}
+	setConfig(t, peer, "Signal Heads/Head 1/Enabled", 1)
+	ask(on)
+	box.wait(t, "on invalid: the disabled head stayed dark", withEvent(openlcb.MTIConsumerIdentifiedInvalid, on))
+
+	send(on)
+	waitLamp(true)
+	ask(on)
+	box.wait(t, "on valid while lit", withEvent(openlcb.MTIConsumerIdentifiedValid, on))
+	ask(off)
+	box.wait(t, "off invalid while lit", withEvent(openlcb.MTIConsumerIdentifiedInvalid, off))
+	send(off)
+	waitLamp(false)
+
+	// Set to another lamp, it goes dark
+	send(on)
+	waitLamp(true)
+	setConfig(t, peer, "Signal Heads/Head 1/Y Lamp", 2)
+	waitLamp(false)
+
+	// Head 2 has only own outputs: its own events are on the bus, its dark
+	// isn't
+	setConfig(t, peer, "Signal Heads/Head 2/R Lamp", 8)
+	setConfig(t, peer, "Signal Heads/Head 2/G Lamp", 8)
+	setConfig(t, peer, "Signal Heads/Head 2/Y Lamp", 0)
+	setConfig(t, peer, "Signal Heads/Head 2/Enabled", 1)
+	box.clear()
+	if err := local.Send(ctx, openlcb.Message{MTI: openlcb.MTIIdentifyEventsAddressed, Dest: openlcb.NodeHandle{ID: peerID}}); err != nil {
+		t.Fatal(err)
+	}
+	box.wait(t, "head 2 output G off valid", withEvent(openlcb.MTIConsumerIdentifiedValid, peerID.Event(0x30B)))
+	dark := peerID.Event(0x110)
+	if n := box.count(withEvent(openlcb.MTIConsumerIdentifiedInvalid, dark)) + box.count(withEvent(openlcb.MTIConsumerIdentifiedValid, dark)); n != 0 {
+		t.Error("a head with only own outputs identified dark")
 	}
 }

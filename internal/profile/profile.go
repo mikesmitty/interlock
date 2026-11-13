@@ -78,10 +78,14 @@ type Rule struct {
 	// tries every group (and segment) that holds event IDs. Empty makes
 	// one entity for the node, for roles bound to fixed event IDs.
 	Group string `yaml:"group,omitempty" json:"group,omitempty"`
-	// ID names the entity within the node when there is no group.
+	// ID names the entity within the node when there is no group, and
+	// within the replica when there is, for rules that make more than one
+	// entity of a kind from each replica.
 	ID string `yaml:"id,omitempty" json:"id,omitempty"`
 	// Name is a template, or templates tried in order until one comes out
-	// non-empty: {node}, {group}, {n} and {Variable Name} are replaced.
+	// non-empty: {node}, {group}, {n} and {Variable Name} are replaced. A
+	// variable can be named by its path ({Signal Heads/Head {n}/Description}).
+	// A template is used only when every variable in it has a value.
 	Name Templates `yaml:"name,omitempty" json:"name,omitempty"`
 	// Events binds roles to variables of the group by name, exact or
 	// ~regexp, or to literal event IDs. Order matters: each variable binds
@@ -95,24 +99,48 @@ type Rule struct {
 	// Unless leaves the entity out where a variable elsewhere in the
 	// configuration holds a value, as a servo whose output carries the
 	// signal chain has no switch machine.
-	Unless *Unless `yaml:"unless,omitempty" json:"unless,omitempty"`
+	Unless *Condition `yaml:"unless,omitempty" json:"unless,omitempty"`
+	// When keeps the entity only where every one of these variables holds
+	// its value, as an output on its own events needs its head enabled.
+	When []Condition `yaml:"when,omitempty" json:"when,omitempty"`
 }
 
-// Unless names a variable by its path, the segment and groups down to it
-// joined by "/" ("Signal Heads/Connected To"), and the value that leaves
-// an entity out. {n} in the value is the entity's replica number.
-type Unless struct {
+// Condition names a variable by its path, the segment and groups down to
+// it joined by "/" ("Signal Heads/Connected To"), and a value. {n} in
+// either is the entity's replica number ("Signal Heads/Head {n}/Enabled").
+type Condition struct {
 	Variable string `yaml:"variable" json:"variable"`
 	Value    string `yaml:"value" json:"value"`
 }
 
 // Needs ties roles to the configuration: a role in Values is bound only
-// where one of Variables holds its value, as a signal head has an aspect
-// only if a lamp for it is on one of its outputs. Other roles aren't
+// where one of Variables holds one of its values, as a signal head has an
+// aspect only if a lamp for it is on one of its outputs. Other roles aren't
 // affected.
 type Needs struct {
 	Variables []string          `yaml:"variables" json:"variables"`
-	Values    map[string]string `yaml:"values" json:"values"`
+	Values    map[string]Values `yaml:"values" json:"values"`
+}
+
+// Values is one value or several, any of which will do.
+type Values []string
+
+// UnmarshalYAML accepts a scalar or a sequence.
+func (v *Values) UnmarshalYAML(value *yaml.Node) error {
+	switch value.Kind {
+	case yaml.ScalarNode:
+		*v = Values{value.Value}
+		return nil
+	case yaml.SequenceNode:
+		var list []string
+		if err := value.Decode(&list); err != nil {
+			return err
+		}
+		*v = list
+		return nil
+	default:
+		return errors.New("a needed value must be a string or a list of strings")
+	}
 }
 
 // Templates is one name template or several alternatives.
@@ -236,8 +264,13 @@ func (p *Profile) compile() error {
 		if len(bound) == 0 {
 			return fmt.Errorf("profile %s: entities[%d]: a %s needs at least one event", p.Name, i, def.Label)
 		}
-		if u := rule.Unless; u != nil && (strings.TrimSpace(u.Variable) == "" || strings.TrimSpace(u.Value) == "") {
+		if u := rule.Unless; u != nil && !u.complete() {
 			return fmt.Errorf("profile %s: entities[%d]: unless needs a variable and a value", p.Name, i)
+		}
+		for j, c := range rule.When {
+			if !c.complete() {
+				return fmt.Errorf("profile %s: entities[%d]: when[%d] needs a variable and a value", p.Name, i, j)
+			}
 		}
 		if n := rule.Needs; n != nil {
 			if len(n.Variables) == 0 {

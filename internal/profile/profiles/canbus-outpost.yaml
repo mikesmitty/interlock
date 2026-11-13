@@ -1,5 +1,5 @@
 # canbus-outpost: four servo switch machines, four RailCom detectors, up
-# to sixteen signal heads and the signal test.
+# to sixteen signal heads, lamps on their own events and the signal test.
 name: canbus-outpost
 description: Servo switch machines, RailCom detectors and signal heads
 match:
@@ -47,10 +47,13 @@ entities:
       flashing_red: Flashing Red Event
       flashing_yellow: Flashing Yellow Event
       flashing_green: Flashing Green Event
-    # Only the aspects a head has a lamp for are on the bus; dark always is.
+    # Only the aspects a head has a lamp for are on the bus, and dark only
+    # when the aspects light any of its lamps: a head whose outputs are all
+    # on their own events (8) is no signal.
     needs:
-      variables: [OUTR Lamp, OUTG Lamp, OUTB Lamp]
+      variables: [R Lamp, G Lamp, Y Lamp]
       values:
+        dark: ["1", "2", "3", "4", "5", "6", "7"]
         red: "1"
         flashing_red: "1"
         yellow: "2"
@@ -69,3 +72,41 @@ entities:
     events:
       on: Start Event
       off: Stop Event
+  # A head's output set to Own Events (lamp 8) is a lamp of its own, outside
+  # the aspects: panel or building lights, or lamps lit together.
+  - kind: switch
+    group: Own Events
+    id: R
+    name: ["{Signal Heads/Head {n}/Description} output R", "{node} Head {n} output R"]
+    when:
+      - variable: Signal Heads/Head {n}/Enabled
+        value: "1"
+      - variable: Signal Heads/Head {n}/R Lamp
+        value: "8"
+    events:
+      on: R On
+      off: R Off
+  - kind: switch
+    group: Own Events
+    id: Y
+    name: ["{Signal Heads/Head {n}/Description} output Y", "{node} Head {n} output Y"]
+    when:
+      - variable: Signal Heads/Head {n}/Enabled
+        value: "1"
+      - variable: Signal Heads/Head {n}/Y Lamp
+        value: "8"
+    events:
+      on: Y On
+      off: Y Off
+  - kind: switch
+    group: Own Events
+    id: G
+    name: ["{Signal Heads/Head {n}/Description} output G", "{node} Head {n} output G"]
+    when:
+      - variable: Signal Heads/Head {n}/Enabled
+        value: "1"
+      - variable: Signal Heads/Head {n}/G Lamp
+        value: "8"
+    events:
+      on: G On
+      off: G Off

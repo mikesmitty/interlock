@@ -321,7 +321,7 @@
 <string size='2'/>
 <group replication='16'>
 <name>Head</name>
-<description>A head is one chip with a lamp on each of its three outputs, and it lights one kind of lamp at a time. A light that shows alongside another, like lunar under a red, needs a chip of its own: use the next head for it. Only the events for lamps this head has are on the bus.</description>
+<description>A head is one chip with a lamp on each of its three outputs, R, G and Y, named as on an SSSB head's RGY header. Any lamp can go on any output. A head lights one kind of lamp at a time. A light that shows alongside another, like lunar under a red, needs a chip of its own: use the next head for it. Only the events for lamps this head has are on the bus. An output set to Own Events isn't part of the aspects: it has its own On and Off events, under Own Events below, for panel or building lights or lamps that light together.</description>
 <repname>Head 1</repname>
 <repname>Head 2</repname>
 <repname>Head 3</repname>
@@ -440,7 +440,7 @@
 </map>
 </int>
 <int size='1'>
-<name>OUTR Lamp</name>
+<name>R Lamp</name>
 <default>1</default>
 <map>
 <relation>
@@ -475,10 +475,14 @@
 <property>7</property>
 <value>Number</value>
 </relation>
+<relation>
+<property>8</property>
+<value>Own Events</value>
+</relation>
 </map>
 </int>
 <int size='1'>
-<name>OUTG Lamp</name>
+<name>G Lamp</name>
 <default>3</default>
 <map>
 <relation>
@@ -513,10 +517,14 @@
 <property>7</property>
 <value>Number</value>
 </relation>
+<relation>
+<property>8</property>
+<value>Own Events</value>
+</relation>
 </map>
 </int>
 <int size='1'>
-<name>OUTB Lamp</name>
+<name>Y Lamp</name>
 <default>2</default>
 <map>
 <relation>
@@ -551,22 +559,26 @@
 <property>7</property>
 <value>Number</value>
 </relation>
+<relation>
+<property>8</property>
+<value>Own Events</value>
+</relation>
 </map>
 </int>
 <int size='1'>
-<name>OUTR Brightness</name>
+<name>R Brightness</name>
 <min>0</min>
 <max>255</max>
 <default>128</default>
 </int>
 <int size='1'>
-<name>OUTG Brightness</name>
+<name>G Brightness</name>
 <min>0</min>
 <max>255</max>
 <default>128</default>
 </int>
 <int size='1'>
-<name>OUTB Brightness</name>
+<name>Y Brightness</name>
 <min>0</min>
 <max>255</max>
 <default>128</default>
@@ -593,16 +605,116 @@
 <max>16</max>
 <default>0</default>
 </int>
-<string size='6'/>
+<int size='1'>
+<name>Flash Rate</name>
+<description>How fast the flashing aspects flash</description>
+<default>0</default>
+<map>
+<relation>
+<property>1</property>
+<value>Slow, 40 a minute</value>
+</relation>
+<relation>
+<property>0</property>
+<value>Medium, 60 a minute</value>
+</relation>
+<relation>
+<property>2</property>
+<value>Fast, 90 a minute</value>
+</relation>
+</map>
+</int>
+<int size='1'>
+<name>R Phase</name>
+<description>When a flashing lamp on this output is lit. Phase B lamps light while phase A lamps are dark, so two lamps can alternate like a crossing flasher, on one head or two at the same rate.</description>
+<default>0</default>
+<map>
+<relation>
+<property>0</property>
+<value>A</value>
+</relation>
+<relation>
+<property>1</property>
+<value>B</value>
+</relation>
+</map>
+</int>
+<int size='1'>
+<name>G Phase</name>
+<default>0</default>
+<map>
+<relation>
+<property>0</property>
+<value>A</value>
+</relation>
+<relation>
+<property>1</property>
+<value>B</value>
+</relation>
+</map>
+</int>
+<int size='1'>
+<name>Y Phase</name>
+<default>0</default>
+<map>
+<relation>
+<property>0</property>
+<value>A</value>
+</relation>
+<relation>
+<property>1</property>
+<value>B</value>
+</relation>
+</map>
+</int>
+<string size='2'/>
 </group>
 <group>
 <name>Signal Test</name>
-<description>From Start until Stop, every chip on the chain, set up or not, lights red, yellow and green in turn and then none, a second each (OUTR, OUTB and OUTG, as SSSB heads are wired). The heads still follow their events, and go back to their aspects at Stop. Give every node the same pair to test all the chains on the layout at once.</description>
+<description>From Start until Stop, every chip on the chain, set up or not, lights red, yellow and green in turn and then none, a second each (outputs R, Y and G, as SSSB heads are wired). The heads still follow their events, and go back to their aspects at Stop. Give every node the same pair to test all the chains on the layout at once.</description>
 <eventid>
 <name>Start Event</name>
 </eventid>
 <eventid>
 <name>Stop Event</name>
+</eventid>
+</group>
+<group replication='16'>
+<name>Own Events</name>
+<description>For each output of the head set to Own Events: it lights at its brightness on its On event and goes out on its Off event, fading if the head fades. Its events are on the bus while the head is enabled. It starts out dark.</description>
+<repname>Head 1 Outputs</repname>
+<repname>Head 2 Outputs</repname>
+<repname>Head 3 Outputs</repname>
+<repname>Head 4 Outputs</repname>
+<repname>Head 5 Outputs</repname>
+<repname>Head 6 Outputs</repname>
+<repname>Head 7 Outputs</repname>
+<repname>Head 8 Outputs</repname>
+<repname>Head 9 Outputs</repname>
+<repname>Head 10 Outputs</repname>
+<repname>Head 11 Outputs</repname>
+<repname>Head 12 Outputs</repname>
+<repname>Head 13 Outputs</repname>
+<repname>Head 14 Outputs</repname>
+<repname>Head 15 Outputs</repname>
+<repname>Head 16 Outputs</repname>
+<eventid>
+<name>R On</name>
+</eventid>
+<eventid>
+<name>R Off</name>
+</eventid>
+<eventid>
+<name>G On</name>
+</eventid>
+<eventid>
+<name>G Off</name>
+</eventid>
+<eventid>
+<name>Y On</name>
+</eventid>
+<eventid>
+<name>Y Off</name>
 </eventid>
 </group>
 </segment>

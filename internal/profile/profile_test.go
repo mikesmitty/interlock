@@ -28,7 +28,7 @@ func outpostValues(t *testing.T) (*cdi.CDI, map[string]string) {
 		t.Fatal(err)
 	}
 	values := make(map[string]string)
-	servo, track, aspect := 0, 0, 0
+	servo, track, aspect, own := 0, 0, 0, 0
 	for _, v := range doc.Variables() {
 		path := strings.Join(v.Path, "/")
 		switch {
@@ -65,6 +65,13 @@ func outpostValues(t *testing.T) (*cdi.CDI, map[string]string) {
 			values[v.Key()] = nodeID.Event(0x200).String()
 		case path == "Signal Heads/Signal Test/Stop Event":
 			values[v.Key()] = nodeID.Event(0x201).String()
+		case strings.HasPrefix(path, "Signal Heads/") && strings.HasSuffix(v.Path[1], " Outputs"):
+			// Eight per head, the last two unused
+			values[v.Key()] = nodeID.Event(uint16(0x300 + own)).String()
+			own++
+			if own%8 == 6 {
+				own += 2
+			}
 		case strings.HasPrefix(path, "Signal Heads/"):
 			if v.Element.Kind == cdi.KindEventID {
 				values[v.Key()] = nodeID.Event(uint16(0x100 + aspect)).String()
@@ -195,6 +202,43 @@ func TestOutpostProfile(t *testing.T) {
 
 // A servo output that carries the signal chain has no switch machine,
 // whatever its Enabled says.
+// {n} in a condition's variable path, or a name template's, is the
+// replica's number; a template with an empty variable is skipped.
+func TestReplicaPaths(t *testing.T) {
+	p, err := Parse([]byte(`name: t
+match: {any: true}
+entities:
+  - kind: switch
+    group: Own Events
+    id: r
+    name: "{Signal Heads/Head {n}/Description} lamp"
+    unless: {variable: "Signal Heads/Head {n}/Enabled", value: "1"}
+    events: {on: R On, off: R Off}
+`), "t")
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, values := outpostValues(t)
+	for _, v := range doc.Variables() {
+		switch strings.Join(v.Path, "/") {
+		case "Signal Heads/Head 1/Description":
+			values[v.Key()] = "Bay"
+		case "Signal Heads/Head 2/Enabled":
+			values[v.Key()] = "1"
+		}
+	}
+	ids := byID(p.Build(outpostNode(), doc, values))
+	if s, ok := ids["switch.0a0000000042.head_1_outputs_r"]; !ok || s.Name != "Bay lamp" {
+		t.Errorf("head 1 = %+v, %v", s, ok)
+	}
+	if _, ok := ids["switch.0a0000000042.head_2_outputs_r"]; ok {
+		t.Error("unless with {n} in its path didn't hold for head 2")
+	}
+	if s, ok := ids["switch.0a0000000042.head_3_outputs_r"]; !ok || s.Name != "Yard Head 3 Outputs" {
+		t.Errorf("head 3 = %+v, %v", s, ok)
+	}
+}
+
 func TestOutpostChainOnServo(t *testing.T) {
 	set, err := Load("")
 	if err != nil {
@@ -227,6 +271,73 @@ func TestOutpostChainOnServo(t *testing.T) {
 	}
 }
 
+// An output set to Own Events (lamp 8) on an enabled head is a switch of its
+// own; a head whose outputs all are is no signal head.
+func TestOutpostOwnEvents(t *testing.T) {
+	set, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, values := outpostValues(t)
+	put := func(path, value string) {
+		t.Helper()
+		for _, v := range doc.Variables() {
+			if strings.Join(v.Path, "/") == path {
+				values[v.Key()] = value
+				return
+			}
+		}
+		t.Fatalf("no variable %s", path)
+	}
+	// Head 5: red on G beside two own outputs. Head 6: own outputs only,
+	// no description. Head 7: an own output, disabled.
+	put("Signal Heads/Head 5/Enabled", "1")
+	put("Signal Heads/Head 5/Description", "Platform")
+	put("Signal Heads/Head 5/R Lamp", "8")
+	put("Signal Heads/Head 5/G Lamp", "1")
+	put("Signal Heads/Head 5/Y Lamp", "8")
+	put("Signal Heads/Head 6/Enabled", "1")
+	put("Signal Heads/Head 6/R Lamp", "8")
+	put("Signal Heads/Head 6/G Lamp", "0")
+	put("Signal Heads/Head 6/Y Lamp", "8")
+	put("Signal Heads/Head 7/R Lamp", "8")
+
+	ids := byID(set.Build(outpostNode(), doc, values))
+	tests := []struct {
+		id, name string
+		on, off  uint16
+	}{
+		{"switch.0a0000000042.head_5_outputs_r", "Platform output R", 0x320, 0x321},
+		{"switch.0a0000000042.head_5_outputs_y", "Platform output Y", 0x324, 0x325},
+		{"switch.0a0000000042.head_6_outputs_r", "Yard Head 6 output R", 0x328, 0x329},
+		{"switch.0a0000000042.head_6_outputs_y", "Yard Head 6 output Y", 0x32C, 0x32D},
+	}
+	for _, tt := range tests {
+		spec, ok := ids[tt.id]
+		if !ok {
+			t.Errorf("no %s", tt.id)
+			continue
+		}
+		want := map[string]openlcb.EventID{"on": nodeID.Event(tt.on), "off": nodeID.Event(tt.off)}
+		if spec.Kind != entity.KindSwitch || spec.Name != tt.name || !maps.Equal(spec.Events, want) {
+			t.Errorf("%s = %+v", tt.id, spec)
+		}
+	}
+	for _, id := range []string{"switch.0a0000000042.head_5_outputs_g", "switch.0a0000000042.head_7_outputs_r"} {
+		if _, ok := ids[id]; ok {
+			t.Errorf("%s: an output not on its own events, or on a disabled head, became a switch", id)
+		}
+	}
+	if h, ok := ids["signal_head.0a0000000042.head_5"]; !ok || !maps.Equal(h.Events, map[string]openlcb.EventID{
+		"dark": nodeID.Event(0x140), "red": nodeID.Event(0x141), "flashing_red": nodeID.Event(0x148),
+	}) {
+		t.Errorf("head 5 = %+v, %v", h, ok)
+	}
+	if _, ok := ids["signal_head.0a0000000042.head_6"]; ok {
+		t.Error("a head with only own outputs became a signal head")
+	}
+}
+
 func TestOutpostSignalHeads(t *testing.T) {
 	set, err := Load("")
 	if err != nil {
@@ -254,17 +365,21 @@ func TestOutpostSignalHeads(t *testing.T) {
 	put("Signal Heads/Head 1/Enabled", "1")
 	put("Signal Heads/Head 1/Description", "Times Sq home")
 	put("Signal Heads/Head 2/Enabled", "1")
-	put("Signal Heads/Head 2/OUTR Lamp", "4")
-	put("Signal Heads/Head 2/OUTG Lamp", "4")
-	put("Signal Heads/Head 2/OUTB Lamp", "0")
+	put("Signal Heads/Head 2/R Lamp", "4")
+	put("Signal Heads/Head 2/G Lamp", "4")
+	put("Signal Heads/Head 2/Y Lamp", "0")
 	put("Signal Heads/Head 3/Enabled", "1")
-	put("Signal Heads/Head 3/OUTR Lamp", "0")
-	put("Signal Heads/Head 3/OUTG Lamp", "0")
-	put("Signal Heads/Head 3/OUTB Lamp", "0")
+	put("Signal Heads/Head 3/R Lamp", "0")
+	put("Signal Heads/Head 3/G Lamp", "0")
+	put("Signal Heads/Head 3/Y Lamp", "0")
 
 	ids := byID(set.Build(outpostNode(), doc, values))
 	if _, ok := ids[disabled]; ok {
 		t.Error("a disabled head became an entity")
+	}
+	// Nothing of a head without lamps is on the bus, not even dark
+	if _, ok := ids[noLamps]; ok {
+		t.Error("a head without lamps became an entity")
 	}
 	tests := []struct {
 		id     string
@@ -276,7 +391,6 @@ func TestOutpostSignalHeads(t *testing.T) {
 			"flashing_red": nodeID.Event(0x108), "flashing_yellow": nodeID.Event(0x109), "flashing_green": nodeID.Event(0x10A),
 		}},
 		{lunar, "Yard Head 2", map[string]openlcb.EventID{"dark": nodeID.Event(0x110), "lunar": nodeID.Event(0x114)}},
-		{noLamps, "Yard Head 3", map[string]openlcb.EventID{"dark": nodeID.Event(0x120)}},
 	}
 	for _, tt := range tests {
 		spec, ok := ids[tt.id]
@@ -342,10 +456,16 @@ func TestGenericProfile(t *testing.T) {
 	if r, ok := ids["reporter.0a0000000042.track_2"]; !ok || r.Events["range"] != (nodeID+2).Event(0) {
 		t.Errorf("guessed reporter = %+v, %v", r, ok)
 	}
+	// An output's On and Off events read as a sensor: a CDI doesn't say
+	// which way an event goes
 	for id, s := range ids {
-		if s.Kind == entity.KindSensor {
+		if s.Kind == entity.KindSensor && !strings.HasSuffix(s.Group, " Outputs") {
 			t.Errorf("unexpected sensor guess %s: %v", id, s.Events)
 		}
+	}
+	if s, ok := ids["sensor.0a0000000042.head_1_outputs"]; !ok ||
+		s.Events["on"] != nodeID.Event(0x300) || s.Events["off"] != nodeID.Event(0x301) {
+		t.Errorf("own events guess = %+v, %v", s, ok)
 	}
 }
 
@@ -388,19 +508,21 @@ entities:
 	}
 
 	bad := map[string]string{
-		"no name":         "match: {any: true}\nentities: [{kind: block, events: {occupied: a, clear: b}}]\n",
-		"no match":        "name: x\nentities: [{kind: block, events: {occupied: a, clear: b}}]\n",
-		"unknown kind":    "name: x\nmatch: {any: true}\nentities: [{kind: lamp, events: {on: a}}]\n",
-		"unknown role":    "name: x\nmatch: {any: true}\nentities: [{kind: block, events: {occupied: a, clear: b, press: c}}]\n",
-		"missing role":    "name: x\nmatch: {any: true}\nentities: [{kind: block, events: {occupied: a}}]\n",
-		"bad regexp":      "name: x\nmatch: {any: true}\nentities: [{kind: block, events: {occupied: '~(', clear: b}}]\n",
-		"zero event":      "name: x\nmatch: {any: true}\nentities: [{kind: block, events: {occupied: 00.00.00.00.00.00.00.00, clear: b}}]\n",
-		"events as list":  "name: x\nmatch: {any: true}\nentities: [{kind: block, events: [occupied, clear]}]\n",
-		"no entities":     "name: x\nmatch: {any: true}\n",
-		"no events":       "name: x\nmatch: {any: true}\nentities: [{kind: signal_head, group: Head}]\n",
-		"needs nothing":   "name: x\nmatch: {any: true}\nentities: [{kind: signal_head, events: {red: a}, needs: {values: {red: '1'}}}]\n",
-		"needs a role":    "name: x\nmatch: {any: true}\nentities: [{kind: signal_head, events: {red: a}, needs: {variables: [b], values: {green: '1'}}}]\n",
-		"unless no value": "name: x\nmatch: {any: true}\nentities: [{kind: block, events: {occupied: a, clear: b}, unless: {variable: c}}]\n",
+		"no name":          "match: {any: true}\nentities: [{kind: block, events: {occupied: a, clear: b}}]\n",
+		"no match":         "name: x\nentities: [{kind: block, events: {occupied: a, clear: b}}]\n",
+		"unknown kind":     "name: x\nmatch: {any: true}\nentities: [{kind: lamp, events: {on: a}}]\n",
+		"unknown role":     "name: x\nmatch: {any: true}\nentities: [{kind: block, events: {occupied: a, clear: b, press: c}}]\n",
+		"missing role":     "name: x\nmatch: {any: true}\nentities: [{kind: block, events: {occupied: a}}]\n",
+		"bad regexp":       "name: x\nmatch: {any: true}\nentities: [{kind: block, events: {occupied: '~(', clear: b}}]\n",
+		"zero event":       "name: x\nmatch: {any: true}\nentities: [{kind: block, events: {occupied: 00.00.00.00.00.00.00.00, clear: b}}]\n",
+		"events as list":   "name: x\nmatch: {any: true}\nentities: [{kind: block, events: [occupied, clear]}]\n",
+		"no entities":      "name: x\nmatch: {any: true}\n",
+		"no events":        "name: x\nmatch: {any: true}\nentities: [{kind: signal_head, group: Head}]\n",
+		"needs nothing":    "name: x\nmatch: {any: true}\nentities: [{kind: signal_head, events: {red: a}, needs: {values: {red: '1'}}}]\n",
+		"needs a role":     "name: x\nmatch: {any: true}\nentities: [{kind: signal_head, events: {red: a}, needs: {variables: [b], values: {green: '1'}}}]\n",
+		"unless no value":  "name: x\nmatch: {any: true}\nentities: [{kind: block, events: {occupied: a, clear: b}, unless: {variable: c}}]\n",
+		"when no variable": "name: x\nmatch: {any: true}\nentities: [{kind: block, events: {occupied: a, clear: b}, when: [{value: '1'}]}]\n",
+		"needs a map":      "name: x\nmatch: {any: true}\nentities: [{kind: signal_head, events: {red: a}, needs: {variables: [b], values: {red: {x: y}}}}]\n",
 	}
 	for name, text := range bad {
 		if _, err := Parse([]byte(text), name); err == nil {

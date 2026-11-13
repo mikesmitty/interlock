@@ -103,9 +103,17 @@ applied at the next start; the replaced files go to `before-restore-*/`.
   into entities; shipped ones live in `profiles/` (canbus-outpost,
   simple-dcc, generic guesser), user ones in `<data>/profiles/`. A rule's
   `needs` binds a role only where the configuration has something behind
-  it (a signal head's aspect, where a lamp for it is on an output), and
-  its `unless` leaves the entity out where another variable holds a value
-  (a servo whose output carries the signal chain).
+  it (a signal head's aspect, where a lamp for it is on an output; a role
+  can take any of several values), its `unless` leaves the entity out
+  where another variable holds a value (a servo whose output carries the
+  signal chain), and its `when` keeps the entity only where every listed
+  variable holds its value (an outpost output on its own events, whose
+  head is enabled). Those variables are named by path, `{n}` being the
+  replica number (`Signal Heads/Head {n}/Enabled`), and name templates
+  can name one the same way. A rule's `id` with a group sets the entity's
+  ID within each replica, so one replica can make several entities of a
+  kind. Replicated groups' replica names stand in for their group names in
+  paths, so two groups whose replicas share names share paths.
 - `internal/entity` — kinds (turnout, block, reporter, sensor, switch,
   button, signal head), the manager that builds entities from profiles
   over the event

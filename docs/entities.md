@@ -60,7 +60,7 @@ to a head, each output with a lamp of its own.
 Heads start disabled, since the board can't tell which are fitted. To
 use one, open the outpost on the Nodes page, and under **Signal Heads**
 set the head's **Enabled**, then the lamp on each of its outputs:
-**OUTR Lamp**, **OUTG Lamp** and **OUTB Lamp**. Its **Description** names
+**R Lamp**, **Y Lamp** and **G Lamp**. Its **Description** names
 the entity. The head appears on the Entities page once the configuration
 is written, and has an aspect for each lamp it has, as well as dark. A
 red, yellow or green lamp can flash too.
@@ -73,6 +73,14 @@ first chip on the cable unless its **Chain Position** says otherwise, so
 after adding a chip partway along, move the heads after it along by one
 there instead of setting them up again. **Lamp Fade** set to
 Incandescent makes a head's lamps warm up and cool down like bulbs.
+**Flash Rate** makes its flashing aspects slow, medium or fast, and each
+output's **Phase** lets two lamps alternate, like a crossing flasher.
+
+An output whose lamp is set to **Own Events** isn't part of the aspects:
+it's a switch of its own, named after the head's **Description** and the
+output, such as `Platform output Y`, that lights the lamp while on. Use it for
+panel lights, building lights or lamps that light together. A head whose
+outputs are all on their own events, or have no lamp, isn't a signal head.
 
 Each outpost also has a switch, such as `Yard signal test`, for its
 **Signal Test**: while it's on, every chip on the chain, set up or not,
